@@ -1,0 +1,92 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build with build.bat",
+			"type": "shell",
+			"command": "${workspaceFolder}\\build.bat",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [
+				"$gcc",
+				"$msCompile"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "Build (Release)",
+			"type": "shell",
+			"command": "${workspaceFolder}\\build.bat",
+			"args": [
+				"release"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [
+				"$gcc",
+				"$msCompile"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build DLL only",
+			"type": "shell",
+			"command": "${workspaceFolder}\\build.bat",
+			"args": [
+				"dll"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [
+				"$gcc",
+				"$msCompile"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build EXE only",
+			"type": "shell",
+			"command": "${workspaceFolder}\\build.bat",
+			"args": [
+				"exe"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [
+				"$gcc",
+				"$msCompile"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Clean",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"if exist main.exe del /q main.exe && if exist game.dll del /q game.dll && if exist game.lib del /q game.lib && if exist game.exp del /q game.exp"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build"
+		},
+		{
+			"label": "Build DLL only",
+			"type": "shell",
+			"command": "c:\\dev\\clang-examples\\build.bat",
+			"args": [
+				"dll"
+			],
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}
