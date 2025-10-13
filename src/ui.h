@@ -20,14 +20,14 @@ struct UIID
 struct UIElement
 {
   // SpriteID spriteID;
-  Vec2 pos;
+  glm::vec2 pos;
 };
 
 struct UIText
 {
   int charCount;
   char text[MAX_TEXT_CHARS];
-  Vec2 pos;
+  glm::vec2 pos;
 };
 
 struct UIState

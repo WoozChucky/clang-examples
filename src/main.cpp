@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
         {
             //TODO: Use file watcher instead of polling
             reload_game_dll(&g_TransientStorage);
-            reload_ui_dll(&g_TransientStorage);
+            // reload_ui_dll(&g_TransientStorage);
         }
 
         platform_update_window(g_PlatformContext);
@@ -128,10 +128,8 @@ int main(int argc, char** argv) {
             renderer_resize(g_PlatformContext->m_Width, g_PlatformContext->m_Height);
         }
 
-        if (g_PlatformContext->m_DraggingWindow) {
+        if (key_is_down(KEY_F5)) {
             renderer_set_vsync(false);
-        } else {
-            renderer_set_vsync(true);
         }
 
         update_game(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, dt);
@@ -139,6 +137,8 @@ int main(int argc, char** argv) {
         render(g_RenderData, render_overlay_ptr);
 
         platform_update_audio(g_PlatformContext, dt);
+
+        platform_sleep(1);
 
         g_TransientStorage.used = 0; // Reset transient storage each frame
     }
@@ -247,4 +247,3 @@ void reload_ui_dll(BumpAllocator* transientStorage)
         lastEditTimestampUIDLL = currentTimestampUIDLL;
     }
 }
-

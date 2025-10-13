@@ -383,7 +383,12 @@ void platform_update_window(PlatformContext* ctx) {
     g_Input->mousePos.y = point.y;
 
     // Mouse Position World
-    g_Input->mousePosWorld = screen_to_world(g_Input->mousePos);
+    {
+      glm::ivec2 w = screen_to_world(g_Input->mousePos);
+      g_Input->mouseWorldPos.x = (float)w.x;
+      g_Input->mouseWorldPos.y = (float)w.y;
+      g_Input->mouseWorldPos.z = 0.0f;
+    }
   }
 }
 

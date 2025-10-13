@@ -11,15 +11,6 @@
 // #############################################################################
 constexpr int UPDATES_PER_SECOND = 60;
 constexpr double UPDATE_DELAY = 1.0 / UPDATES_PER_SECOND;
-constexpr int TILESIZE = 8;
-constexpr int WORLD_HEIGHT = 180 * 10;
-constexpr int WORLD_WIDTH = 320;
-constexpr int ROOM_HEIGHT = 180;
-constexpr int ROOM_WIDTH = WORLD_WIDTH;
-
-// In number of tiles
-constexpr IVec2 ROOM_SIZE = {ROOM_WIDTH / TILESIZE, ROOM_HEIGHT / TILESIZE};
-constexpr IVec2 WORLD_SIZE = {WORLD_WIDTH / TILESIZE, WORLD_HEIGHT / TILESIZE};
 
 // #############################################################################
 //                           Game Structs
@@ -68,9 +59,9 @@ enum AnimationState
 
 struct Player
 {
-  IVec2 pos;
-  IVec2 prevPos;
-  Vec2 solidSpeed;
+  glm::ivec2 pos;
+  glm::ivec2 prevPos;
+  glm::vec2 solidSpeed;
   int renderOptions;
   float deathAnimTimer;
   float runAnimTimer;
@@ -80,12 +71,12 @@ struct Player
 
 struct Tileset
 {
-  Array<IVec2, 21> tileCoords;
+  Array<glm::ivec2, 21> tileCoords;
 };
 
 struct Keyframe
 {
-  IVec2 pos;
+  glm::ivec2 pos;
   float time; // how long to get there
 };
 
@@ -94,12 +85,12 @@ struct Solid
   // SpriteID spriteID;
 
   // Pixel Movement
-  Vec2 prevRemainder;
-  Vec2 remainder;
+  glm::vec2 prevRemainder;
+  glm::vec2 remainder;
 
   // Used by "interpolated rendering"
-  IVec2 prevPos;
-  IVec2 pos;
+  glm::ivec2 prevPos;
+  glm::ivec2 pos;
 
   int keyframeIdx;
   Array<Keyframe, 10> keyframes;
@@ -110,18 +101,10 @@ struct Solid
   float waitingDuration;
 };
 
-struct TileMap
-{
-  Tileset tileset;
-  Tile tiles[WORLD_SIZE.x * WORLD_SIZE.y];
-};
-
 struct Level
 {
   int version = 1;
-  IVec2 playerStartPos;
-  TileMap tileMap;
-  TileMap bgTileMap;
+  glm::ivec2 playerStartPos;
   Array<Solid, 50> solids;
 };
 

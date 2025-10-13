@@ -8,6 +8,8 @@
 #include <dxgi.h>
 #include <dxgi1_5.h>
 
+#include "image.h"
+
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -27,10 +29,15 @@ typedef struct RendererContext {
     ComPtr<ID3D11VertexShader>     VertexShader;
     ComPtr<ID3D11PixelShader>      PixelShader;
     ComPtr<ID3D11InputLayout>      InputLayout;
+    ComPtr<ID3D11Buffer>           VertexBuffer;
+    ComPtr<ID3D11Buffer>           IndexBuffer;
+    ComPtr<ID3D11Buffer>           ConstantBuffer;
+    ComPtr<ID3D11Buffer>           AtlasImageBuffer;
     int Width;
     int Height;
     bool m_SwapChainOccluded;
     bool m_VSync;
+    bool m_TearingSupported;
 } RendererContext;
 
 static RendererContext* g_RendererContext;
@@ -61,19 +68,43 @@ static const char* VendorNameFromPCIVendorId(UINT vendorId) {
     }
 }
 
-// Simple HLSL: vertex shader creates a triangle using SV_VertexID
+static bool QueryTearingSupport() {
+    BOOL allowTearing = FALSE;
+    Microsoft::WRL::ComPtr<IDXGIFactory5> factory5;
+    Microsoft::WRL::ComPtr<IDXGIFactory1> factory1;
+    if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory1))) &&
+        SUCCEEDED(factory1.As(&factory5))) {
+        factory5->CheckFeatureSupport(
+            DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+            &allowTearing,
+            sizeof(allowTearing));
+        }
+    return allowTearing == TRUE;
+}
+
+// HLSL for a colored cube using vertex/index buffers and a constant buffer (MVP)
 const char* G_VS_HLSL = R"(
+cbuffer PerFrame : register(b0)
+{
+    float4x4 uModel;
+    float4x4 uVP;
+};
+
+struct VSIn {
+    float3 Pos : POSITION;
+    float3 Color : COLOR;
+};
+
 struct VSOut {
     float4 Pos : SV_POSITION;
     float4 Color : COLOR;
 };
 
-VSOut main(uint id : SV_VertexID) {
+VSOut main(VSIn input) {
     VSOut o;
-    float2 positions[3] = { float2(0.0f, 0.5f), float2(0.5f, -0.5f), float2(-0.5f, -0.5f) };
-    float3 colors[3] = { float3(1,0,0), float3(0,1,0), float3(0,0,1) };
-    o.Pos = float4(positions[id], 0.0f, 1.0f);
-    o.Color = float4(colors[id], 1.0f);
+    float4 wpos = mul(uModel, float4(input.Pos, 1.0f));
+    o.Pos = mul(uVP, wpos);         // P * V * M * v, where uVP = V * P on CPU
+    o.Color = float4(input.Color, 1.0f);
     return o;
 }
 )";
@@ -90,6 +121,12 @@ float4 main(PSIn input) : SV_Target {
 
 void create_render_and_depth_target();
 void create_shaders();
+void create_cube_buffers();
+
+struct VertexPC {
+    float px, py, pz;
+    float cr, cg, cb;
+};
 
 void renderer_init(int width, int height, void* handle, BumpAllocator* persistentStorage) {
 
@@ -100,6 +137,7 @@ void renderer_init(int width, int height, void* handle, BumpAllocator* persisten
         return;
     }
     g_RendererContext->m_VSync = true;
+    g_RendererContext->m_TearingSupported = QueryTearingSupport();
 
     // Feature levels we will accept (highest first)
     D3D_FEATURE_LEVEL featureLevels[] = {
@@ -223,6 +261,94 @@ void renderer_init(int width, int height, void* handle, BumpAllocator* persisten
 
     create_render_and_depth_target();
     create_shaders();
+    create_cube_buffers();
+
+    {
+        int imageWidth = 0;
+        int imageHeight = 0;
+        int imageChannels = 0;
+        auto* imageData = (unsigned char*) image_load("assets/block_atlas.png", &imageWidth, &imageHeight, &imageChannels);
+        SM_ASSERT(imageData, "Failed to load image");
+        SM_ASSERT(imageWidth > 0 && imageHeight > 0 && imageChannels > 0, "Invalid image dimensions");
+
+        auto byteWidth = imageWidth * imageHeight * imageChannels;
+        SM_TRACE("Loaded image: %dx%d, channels=%d, size=%d bytes", imageWidth, imageHeight, imageChannels, byteWidth);
+
+        // Temp code to create and fill the AtlasImageBuffer (single image)
+        D3D11_BUFFER_DESC atlasBufDesc = {};
+        atlasBufDesc.ByteWidth = 0;
+        atlasBufDesc.Usage = D3D11_USAGE_DEFAULT;
+        atlasBufDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+        D3D11_SUBRESOURCE_DATA atlasBufData = {};
+        atlasBufData.pSysMem = imageData;
+        HRESULT hr = g_RendererContext->Device->CreateBuffer(&atlasBufDesc, &atlasBufData, &g_RendererContext->AtlasImageBuffer);
+        SM_ASSERT(SUCCEEDED(hr), "Failed to create vertex buffer");
+    }
+}
+
+void create_cube_buffers() {
+    // Define a unit cube centered at origin with per-vertex colors
+    static const VertexPC vertices[] = {
+        // Front face (z = +0.5)
+        {-0.5f, -0.5f,  0.5f, 1, 0, 0}, // 0
+        { 0.5f, -0.5f,  0.5f, 0, 1, 0}, // 1
+        { 0.5f,  0.5f,  0.5f, 0, 0, 1}, // 2
+        {-0.5f,  0.5f,  0.5f, 1, 1, 0}, // 3
+        // Back face (z = -0.5)
+        {-0.5f, -0.5f, -0.5f, 1, 0, 1}, // 4
+        { 0.5f, -0.5f, -0.5f, 0, 1, 1}, // 5
+        { 0.5f,  0.5f, -0.5f, 1, 1, 1}, // 6
+        {-0.5f,  0.5f, -0.5f, 0, 0, 0}, // 7
+    };
+
+    static const uint16_t indices[] = {
+        // Front
+        0,1,2,  0,2,3,
+        // Right
+        1,5,6,  1,6,2,
+        // Back
+        5,4,7,  5,7,6,
+        // Left
+        4,0,3,  4,3,7,
+        // Top
+        3,2,6,  3,6,7,
+        // Bottom
+        4,5,1,  4,1,0,
+    };
+
+    // Vertex buffer
+    D3D11_BUFFER_DESC vbDesc = {};
+    vbDesc.ByteWidth = (UINT)sizeof(vertices);
+    vbDesc.Usage = D3D11_USAGE_DEFAULT;
+    vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+
+    D3D11_SUBRESOURCE_DATA vbData = {};
+    vbData.pSysMem = vertices;
+    HRESULT hr = g_RendererContext->Device->CreateBuffer(&vbDesc, &vbData, &g_RendererContext->VertexBuffer);
+    SM_ASSERT(SUCCEEDED(hr), "Failed to create vertex buffer");
+
+    // Index buffer
+    D3D11_BUFFER_DESC ibDesc = {};
+    ibDesc.ByteWidth = (UINT)sizeof(indices);
+    ibDesc.Usage = D3D11_USAGE_DEFAULT;
+    ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+
+    D3D11_SUBRESOURCE_DATA ibData = {};
+    ibData.pSysMem = indices;
+    hr = g_RendererContext->Device->CreateBuffer(&ibDesc, &ibData, &g_RendererContext->IndexBuffer);
+    SM_ASSERT(SUCCEEDED(hr), "Failed to create index buffer");
+
+    // Constant buffer for Model and ViewProj matrices (2 x 16 floats)
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth = sizeof(float) * 32; // two 4x4 matrices
+    cbDesc.Usage = D3D11_USAGE_DEFAULT;
+    cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = 0;
+    cbDesc.MiscFlags = 0;
+    cbDesc.StructureByteStride = 0;
+    hr = g_RendererContext->Device->CreateBuffer(&cbDesc, nullptr, &g_RendererContext->ConstantBuffer);
+    SM_ASSERT(SUCCEEDED(hr), "Failed to create constant buffer");
 }
 
 void create_render_and_depth_target() {
@@ -248,17 +374,19 @@ void create_render_and_depth_target() {
     hr = g_RendererContext->Device->CreateDepthStencilView(g_RendererContext->DepthStencilTexture.Get(), nullptr, &g_RendererContext->DepthStencilView);
     SM_ASSERT(SUCCEEDED(hr), "Failed to create depth stencil view");
 
-    // Depth state: disable for now (optional)
+    // Depth state: enable for 3D depth testing
     D3D11_DEPTH_STENCIL_DESC dsd = {};
-    dsd.DepthEnable = FALSE;
+    dsd.DepthEnable = TRUE;
+    dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+    dsd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
     hr = g_RendererContext->Device->CreateDepthStencilState(&dsd, &g_RendererContext->DepthState);
     SM_ASSERT(SUCCEEDED(hr), "Failed to create depth state");
 
-    // Rasterizer: no culling to rule out winding issues
+    // Rasterizer: enable back-face culling (clockwise is front by default in D3D)
     D3D11_RASTERIZER_DESC rs = {};
     rs.FillMode = D3D11_FILL_SOLID;
-    rs.CullMode = D3D11_CULL_NONE;
-    rs.FrontCounterClockwise = FALSE;
+    rs.CullMode = D3D11_CULL_BACK;
+    rs.FrontCounterClockwise = TRUE; // treat CCW as front face to match our cube indices
     rs.DepthClipEnable = TRUE;
     hr = g_RendererContext->Device->CreateRasterizerState(&rs, &g_RendererContext->RasterState);
     SM_ASSERT(SUCCEEDED(hr), "Failed to create rasterizer state");
@@ -305,11 +433,16 @@ void create_shaders() {
     HRESULT hr = g_RendererContext->Device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &g_RendererContext->VertexShader);
     SM_ASSERT(SUCCEEDED(hr), "Failed to create vertex shader");
 
-    // Input layout (we declare position+color in VS output; to keep minimal we declare no vertex input)
-    // But the input assembler still needs a layout if we used vertex buffers. For SV_VertexID approach we can pass an empty layout:
-    hr = g_RendererContext->Device->CreateInputLayout(nullptr, 0, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &g_RendererContext->InputLayout);
-    // Note: Some drivers may require at least a dummy input layout. For portability, keep it nullable and set IA accordingly.
-    // If CreateInputLayout fails, we won't use InputLayout and will rely on the VS SV_VertexID path. So avoid assert here.
+    // Input layout for POSITION (float3) and COLOR (float3)
+    D3D11_INPUT_ELEMENT_DESC layout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,   D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "COLOR",    0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12,  D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+    hr = g_RendererContext->Device->CreateInputLayout(
+        layout, _countof(layout),
+        vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(),
+        &g_RendererContext->InputLayout);
+    SM_ASSERT(SUCCEEDED(hr), "Failed to create input layout");
 
     // Pixel shader
     ComPtr<ID3DBlob> psBlob = CompileShader(G_PS_HLSL, "main", "ps_5_0");
@@ -317,7 +450,7 @@ void create_shaders() {
     SM_ASSERT(SUCCEEDED(hr), "Failed to create pixel shader");
 }
 
-void render(const RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
+void render(RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
     if (g_RendererContext->m_SwapChainOccluded && g_RendererContext->SwapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) {
         // Still occluded, skip rendering
         SM_TRACE("Window minimizing / screen locked...")
@@ -331,39 +464,76 @@ void render(const RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
     g_RendererContext->DeviceContext->RSSetState(g_RendererContext->RasterState.Get());
 
     // clear
-    g_RendererContext->DeviceContext->ClearRenderTargetView(g_RendererContext->RenderTargetView.Get(), renderData->clearColor.values);
+    float clearColor[4] = { renderData->clearColor.r, renderData->clearColor.g, renderData->clearColor.b, renderData->clearColor.a };
+    g_RendererContext->DeviceContext->ClearRenderTargetView(g_RendererContext->RenderTargetView.Get(), clearColor);
     g_RendererContext->DeviceContext->ClearDepthStencilView(g_RendererContext->DepthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-    // IA: no vertex buffer; draw triangle using SV_VertexID in VS
-    g_RendererContext->DeviceContext->IASetInputLayout(nullptr);
+    // IA: bind cube vertex/index buffers
+    UINT stride = 24; // 3 floats pos (12) + 3 floats color (12)
+    UINT offset = 0;
+    ID3D11Buffer* vb = g_RendererContext->VertexBuffer.Get();
+    g_RendererContext->DeviceContext->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+    g_RendererContext->DeviceContext->IASetIndexBuffer(g_RendererContext->IndexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
+    g_RendererContext->DeviceContext->IASetInputLayout(g_RendererContext->InputLayout.Get());
     g_RendererContext->DeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // Set shaders
     g_RendererContext->DeviceContext->VSSetShader(g_RendererContext->VertexShader.Get(), nullptr, 0);
     g_RendererContext->DeviceContext->PSSetShader(g_RendererContext->PixelShader.Get(), nullptr, 0);
 
-    // Draw 3 vertices (triangle)
-    g_RendererContext->DeviceContext->Draw(3, 0);
+    // Update constant buffer with Model and View-Projection matrices
+    if (g_RendererContext->ConstantBuffer) {
+        float aspect = (g_RendererContext->Height != 0)
+            ? ((float)g_RendererContext->Width / (float)g_RendererContext->Height) : 1.0f;
+        if (fabsf(renderData->gameCamera.aspectRatio - aspect) > 0.0001f) {
+            renderData->gameCamera.aspectRatio = aspect;
+            renderData->gameCamera.m_ProjDirty = true;
+        }
+
+        glm::mat4 V = renderData->gameCamera.get_view_matrix();
+        glm::mat4 P = renderData->gameCamera.get_projection_matrix();
+        glm::mat4 VP = P * V;
+
+        struct CBufData { glm::mat4 Model; glm::mat4 VP; };
+        CBufData cb = { renderData->modelMatrix3D, VP };
+
+        auto has_nan = [](const glm::mat4& m){
+            const float* p = (const float*)&m;
+            for (int i=0;i<16;i++) if (!std::isfinite(p[i])) return true;
+            return false;
+        };
+        if (has_nan(cb.Model) || has_nan(cb.VP)) {
+            SM_ERROR("Matrix contains NaN/Inf; skipping draw this frame");
+        }
+
+        g_RendererContext->DeviceContext->UpdateSubresource(
+            g_RendererContext->ConstantBuffer.Get(), 0, nullptr, &cb, 0, 0);
+        ID3D11Buffer* cbs[] = { g_RendererContext->ConstantBuffer.Get() };
+        g_RendererContext->DeviceContext->VSSetConstantBuffers(0, 1, cbs);
+    }
+
+    // Draw indexed (36 indices for a cube)
+    g_RendererContext->DeviceContext->DrawIndexed(36, 0, 0);
 
     if (uiOverlay) {
         uiOverlay();
     }
 
-    // Present
-    HRESULT hr = g_RendererContext->SwapChain->Present(g_RendererContext->m_VSync ? 1 : 0, 0); // vsync = 1
+    // Present with correct vsync/tearing flags
+    UINT syncInterval = g_RendererContext->m_VSync ? 1 : 0;
+    UINT presentFlags = (!g_RendererContext->m_VSync && g_RendererContext->m_TearingSupported)
+                        ? DXGI_PRESENT_ALLOW_TEARING
+                        : 0;
+
+    HRESULT hr = g_RendererContext->SwapChain->Present(syncInterval, 0);
     if (hr == DXGI_STATUS_OCCLUDED) {
-        // Window is occluded / minimized, skip rendering until we get a non-occluded result
         g_RendererContext->m_SwapChainOccluded = true;
-        SM_TRACE("Window minimizing / screen locked...")
+        SM_TRACE("Window minimizing / screen locked...");
     } else if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
-        // Device lost, need to recreate device and swap chain and all resources
         SM_ERROR("Device lost, need to recreate device and swap chain and all resources");
-        // TODO: handle this more gracefully
     } else {
         SM_ASSERT(SUCCEEDED(hr), "SwapChain Present failed");
     }
-
-    SM_TRACE("VSync: %s, Present hr=0x%08X", g_RendererContext->m_VSync ? "On" : "Off", hr);
 }
 
 void renderer_shutdown() {
@@ -409,6 +579,11 @@ void renderer_shutdown() {
 
     g_RendererContext->DepthStencilView.Reset();
     g_RendererContext->RenderTargetView.Reset();
+
+    // Release geometry and constant buffers
+    g_RendererContext->VertexBuffer.Reset();
+    g_RendererContext->IndexBuffer.Reset();
+    g_RendererContext->ConstantBuffer.Reset();
 
     // Release depth texture
     g_RendererContext->DepthStencilTexture.Reset();
@@ -477,6 +652,7 @@ void renderer_resize(const int width, const int height) {
 
 void renderer_set_vsync(bool enabled) {
     g_RendererContext->m_VSync = enabled;
+    SM_TRACE("VSync = %d", enabled);
 }
 
 void* renderer_get_device() {

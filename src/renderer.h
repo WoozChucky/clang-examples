@@ -8,7 +8,7 @@ typedef void(*pfnRenderUIOverlay)();
 
 void renderer_init(int width, int height, void* handle, BumpAllocator* persistentStorage);
 void renderer_shutdown();
-void render(const RenderData* renderData, pfnRenderUIOverlay uiOverlay = nullptr);
+void render(RenderData* renderData, pfnRenderUIOverlay uiOverlay = nullptr);
 void renderer_resize(int width, int height);
 void renderer_set_vsync(bool enabled);
 
