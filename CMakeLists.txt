@@ -14,12 +14,14 @@ set(WINDOWS_LIBS user32 gdi32 ole32 kernel32)
 # Output layout: put binaries in bin/<Config>
 set(RUNTIME_DIR "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 
+add_subdirectory(third_party/glm)
+
 # game: shared library loaded at runtime
 add_library(game SHARED
   src/game.cpp
 )
-target_compile_definitions(game PRIVATE GAME_EXPORTS NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(game PRIVATE ${WINDOWS_LIBS})
+target_compile_definitions(game PRIVATE GAME_EXPORTS NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL)
+target_link_libraries(game PRIVATE ${WINDOWS_LIBS} glm::glm)
 set_target_properties(game PROPERTIES
   OUTPUT_NAME game
   RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
@@ -57,13 +59,14 @@ set_target_properties(imgui_overlay PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
 )
 
-# main application (does not link game)
+# main application (does not link game or imgui_overlay)
 add_executable(main_app
     src/main.cpp
     src/renderer.cpp
+    src/image.cpp
 )
-target_compile_definitions(main_app PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(main_app PRIVATE ${WINDOWS_LIBS})
+target_compile_definitions(main_app PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL)
+target_link_libraries(main_app PRIVATE ${WINDOWS_LIBS} glm::glm)
 set_target_properties(main_app PROPERTIES
   OUTPUT_NAME main
   RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"

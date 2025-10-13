@@ -1,6 +1,7 @@
 #pragma once
 
-#include "lib.h"
+#include "glm/vec2.hpp"
+#include "glm/vec3.hpp"
 
 // #############################################################################
 //                           Input Constants
@@ -92,17 +93,17 @@ struct Key
 
 struct Input
 {
-  Vec2 screenSize;
+  glm::vec2 screenSize;
 
   // Screen
-  IVec2 relMouse;
-  IVec2 prevMousePos;
-  IVec2 mousePos;
+  glm::ivec2 relMouse;
+  glm::ivec2 prevMousePos;
+  glm::ivec2 mousePos;
 
   // World
-  IVec2 prevMousePosWorld;
-  IVec2 mousePosWorld;
-  IVec2 relMouseWorld;
+  glm::vec3 prevMouseWorldPos;
+  glm::vec3 mouseWorldPos;
+  glm::vec3 relMouseWorld;
 
   Key keys[MAX_KEYCODES];
 };

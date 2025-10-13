@@ -12,8 +12,7 @@ static BumpAllocator* transientStorage;
 // #############################################################################
 // Input
 void update_game_input(float dt);
-bool is_down(GameInputType type);
-bool just_pressed(GameInputType type);
+void update(float dt);
 
 // #############################################################################
 //                           Update Game (Exported from DLL)
@@ -47,20 +46,25 @@ EXPORT_FN void update_game(GameState* gameStateIn, Input* inputIn, RenderData* r
     g_GameState->player.prevPos = g_GameState->player.pos;
 
     // Level
-    g_GameState->level.tileMap = {};    
+    g_GameState->level.solids = {};
 
     // Game Camera
-    g_RenderData->gameCamera.position.y = -90.0f;
-    g_RenderData->gameCamera.dimensions.x = ROOM_WIDTH;
-    g_RenderData->gameCamera.dimensions.y = ROOM_HEIGHT;
-    g_RenderData->gameCamera.zoom = 1.0f;
-    g_RenderData->gameCamera.position.y = 
-      g_RenderData->gameCamera.dimensions.y / 2.0f;
+    g_RenderData->gameCamera.position = {0.0, 2.5f, +5.0f};
+    g_RenderData->gameCamera.rotation = {0.0f, 0.0f, 0.0f};
+    g_RenderData->gameCamera.fov = glm::radians(80.0f);
+    g_RenderData->gameCamera.aspectRatio = (float)g_Input->screenSize.x / (float)g_Input->screenSize.y;
+    g_RenderData->gameCamera.nearClip = 0.1f;
+    g_RenderData->gameCamera.farClip = 1000.0f;
+    g_RenderData->gameCamera.invalidate();
+
     g_GameState->cameraTimer = 1.0f;
 
+    // 3D model transform default (identity)
+    g_RenderData->modelMatrix3D = glm::mat4(1.0f);
+
     // UI Camera
-    g_RenderData->uiCamera.dimensions.x = ROOM_WIDTH; // 320
-    g_RenderData->uiCamera.dimensions.y = ROOM_HEIGHT; // 180
+    g_RenderData->uiCamera.dimensions.x = g_Input->screenSize.x;
+    g_RenderData->uiCamera.dimensions.y = g_Input->screenSize.y;
     // Top Left is going to be 0/0 now
     g_RenderData->uiCamera.position.x = g_RenderData->uiCamera.dimensions.x / 2.0f;
     g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
@@ -72,21 +76,51 @@ EXPORT_FN void update_game(GameState* gameStateIn, Input* inputIn, RenderData* r
   g_RenderData->clearColor = {0.1f, 0.1f, 0.1f, 1.0f};
 
   g_GameState->updateTimer += frameTime;
-  while(g_GameState->updateTimer >= UPDATE_DELAY)
-  {
-    g_GameState->updateTimer -= UPDATE_DELAY;
-    // update();
 
-    // Reset Input
-    // input->wheelDelta = 0;
-    g_Input->relMouse = {};
-    for(int keyIdx = 0; keyIdx < MAX_KEYCODES; keyIdx++)
-    {
-      g_Input->keys[keyIdx].justReleased = false;
-      g_Input->keys[keyIdx].justPressed = false;
-      g_Input->keys[keyIdx].halfTransitionCount = 0;
-    }
+  update(frameTime);
+
+  // Reset Input
+  // input->wheelDelta = 0;
+  g_Input->relMouse = {};
+  for(int keyIdx = 0; keyIdx < MAX_KEYCODES; keyIdx++)
+  {
+    g_Input->keys[keyIdx].justReleased = false;
+    g_Input->keys[keyIdx].justPressed = false;
+    g_Input->keys[keyIdx].halfTransitionCount = 0;
   }
   float interpolatedDT = (float)(g_GameState->updateTimer / UPDATE_DELAY);
   // draw(interpolatedDT);
+}
+
+void update(float dt) {
+  if (key_is_down(KEY_W)) {
+    // Z+
+    g_RenderData->gameCamera.position.z -= 10.0f * dt;
+    g_RenderData->gameCamera.invalidate();
+  }
+  if (key_is_down(KEY_S)) {
+    // Z-
+    g_RenderData->gameCamera.position.z += 10.0f * dt;
+    g_RenderData->gameCamera.invalidate();
+  }
+  if (key_is_down(KEY_A)) {
+    // X-
+    g_RenderData->gameCamera.position.x -= 10.0f * dt;
+    g_RenderData->gameCamera.invalidate();
+  }
+  if (key_is_down(KEY_D)) {
+    // X+
+    g_RenderData->gameCamera.position.x += 10.0f * dt;
+    g_RenderData->gameCamera.invalidate();
+  }
+  if (key_is_down(KEY_SPACE)) {
+    // Y+
+    g_RenderData->gameCamera.position.y += 10.0f * dt;
+    g_RenderData->gameCamera.invalidate();
+  }
+  if (key_is_down(KEY_SHIFT)) {
+    // Y-
+    g_RenderData->gameCamera.position.y -= 10.0f * dt;
+    g_RenderData->gameCamera.invalidate();
+  }
 }
