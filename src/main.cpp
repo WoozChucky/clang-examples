@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    renderer_init(800, 600, g_PlatformContext->m_PlatformHandle, &g_PersistentStorage);
+    renderer_init(g_PlatformContext->m_Width, g_PlatformContext->m_Height, g_PlatformContext->m_PlatformHandle, &g_PersistentStorage);
 
     while (g_PlatformContext->m_Running) {
         const float dt = get_delta_time();
