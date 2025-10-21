@@ -15,6 +15,12 @@ set(WINDOWS_LIBS user32 gdi32 ole32 kernel32)
 set(RUNTIME_DIR "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 
 add_subdirectory(third_party/glm)
+set(FASTNOISE2_NOISETOOL OFF CACHE BOOL "Build Noise Tool" FORCE)
+add_subdirectory(third_party/FastNoise2)
+set(NVRHI_WITH_DX12 ON)
+set(NVRHI_WITH_DX11 ON)
+set(NVRHI_WITH_VULKAN ON)
+add_subdirectory(third_party/NVRHI)
 
 # game: shared library loaded at runtime
 add_library(game SHARED
@@ -63,10 +69,11 @@ set_target_properties(imgui_overlay PROPERTIES
 add_executable(main_app
     src/main.cpp
     src/renderer.cpp
+    src/renderer_dx12.cpp
     src/image.cpp
 )
 target_compile_definitions(main_app PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL)
-target_link_libraries(main_app PRIVATE ${WINDOWS_LIBS} glm::glm)
+target_link_libraries(main_app PRIVATE ${WINDOWS_LIBS} glm::glm FastNoise2 nvrhi nvrhi_d3d12 nvrhi_d3d11 nvrhi_vk)
 set_target_properties(main_app PROPERTIES
   OUTPUT_NAME main
   RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"

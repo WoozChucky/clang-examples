@@ -1,3 +1,6 @@
 [submodule "third_party/FastNoise2"]
 	path = third_party/FastNoise2
 	url = https://github.com/Auburn/FastNoise2
+[submodule "third_party/NVRHI"]
+	path = third_party/NVRHI
+	url = https://github.com/NVIDIA-RTX/NVRHI
