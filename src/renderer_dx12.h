@@ -8,6 +8,7 @@
 #include <nvrhi/d3d12.h>
 
 #pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "d3dcompiler.lib")
 
 using Microsoft::WRL::ComPtr;
 using nvrhi::RefCountPtr;
@@ -70,7 +71,8 @@ void create_internal_instance(RendererBackend* backend);
 nvrhi::DeviceHandle create_device(RendererBackend* backend);
 void create_swapchain(RendererBackend* backend, HWND hWnd, int width, int height);
 bool renderer_begin_frame(RendererBackend* backend);
-void renderer_render(RendererBackend* backend);
+nvrhi::IFramebuffer* renderer_get_framebuffer(RendererBackend* backend, int32_t index = -1);
 bool renderer_present(RendererBackend* backend);
 void renderer_update_avg_frame_time(RendererBackend* backend, double elapsedTime);
 uint32_t* renderer_get_frame_index(RendererBackend* backend);
+void renderer_backend_shutdown(RendererBackend* backend);

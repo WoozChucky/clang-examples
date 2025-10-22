@@ -42,6 +42,7 @@ add_library(imgui STATIC
     third_party/imgui/imgui_widgets.cpp
     third_party/imgui/imgui_impl_win32.cpp
     third_party/imgui/imgui_impl_dx11.cpp
+    third_party/imgui/imgui_impl_dx12.cpp
 )
 set_target_properties(imgui PROPERTIES
     OUTPUT_NAME imgui
@@ -57,7 +58,7 @@ target_compile_definitions(imgui_overlay PRIVATE OVERLAY_EXPORTS)
 target_include_directories(imgui_overlay PRIVATE
     third_party/imgui
 )
-target_link_libraries(imgui_overlay PRIVATE imgui)
+target_link_libraries(imgui_overlay PRIVATE imgui nvrhi nvrhi_d3d12 nvrhi_d3d11 nvrhi_vk)
 set_target_properties(imgui_overlay PROPERTIES
     OUTPUT_NAME imgui_overlay
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"

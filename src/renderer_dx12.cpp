@@ -8,6 +8,8 @@
 
 #include <dxgidebug.h>
 
+#include "nvrhi/utils.h"
+
 #define HR_ASSERT(x, msg) SM_ASSERT(SUCCEEDED(x), msg)
 
 void DebugMessageCallback::message(nvrhi::MessageSeverity severity, const char* messageText) {
@@ -118,6 +120,8 @@ void ValidateDX12UltimateCapabilities(ID3D12Device* device) {
     // Passed all checks:
     SM_TRACE("[D3D12] Adapter supports: DXR 1.1, VRS Tier2, Mesh shaders, Sampler Feedback.");
 }
+
+void BackBufferResized(RendererBackend* backend);
 
 void create_render_targets(RendererBackendDX12* dx12)
 {
@@ -296,7 +300,7 @@ nvrhi::DeviceHandle create_device(RendererBackend* backend) {
 #endif
 
     dx12->m_Device = nvrhiDevice;
-
+    dx12->m_FrameCount = 1;
     return nvrhiDevice;
 }
 
@@ -309,6 +313,15 @@ void create_swapchain(RendererBackend* backend, HWND hWnd, const int width, cons
 
     dx12->m_Settings.backBufferWidth = width;
     dx12->m_Settings.backBufferHeight = height;
+
+    {
+        // Temporary default settings
+        dx12->m_Settings.refreshRate = 0; // Use default refresh rate
+        dx12->m_Settings.swapChainBufferCount = 3;
+        dx12->m_Settings.swapChainFormat = nvrhi::Format::SRGBA8_UNORM;
+        dx12->m_Settings.swapChainSampleCount = 1;
+        dx12->m_Settings.swapChainSampleQuality = 0;
+    }
 
     ZeroMemory(&dx12->m_SwapChainDesc, sizeof(dx12->m_SwapChainDesc));
     dx12->m_SwapChainDesc.Width = width;
@@ -370,6 +383,8 @@ void create_swapchain(RendererBackend* backend, HWND hWnd, const int width, cons
     {
         dx12->m_FrameFenceEvents.push_back( CreateEvent(nullptr, false, true, nullptr) );
     }
+
+    BackBufferResized(backend);
 }
 
 void destroy_device_and_swapchain(RendererBackend* backend) {
@@ -532,20 +547,20 @@ bool renderer_begin_frame(RendererBackend* backend)
     auto bufferIndex = dx12->m_SwapChain->GetCurrentBackBufferIndex();
 
     WaitForSingleObject(dx12->m_FrameFenceEvents[bufferIndex], INFINITE);
-
     return true;
 }
 
-void renderer_render(RendererBackend* backend) {
+nvrhi::IFramebuffer* renderer_get_framebuffer(RendererBackend* backend, int32_t index) {
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
         SM_ASSERT(false, "RendererBackendDX12 is null");
-        return;
+        return nullptr;
     }
 
-    nvrhi::IFramebuffer* framebuffer = dx12->m_SwapChainFramebuffers[GetCurrentBackBufferIndex(backend)];
-
-    //TODO: here we would use the framebuffer for rendering stuff from the renderer interface data
+    if (index < 0) {
+        index = GetCurrentBackBufferIndex(backend); // NOLINT(*-narrowing-conversions)
+    }
+    return dx12->m_SwapChainFramebuffers[index];
 }
 
 bool renderer_present(RendererBackend* backend)
