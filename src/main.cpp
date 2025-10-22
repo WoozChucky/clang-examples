@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
 
         update_game(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, dt);
 
-        render(g_RenderData, render_overlay_ptr);
+        render(dt, g_RenderData, render_overlay_ptr);
 
         platform_update_audio(g_PlatformContext, dt);
 
@@ -238,7 +238,7 @@ void reload_ui_dll(BumpAllocator* transientStorage)
         SM_ASSERT(render_overlay_ptr, "Failed to load overlay_render function");
 
         setup_overlay_ptr(g_PlatformContext->m_PlatformHandle,
-                          renderer_get_device(),
+                          nullptr,
                           renderer_get_device_context());
 
         g_PlatformContext->m_OverlayInputHandler = (overlay_input_handler)platform_load_dynamic_function(uiDLL, "overlay_handle_wndproc");
