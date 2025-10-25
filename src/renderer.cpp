@@ -9,9 +9,9 @@
 #include "renderer_dx12.h"
 #include "renderer_dx11.h"
 
-#include <nvrhi/nvrhi.h>
 #include <nvrhi/utils.h>
 
+#include "font.h"
 #include "image.h"
 #include "VertexPacked.h"
 
@@ -45,6 +45,7 @@ typedef struct RendererContext {
     RendererBackend*         m_Backend;
     double                   m_PreviousFrameTimestamp;
     DummyRenderPass          m_RenderPass{};
+    FontAtlas                m_FontAtlas{};
 } RendererContext;
 
 static RendererContext* g_RendererContext = nullptr;
@@ -204,7 +205,7 @@ void fill_vertices(VertexPacked* verts) {
     set_face(20, nnn, pnn, pnp, nnp, faceTiles[5], 5); // Bottom(-Y)
 }
 
-void do_work() {
+void create_cube() {
     SM_ASSERT(g_RendererContext, "Renderer not init");
 
     // Main shaders (textured cube path)
@@ -390,6 +391,10 @@ void do_work() {
     g_RendererContext->m_Device->executeCommandList(commandList);
 }
 
+void load_font_atlas() {
+    load_font("assets/AtariClassic-gry3.ttf", 12, g_RendererContext->m_FontAtlas, g_RendererContext->m_Device);
+}
+
 void renderer_init(const int width, const int height, void* handle, BumpAllocator* persistentStorage) {
 
     g_RendererContext = reinterpret_cast<RendererContext *>(bump_alloc(persistentStorage, sizeof(RendererContext)));
@@ -422,7 +427,8 @@ void renderer_init(const int width, const int height, void* handle, BumpAllocato
 
     g_RendererContext->m_CommandList = g_RendererContext->m_Device->createCommandList();
 
-    do_work();
+    create_cube();
+    load_font_atlas();
 }
 
 void renderer_shutdown() {

@@ -2,10 +2,19 @@
 #include "input.h"
 #include "lib.h"
 
-
+#include <cstdint>
 #include <WinString.h>
 // define a callback to pass to overlay handling (THIS IS A TEMPORARY PLACEMENT)
 typedef BOOL(*overlay_input_handler)(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+struct FrameStats {
+    float deltaSeconds;    // Time for the last frame in seconds
+    float frameTimeMs;     // Time for the last frame in milliseconds
+    float fpsInstant;      // 1 / deltaSeconds
+    float fpsSmoothed;     // Exponential moving average of FPS
+    double elapsedSeconds; // Total accumulated time since start
+    uint64_t frameCount;   // Number of frames since start
+};
 
 enum class PlatformType {
     PLATFORM_INVALID,
@@ -28,6 +37,7 @@ typedef struct PlatformContext {
     float m_MusicVolume;
     overlay_input_handler m_OverlayInputHandler;
     bool m_DraggingWindow;
+    FrameStats m_FrameStats; // Per-frame timing statistics
 } PlatformContext;
 
 PlatformContext* platform_init(BumpAllocator* persistentStorage, BumpAllocator* transientStorage);

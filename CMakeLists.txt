@@ -15,6 +15,7 @@ set(WINDOWS_LIBS user32 gdi32 ole32 kernel32)
 set(RUNTIME_DIR "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 
 add_subdirectory(third_party/glm)
+add_subdirectory(third_party/freetype)
 set(FASTNOISE2_NOISETOOL OFF CACHE BOOL "Build Noise Tool" FORCE)
 add_subdirectory(third_party/FastNoise2)
 set(NVRHI_WITH_DX12 ON)
@@ -73,9 +74,10 @@ add_executable(main_app
     src/renderer_dx12.cpp
     src/renderer_dx11.cpp
     src/image.cpp
+    src/font.cpp
 )
 target_compile_definitions(main_app PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL)
-target_link_libraries(main_app PRIVATE ${WINDOWS_LIBS} glm::glm FastNoise2 nvrhi nvrhi_d3d12 nvrhi_d3d11 nvrhi_vk)
+target_link_libraries(main_app PRIVATE ${WINDOWS_LIBS} glm::glm FastNoise2 nvrhi nvrhi_d3d12 nvrhi_d3d11 nvrhi_vk freetype)
 set_target_properties(main_app PROPERTIES
   OUTPUT_NAME main
   RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"

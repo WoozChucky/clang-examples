@@ -112,6 +112,8 @@ int main(int argc, char** argv) {
 
     renderer_init(g_PlatformContext->m_Width, g_PlatformContext->m_Height, g_PlatformContext->m_PlatformHandle, &g_PersistentStorage);
 
+    float displayFpsTimer = 0.0f;
+
     while (g_PlatformContext->m_Running) {
         const float dt = get_delta_time();
 
@@ -119,6 +121,13 @@ int main(int argc, char** argv) {
             //TODO: Use file watcher instead of polling
             reload_game_dll(&g_TransientStorage);
             // reload_ui_dll(&g_TransientStorage);
+        }
+
+        displayFpsTimer += dt;
+        if (displayFpsTimer >= 1.0f) {
+            const FrameStats& stats = g_PlatformContext->m_FrameStats;
+            SM_TRACE("FPS: %.2f (Smoothed: %.2f) Frame Time: %.2f ms", stats.fpsInstant, stats.fpsSmoothed, stats.frameTimeMs);
+            displayFpsTimer = 0.0f;
         }
 
         platform_update_window(g_PlatformContext);
@@ -145,6 +154,8 @@ int main(int argc, char** argv) {
 
     platform_shutdown(g_PlatformContext);
 
+    g_PlatformContext = nullptr;
+
     return 0;
 }
 
@@ -159,11 +170,39 @@ void update_game(GameState* gameStateIn,
 }
 
 float get_delta_time() {
-    static auto last = std::chrono::high_resolution_clock::now();
-    auto currentTime = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> delta = currentTime - last;
+    using clock = std::chrono::high_resolution_clock;
+    static auto last = clock::now();
+
+    const auto currentTime = clock::now();
+    const std::chrono::duration<double> delta = currentTime - last;
     last = currentTime;
-    return delta.count();
+
+    double dt = delta.count();
+    if (dt < 0.0) dt = 0.0;               // guard against timer anomalies
+    if (dt > 0.25) dt = 0.25;             // clamp to avoid huge spikes (e.g., during debugging)
+
+    // Update per-frame stats so they are available for overlays/printing
+    if (g_PlatformContext) {
+        FrameStats& stats = g_PlatformContext->m_FrameStats;
+
+        stats.deltaSeconds = static_cast<float>(dt);
+        stats.frameTimeMs  = static_cast<float>(dt * 1000.0);
+        stats.frameCount  += 1ULL;
+        stats.elapsedSeconds += dt;
+
+        const float fpsInstant = (dt > 0.0) ? static_cast<float>(1.0 / dt) : 0.0f;
+        stats.fpsInstant = fpsInstant;
+
+        // Exponential moving average for smoother FPS display
+        if (stats.frameCount <= 1ULL) {
+            stats.fpsSmoothed = fpsInstant;
+        } else {
+            const float alpha = 0.1f; // smoothing factor
+            stats.fpsSmoothed = alpha * fpsInstant + (1.0f - alpha) * stats.fpsSmoothed;
+        }
+    }
+
+    return static_cast<float>(dt);
 }
 
 void reload_game_dll(BumpAllocator* transientStorage)
