@@ -290,7 +290,7 @@ void do_work() {
     int imageWidth = 0;
     int imageHeight = 0;
     int imageChannels = 0;
-    const auto* imageData = static_cast<char *>(image_load("assets/block_atlas.png", &imageWidth, &imageHeight, &imageChannels));
+    auto* imageData = static_cast<char *>(image_load("assets/block_atlas.png", &imageWidth, &imageHeight, &imageChannels));
     g_RendererContext->m_RenderPass.m_AtlasWidth = imageWidth;
     g_RendererContext->m_RenderPass.m_AtlasHeight = imageHeight;
     SM_ASSERT(imageData, "Failed to load image");
@@ -353,6 +353,7 @@ void do_work() {
         }
     }
 
+    image_free(imageData);
     texture.data = nullptr;
 
     commandList->setPermanentTextureState(texture.texture, nvrhi::ResourceStates::ShaderResource);

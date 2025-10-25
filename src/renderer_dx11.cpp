@@ -194,15 +194,6 @@ void directx11::create_swapchain(RendererBackend* backend, HWND hWnd, const int 
     dx11->m_Settings.backBufferWidth = width;
     dx11->m_Settings.backBufferHeight = height;
 
-    {
-        // Temporary default settings
-        dx11->m_Settings.refreshRate = 0; // Use default refresh rate
-        dx11->m_Settings.swapChainBufferCount = 3;
-        dx11->m_Settings.swapChainFormat = nvrhi::Format::SRGBA8_UNORM;
-        dx11->m_Settings.swapChainSampleCount = 1;
-        dx11->m_Settings.swapChainSampleQuality = 0;
-    }
-
     UINT windowStyle = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
 
     RECT rect = { 0, 0, LONG(width), LONG(height) };

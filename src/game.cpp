@@ -123,4 +123,7 @@ void update(float dt) {
     g_RenderData->gameCamera.position.y -= 10.0f * dt;
     g_RenderData->gameCamera.invalidate();
   }
+  if (key_is_down(KEY_MOUSE_LEFT)) {
+
+  }
 }
