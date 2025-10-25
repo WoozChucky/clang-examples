@@ -130,6 +130,9 @@ int main(int argc, char** argv) {
             displayFpsTimer = 0.0f;
         }
 
+        g_RenderData->frameTime = g_PlatformContext->m_FrameStats.frameTimeMs;
+        g_RenderData->fps = g_PlatformContext->m_FrameStats.fpsInstant;
+
         platform_update_window(g_PlatformContext);
 
         if (g_PlatformContext->m_ResizeRequested) {
