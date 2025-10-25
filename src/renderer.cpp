@@ -3,6 +3,7 @@
 #include <chrono>
 #include <d3dcompiler.h>
 #include <thread>
+#include <vector>
 
 #include "lib.h"
 #include "render.h"
@@ -15,8 +16,8 @@
 #include "image.h"
 #include "VertexPacked.h"
 
-#define RENDER_API directx12
-#define RENDER_API_NAME RendererBackendDX12
+#define RENDER_API directx11
+#define RENDER_API_NAME RendererBackendDX11
 
 class DebugMessageCallback;
 
@@ -38,6 +39,21 @@ struct DummyRenderPass {
     uint32_t m_AtlasHeight = 0;
 };
 
+struct UIPass {
+    nvrhi::BufferHandle m_VertexBuffer;            // static quad vertices (pos, uv)
+    nvrhi::BufferHandle m_IndexBuffer;             // static quad indices
+    nvrhi::BufferHandle m_PerFrameCB;              // UIFrame (uOrtho)
+    nvrhi::BufferHandle m_InstanceBuffer;          // Structured buffer of UIInstanceCPU
+    nvrhi::ShaderHandle m_VS;
+    nvrhi::ShaderHandle m_PS;
+    nvrhi::InputLayoutHandle m_InputLayout;
+    nvrhi::BindingLayoutHandle m_BindingLayout;
+    nvrhi::BindingSetHandle m_BindingSet;
+    nvrhi::GraphicsPipelineHandle m_Pipeline;
+    uint32_t m_IndexCount = 0;
+    uint32_t m_MaxInstances = 16384;
+};
+
 typedef struct RendererContext {
     nvrhi::DeviceHandle      m_Device;
     nvrhi::CommandQueue      m_CommandQueue;
@@ -46,6 +62,7 @@ typedef struct RendererContext {
     double                   m_PreviousFrameTimestamp;
     DummyRenderPass          m_RenderPass{};
     FontAtlas                m_FontAtlas{};
+    UIPass                   m_UIPass{};
 } RendererContext;
 
 static RendererContext* g_RendererContext = nullptr;
@@ -70,6 +87,26 @@ struct PerDrawCBData {
 };
 
 static_assert(sizeof(PerDrawCBData) % 16 == 0);
+
+struct UIVertex
+{
+    float x, y;   // position in pixels
+    float u, v;   // texture coordinates
+};
+
+struct UIFrameCBData
+{
+    glm::mat4 Ortho;
+};
+static_assert(sizeof(UIFrameCBData) % 16 == 0);
+
+struct UIInstanceCPU
+{
+    glm::mat4 Transform;
+    glm::vec4 Color;
+    glm::vec4 UVRect; // (scaleX, scaleY, offsetX, offsetY)
+};
+static_assert(sizeof(UIInstanceCPU) % 16 == 0);
 
 enum class TextureAlphaMode
 {
@@ -395,6 +432,112 @@ void load_font_atlas() {
     load_font("assets/AtariClassic-gry3.ttf", 12, g_RendererContext->m_FontAtlas, g_RendererContext->m_Device);
 }
 
+static void create_ui_pass()
+{
+    SM_ASSERT(g_RendererContext, "Renderer not init");
+    g_RendererContext->m_UIPass.m_MaxInstances = 16384;
+
+    // Compile shaders
+    g_RendererContext->m_UIPass.m_VS = CreateShader(QUAD_VS_HLSL, "main_vs", "vs_5_0",
+        nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex));
+    g_RendererContext->m_UIPass.m_PS = CreateShader(QUAD_PS_HLSL, "main_ps", "ps_5_0",
+        nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel));
+
+    SM_ASSERT(g_RendererContext->m_UIPass.m_VS && g_RendererContext->m_UIPass.m_PS, "Failed to create UI shaders");
+
+    // Create static quad VB/IB
+    const UIVertex quadVerts[4] = {
+        // x, y, u, v
+        { 0.0f,  0.0f, 0.0f, 0.0f },
+        { 1.0f,  0.0f, 1.0f, 0.0f },
+        { 1.0f,  1.0f, 1.0f, 1.0f },
+        { 0.0f,  1.0f, 0.0f, 1.0f },
+    };
+    const uint16_t quadIdx[6] = { 0, 1, 2, 0, 2, 3 };
+
+    auto cl = g_RendererContext->m_Device->createCommandList();
+    cl->open();
+
+    // VB
+    nvrhi::BufferDesc vbDesc;
+    vbDesc.byteSize = sizeof(quadVerts);
+    vbDesc.isVertexBuffer = true;
+    vbDesc.debugName = "UIQuadVB";
+    vbDesc.initialState = nvrhi::ResourceStates::CopyDest;
+    g_RendererContext->m_UIPass.m_VertexBuffer = g_RendererContext->m_Device->createBuffer(vbDesc);
+
+    cl->beginTrackingBufferState(g_RendererContext->m_UIPass.m_VertexBuffer, nvrhi::ResourceStates::CopyDest);
+    cl->writeBuffer(g_RendererContext->m_UIPass.m_VertexBuffer, quadVerts, sizeof(quadVerts));
+    cl->setPermanentBufferState(g_RendererContext->m_UIPass.m_VertexBuffer, nvrhi::ResourceStates::VertexBuffer);
+
+    // IB
+    nvrhi::BufferDesc ibDesc;
+    ibDesc.byteSize = sizeof(quadIdx);
+    ibDesc.isIndexBuffer = true;
+    ibDesc.debugName = "UIQuadIB";
+    ibDesc.initialState = nvrhi::ResourceStates::CopyDest;
+    g_RendererContext->m_UIPass.m_IndexBuffer = g_RendererContext->m_Device->createBuffer(ibDesc);
+
+    cl->beginTrackingBufferState(g_RendererContext->m_UIPass.m_IndexBuffer, nvrhi::ResourceStates::CopyDest);
+    cl->writeBuffer(g_RendererContext->m_UIPass.m_IndexBuffer, quadIdx, sizeof(quadIdx));
+    cl->setPermanentBufferState(g_RendererContext->m_UIPass.m_IndexBuffer, nvrhi::ResourceStates::IndexBuffer);
+
+    g_RendererContext->m_UIPass.m_IndexCount = 6;
+
+    // Per-frame CB (uOrtho)
+    g_RendererContext->m_UIPass.m_PerFrameCB = g_RendererContext->m_Device->createBuffer(
+        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(UIFrameCBData), "UIFrameCB")
+            .setInitialState(nvrhi::ResourceStates::ConstantBuffer).setKeepInitialState(true));
+
+    // Instance buffer (StructuredBuffer SRV)
+    {
+        nvrhi::BufferDesc instDesc;
+        instDesc.debugName = "UIInstanceBuffer";
+        instDesc.byteSize = g_RendererContext->m_UIPass.m_MaxInstances * sizeof(UIInstanceCPU);
+        instDesc.structStride = sizeof(UIInstanceCPU);
+        instDesc.initialState = nvrhi::ResourceStates::CopyDest; // upload then use as SRV
+        instDesc.isVertexBuffer = false;
+        instDesc.isIndexBuffer = false;
+        instDesc.isConstantBuffer = false;
+        instDesc.canHaveUAVs = false;
+        instDesc.setInitialState(nvrhi::ResourceStates::CopyDest);
+        instDesc.setKeepInitialState(true);
+        g_RendererContext->m_UIPass.m_InstanceBuffer = g_RendererContext->m_Device->createBuffer(instDesc);
+    }
+
+    // Input layout: POSITION (RG32_FLOAT), TEXCOORD (RG32_FLOAT)
+    nvrhi::VertexAttributeDesc uiAttrs[] = {
+        nvrhi::VertexAttributeDesc().setName("POSITION").setFormat(nvrhi::Format::RG32_FLOAT)
+            .setOffset(offsetof(UIVertex, x)).setBufferIndex(0).setElementStride(sizeof(UIVertex)),
+        nvrhi::VertexAttributeDesc().setName("TEXCOORD").setFormat(nvrhi::Format::RG32_FLOAT)
+            .setOffset(offsetof(UIVertex, u)).setBufferIndex(0).setElementStride(sizeof(UIVertex)),
+    };
+    g_RendererContext->m_UIPass.m_InputLayout = g_RendererContext->m_Device->createInputLayout(uiAttrs, std::size(uiAttrs), g_RendererContext->m_UIPass.m_VS);
+
+    // Create binding layout + set using font atlas texture/sampler + instance buffer SRV
+    nvrhi::BindingSetDesc bsDesc;
+    bsDesc.bindings = {
+        nvrhi::BindingSetItem::ConstantBuffer(0, g_RendererContext->m_UIPass.m_PerFrameCB),        // b0
+        nvrhi::BindingSetItem::Texture_SRV(0, g_RendererContext->m_FontAtlas.texture),             // t0
+        nvrhi::BindingSetItem::StructuredBuffer_SRV(1, g_RendererContext->m_UIPass.m_InstanceBuffer), // t1 structured buffer
+        nvrhi::BindingSetItem::Sampler(0, g_RendererContext->m_FontAtlas.sampler)                  // s0
+    };
+
+    if (!nvrhi::utils::CreateBindingSetAndLayout(
+            g_RendererContext->m_Device,
+            nvrhi::ShaderType::All,
+            0,
+            bsDesc,
+            g_RendererContext->m_UIPass.m_BindingLayout,
+            g_RendererContext->m_UIPass.m_BindingSet))
+    {
+        SM_ASSERT(false, "Failed to create UI binding set/layout");
+    }
+
+    cl->close();
+    g_RendererContext->m_Device->executeCommandList(cl);
+}
+
 void renderer_init(const int width, const int height, void* handle, BumpAllocator* persistentStorage) {
 
     g_RendererContext = reinterpret_cast<RendererContext *>(bump_alloc(persistentStorage, sizeof(RendererContext)));
@@ -429,6 +572,7 @@ void renderer_init(const int width, const int height, void* handle, BumpAllocato
 
     create_cube();
     load_font_atlas();
+    create_ui_pass();
 }
 
 void renderer_shutdown() {
@@ -478,7 +622,9 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
 
             g_RendererContext->m_CommandList->open();
 
-            nvrhi::utils::ClearColorAttachment(g_RendererContext->m_CommandList, frameBuffer, 0, nvrhi::Color(0.8f, 0.2f, 0.3f, 1.0f));
+            nvrhi::utils::ClearColorAttachment(g_RendererContext->m_CommandList, frameBuffer, 0,
+                                               nvrhi::Color(renderData->clearColor.r, renderData->clearColor.g,
+                                                            renderData->clearColor.b, renderData->clearColor.a));
 
             // Update constant buffers
             if (g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer && renderData)
@@ -494,7 +640,6 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                 perFrame.SunColor = glm::vec3(1.0f);
                 perFrame.Ambient = 0.08f;
 
-                //g_RendererContext->m_CommandList->beginTrackingBufferState(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, nvrhi::ResourceStates::ConstantBuffer);
                 g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, &perFrame, sizeof(perFrame));
             }
 
@@ -510,11 +655,8 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                                                     0.5f / (float)std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight));
                 perDraw.materialTint = glm::vec4(1.0f);
 
-                //g_RendererContext->m_CommandList->beginTrackingBufferState(g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer, nvrhi::ResourceStates::ConstantBuffer);
                 g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer, &perDraw, sizeof(perDraw));
             }
-
-            // g_RendererContext->m_CommandList->commitBarriers();
 
             // Set graphics state and bindings
             nvrhi::GraphicsState state;
@@ -534,6 +676,140 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
             drawArgs.startIndexLocation = 0;
             drawArgs.startVertexLocation = 0;
             g_RendererContext->m_CommandList->drawIndexed(drawArgs);
+
+            // Create UI pipeline lazily
+            if (!g_RendererContext->m_UIPass.m_Pipeline)
+            {
+                const auto fbi2 = frameBuffer->getFramebufferInfo();
+                nvrhi::GraphicsPipelineDesc uiDesc;
+                uiDesc.VS = g_RendererContext->m_UIPass.m_VS;
+                uiDesc.PS = g_RendererContext->m_UIPass.m_PS;
+                uiDesc.inputLayout = g_RendererContext->m_UIPass.m_InputLayout;
+                uiDesc.bindingLayouts = { g_RendererContext->m_UIPass.m_BindingLayout };
+                uiDesc.primType = nvrhi::PrimitiveType::TriangleList;
+                // UI states
+                uiDesc.renderState.depthStencilState.depthTestEnable = false;
+                uiDesc.renderState.depthStencilState.stencilEnable = false;
+                // Enable straight alpha blending for UI/text using setter API
+                nvrhi::BlendState::RenderTarget rt;
+                rt.setBlendEnable(true)
+                  .setSrcBlend(nvrhi::BlendFactor::SrcAlpha)
+                  .setDestBlend(nvrhi::BlendFactor::InvSrcAlpha)
+                  .setBlendOp(nvrhi::BlendOp::Add)
+                  .setSrcBlendAlpha(nvrhi::BlendFactor::One)
+                  .setDestBlendAlpha(nvrhi::BlendFactor::InvSrcAlpha)
+                  .setBlendOpAlpha(nvrhi::BlendOp::Add)
+                  .setColorWriteMask(nvrhi::ColorMask::All);
+                uiDesc.renderState.blendState.setRenderTarget(0, rt);
+
+                g_RendererContext->m_UIPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(uiDesc, fbi2);
+            }
+
+            // Update UI frame CB with orthographic matrix (pixels -> clip space)
+            if (g_RendererContext->m_UIPass.m_PerFrameCB)
+            {
+                const auto vp = frameBuffer->getFramebufferInfo().getViewport();
+                const float w = vp.width();
+                const float h = vp.height();
+                // Map (0,0) top-left to (-1,+1), (w,h) to (+1,-1)
+                // Matrix that does: x' = 2/w*x - 1, y' = 1 - 2/h*y
+                glm::mat4 ortho(1.0f);
+                ortho[0][0] = 2.0f / w;  ortho[1][0] = 0.0f;       ortho[2][0] = 0.0f; ortho[3][0] = -1.0f; // column 0..3
+                ortho[0][1] = 0.0f;       ortho[1][1] = -2.0f / h; ortho[2][1] = 0.0f; ortho[3][1] =  1.0f;
+                ortho[0][2] = 0.0f;       ortho[1][2] = 0.0f;       ortho[2][2] = 1.0f; ortho[3][2] =  0.0f;
+                ortho[0][3] = 0.0f;       ortho[1][3] = 0.0f;       ortho[2][3] = 0.0f; ortho[3][3] =  1.0f;
+
+                UIFrameCBData uiFrame{};
+                uiFrame.Ortho = ortho;
+                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_PerFrameCB, &uiFrame, sizeof(uiFrame));
+            }
+
+            state.pipeline = g_RendererContext->m_UIPass.m_Pipeline.Get();
+            state.framebuffer = frameBuffer;
+            state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+            state.bindings = { g_RendererContext->m_UIPass.m_BindingSet };
+            state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_UIPass.m_VertexBuffer, 0, 0) };
+            state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_UIPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+
+            g_RendererContext->m_CommandList->setGraphicsState(state);
+
+            // Build a small batch of UI instances (1 quad + sample text)
+            std::vector<UIInstanceCPU> uiInstances;
+            uiInstances.reserve(256);
+
+            // Demo quad in top-left
+            {
+                UIInstanceCPU inst{};
+                glm::vec2 pos = {50.f, 50.f};
+                glm::vec2 size = {200.f, 200.f};
+                inst.Transform = glm::mat4(1.0f);
+                inst.Transform[0][0] = size.x;
+                inst.Transform[1][1] = size.y;
+                inst.Transform[3][0] = pos.x;
+                inst.Transform[3][1] = pos.y;
+                inst.Color = glm::vec4(1,1,1,1.0f); // semi-transparent to validate blending
+                // Use full UVs (unit quad)
+                inst.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f);
+                uiInstances.push_back(inst);
+            }
+
+            // Sample text using the font atlas
+            if (g_RendererContext->m_FontAtlas.texture)
+            {
+                //const auto txt = "UI Overlay Test";
+                static char tempBuffer[256];
+
+                static float lastFpsTimer = 0.0f;
+                lastFpsTimer += dt;
+                if (lastFpsTimer >= 0.5f) {
+                    lastFpsTimer = 0.0f;
+                    snprintf(tempBuffer, 256, "FPS: %.1f || Frame Time: %.2f ms", renderData->fps, renderData->frameTime);
+                }
+
+                glm::vec2 pen = {60.f, 280.f}; // baseline start
+                const auto aw = static_cast<float>(g_RendererContext->m_FontAtlas.width);
+                const auto ah = static_cast<float>(g_RendererContext->m_FontAtlas.height);
+                for (const char* p = tempBuffer; *p; ++p)
+                {
+                    auto c = static_cast<unsigned char>(*p);
+                    if (c >= 128u) continue;
+                    const Glyph& g = g_RendererContext->m_FontAtlas.glyphs[c];
+                    glm::vec2 pos;
+                    pos.x = pen.x + g.offset.x;
+                    pos.y = pen.y - g.offset.y; // top-left convention
+                    glm::vec2 size = g.size;
+
+                    UIInstanceCPU inst{};
+                    inst.Transform = glm::mat4(1.0f);
+                    inst.Transform[0][0] = size.x;
+                    inst.Transform[1][1] = size.y;
+                    inst.Transform[3][0] = pos.x;
+                    inst.Transform[3][1] = pos.y;
+                    inst.Color = glm::vec4(1,1,1,1);
+
+                    glm::vec2 uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
+                    glm::vec2 uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
+                    inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
+
+                    uiInstances.push_back(inst);
+                    pen.x += g.advance.x;
+                }
+            }
+
+            // Upload instances to GPU
+            if (!uiInstances.empty())
+            {
+                const size_t bytes = uiInstances.size() * sizeof(UIInstanceCPU);
+
+                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, uiInstances.data(), bytes);
+
+                nvrhi::DrawArguments uiDrawArgs;
+                uiDrawArgs.vertexCount = g_RendererContext->m_UIPass.m_IndexCount; // indexed draw uses index count here
+                uiDrawArgs.instanceCount = static_cast<uint32_t>(uiInstances.size());
+                uiDrawArgs.startIndexLocation = 0;
+                uiDrawArgs.startVertexLocation = 0;
+                g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
+            }
 
             g_RendererContext->m_CommandList->close();
             g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);

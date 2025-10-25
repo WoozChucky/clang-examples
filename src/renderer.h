@@ -181,3 +181,74 @@ float4 main_ps(PSIn pin) : SV_Target
     return float4(lit, albedo.a);
 }
 )";
+
+inline auto QUAD_VS_HLSL = R"(
+// UI Quad Vertex Shader (instanced)
+// Transforms 2D quad vertices (in pixels) using per-instance transform read from a StructuredBuffer
+// and an orthographic matrix. Also applies per-instance UV scale/offset and color.
+
+cbuffer UIFrame : register(b0)
+{
+    float4x4 uOrtho;        // orthographic projection to clip space
+};
+
+struct UIInstance
+{
+    float4x4 Transform; // per-instance 2D transform (pos/scale/rotation in pixels)
+    float4   Color;     // per-instance multiplicative color (rgba)
+    float4   UVRect;    // xy = uvScale, zw = uvOffset (normalized)
+};
+
+StructuredBuffer<UIInstance> gUIInstances : register(t1);
+
+struct VSIn
+{
+    float2 Position : POSITION;   // local quad position in pixels (e.g., (0,0)-(w,h))
+    float2 UV       : TEXCOORD0;  // base UV in [0..1]
+};
+
+struct VSOut
+{
+    float4 PosH     : SV_POSITION;
+    float2 UV       : TEXCOORD0;
+    float4 Color    : COLOR0;
+};
+
+VSOut main_vs(VSIn vin, uint instId : SV_InstanceID)
+{
+    UIInstance inst = gUIInstances[instId];
+
+    float4 lp = float4(vin.Position, 0.0f, 1.0f);
+    float4 wp = mul(inst.Transform, lp);
+
+    VSOut o;
+    o.PosH = mul(uOrtho, wp);
+    o.UV = vin.UV * inst.UVRect.xy + inst.UVRect.zw; // scale + offset into atlas
+    o.Color = inst.Color;
+    return o;
+}
+)";
+
+inline auto QUAD_PS_HLSL = R"(
+// UI Quad Pixel Shader
+// For font rendering from an R8 atlas: use sampled .r as alpha and pin.Color as RGB.
+// For RGBA UI textures this can be extended with a mode flag; for now we favor font rendering.
+
+Texture2D    uTexture : register(t0);
+SamplerState uSampler : register(s0);
+
+struct PSIn
+{
+    float4 PosH  : SV_POSITION;
+    float2 UV    : TEXCOORD0;
+    float4 Color : COLOR0;
+};
+
+float4 main_ps(PSIn pin) : SV_Target
+{
+    float4 texel = uTexture.Sample(uSampler, pin.UV);
+    float alpha = texel.r; // R8_UNORM font atlas stores coverage in .r
+    float4 outColor = float4(pin.Color.rgb, pin.Color.a * alpha);
+    return outColor;
+}
+)";

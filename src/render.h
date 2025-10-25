@@ -2,6 +2,7 @@
 
 #include "input.h"
 #include "lib.h"
+#include "platform.h"
 
 #include "glm/matrix.hpp"
 #include "glm/gtx/quaternion.hpp"
@@ -114,6 +115,8 @@ struct Glyph
 
 struct RenderData
 {
+  float frameTime;
+  float fps;
   glm::vec4 clearColor;
   Glyph glyphs[127];
   PerspectiveCamera3D gameCamera;
@@ -256,7 +259,7 @@ inline void draw_quad(glm::ivec2 pos, glm::ivec2 size, DrawData drawData = {})
 // #############################################################################
 //                     Render Interface Game Font Rendering
 // #############################################################################
-inline void draw_text(char* text, glm::vec2 pos)
+inline void draw_text(const char* text, glm::vec2 pos)
 {
   SM_ASSERT(text, "No Text Supplied!");
   if(!text)
