@@ -1,40 +1,26 @@
 #pragma once
+#include <dxgi.h>
 
-#include <Windows.h>
-#include <wrl.h>
-#include <d3d12.h>
-#include <dxgi1_5.h>
-
-#include <nvrhi/d3d12.h>
-
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "d3dcompiler.lib")
+#include <nvrhi/d3d11.h>
 
 #include "renderer_common.h"
 
-using Microsoft::WRL::ComPtr;
 using nvrhi::RefCountPtr;
 
-typedef struct RendererBackendDX12 {
+typedef struct RendererBackendDX11 {
     DebugMessageCallback*                           m_MessageCallback;
     nvrhi::DeviceHandle                             m_Device;
-    nvrhi::d3d12::DeviceDesc                        m_DeviceDesc;
-    RefCountPtr<IDXGIFactory2>                      m_DxgiFactory2;
-    RefCountPtr<ID3D12Device>                       m_Device12;
-    RefCountPtr<ID3D12CommandQueue>                 m_GraphicsQueue;
-    RefCountPtr<ID3D12CommandQueue>                 m_ComputeQueue;
-    RefCountPtr<ID3D12CommandQueue>                 m_CopyQueue;
-    RefCountPtr<IDXGISwapChain3>                    m_SwapChain;
-    DXGI_SWAP_CHAIN_DESC1                           m_SwapChainDesc{};
-    DXGI_SWAP_CHAIN_FULLSCREEN_DESC                 m_FullScreenDesc{};
+    nvrhi::d3d11::DeviceDesc                        m_DeviceDesc;
+    RefCountPtr<IDXGIFactory1>                      m_DxgiFactory1;
     RefCountPtr<IDXGIAdapter>                       m_DxgiAdapter;
+    RefCountPtr<ID3D11Device>                       m_Device11;
+    RefCountPtr<ID3D11DeviceContext>                m_ImmediateContext;
+    RefCountPtr<IDXGISwapChain>                     m_SwapChain;
+    DXGI_SWAP_CHAIN_DESC                            m_SwapChainDesc{};
     HWND                                            m_hWnd = nullptr;
-    bool                                            m_TearingSupported = false;
 
-    std::vector<RefCountPtr<ID3D12Resource>>        m_SwapChainBuffers;
-    std::vector<nvrhi::TextureHandle>               m_RhiSwapChainBuffers;
-    RefCountPtr<ID3D12Fence>                        m_FrameFence;
-    std::vector<HANDLE>                             m_FrameFenceEvents;
+    nvrhi::TextureHandle                            m_RhiBackBuffer;
+    RefCountPtr<ID3D11Texture2D>                    m_D3D11BackBuffer;
 
     UINT64                                          m_FrameCount = 1;
 
@@ -49,10 +35,9 @@ typedef struct RendererBackendDX12 {
     uint32_t m_FrameIndex = 0;
 
     std::vector<nvrhi::FramebufferHandle> m_SwapChainFramebuffers;
+} RendererBackendDX11;
 
-} RendererBackendDX12;
-
-namespace directx12 {
+namespace directx11 {
     void create_internal_instance(RendererBackend* backend);
     nvrhi::DeviceHandle create_device(RendererBackend* backend);
     void create_swapchain(RendererBackend* backend, HWND hWnd, int width, int height);
@@ -64,5 +49,3 @@ namespace directx12 {
     uint32_t* renderer_get_frame_index(RendererBackend* backend);
     void renderer_backend_shutdown(RendererBackend* backend);
 }
-
-

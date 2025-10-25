@@ -19,13 +19,13 @@ void DebugMessageCallback::message(nvrhi::MessageSeverity severity, const char* 
 // Try to enable the D3D12 debug layer (only available on developer SKUs).
 void EnableDebugLayerIfAvailable() {
 #if defined(_DEBUG)
-    RefCountPtr<ID3D12Debug> debug;
+    ComPtr<ID3D12Debug> debug;
     HRESULT hr = D3D12GetDebugInterface(IID_PPV_ARGS(&debug));
     if (SUCCEEDED(hr)) {
         debug->EnableDebugLayer();
         // If you want GPU-based validation (slower), you can enable it here via ID3D12Debug1.
-        // ComPtr<ID3D12Debug1> debug1;
-        // if (SUCCEEDED(debug.As(&debug1))) debug1->SetEnableGPUBasedValidation(TRUE);
+        ComPtr<ID3D12Debug1> debug1;
+        if (SUCCEEDED(debug.As(&debug1))) debug1->SetEnableGPUBasedValidation(TRUE);
         SM_TRACE("D3D12 Debug layer enabled.");
     } else {
         SM_TRACE("D3D12 Debug layer not available.");
@@ -187,7 +187,7 @@ void resize_swapchain(RendererBackendDX12* dx12) {
     create_render_targets(dx12);
 }
 
-void create_internal_instance(RendererBackend* backend) {
+void directx12::create_internal_instance(RendererBackend* backend) {
 
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
@@ -207,7 +207,7 @@ void create_internal_instance(RendererBackend* backend) {
     }
 }
 
-nvrhi::DeviceHandle create_device(RendererBackend* backend) {
+nvrhi::DeviceHandle directx12::create_device(RendererBackend* backend) {
 
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
@@ -228,6 +228,7 @@ nvrhi::DeviceHandle create_device(RendererBackend* backend) {
     HRESULT hr = D3D12CreateDevice(dx12->m_DxgiAdapter, D3D_FEATURE_LEVEL_11_1, IID_PPV_ARGS(&dx12->m_Device12));
     HR_ASSERT(hr, "Failed to create D3D12 device");
 
+#if defined(_DEBUG)
     {
         RefCountPtr<ID3D12InfoQueue> pInfoQueue;
         dx12->m_Device12->QueryInterface(&pInfoQueue);
@@ -248,6 +249,7 @@ nvrhi::DeviceHandle create_device(RendererBackend* backend) {
         filter.DenyList.NumIDs = std::size(disableMessageIDs);
         pInfoQueue->AddStorageFilterEntries(&filter);
     }
+#endif
 
     // Sanity: confirm CheckFeatureSupport & capability tiers (DXR/VRS/Mesh/SamplerFeedback).
     ValidateDX12UltimateCapabilities(dx12->m_Device12);
@@ -304,7 +306,7 @@ nvrhi::DeviceHandle create_device(RendererBackend* backend) {
     return nvrhiDevice;
 }
 
-void create_swapchain(RendererBackend* backend, HWND hWnd, const int width, const int height) {
+void directx12::create_swapchain(RendererBackend* backend, HWND hWnd, const int width, const int height) {
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
         SM_ERROR("RendererBackendDX12 is null");
@@ -383,8 +385,18 @@ void create_swapchain(RendererBackend* backend, HWND hWnd, const int width, cons
     {
         dx12->m_FrameFenceEvents.push_back( CreateEvent(nullptr, false, true, nullptr) );
     }
+}
 
-    BackBufferResized(backend);
+void directx12::renderer_resize_swapchain(RendererBackend* backend, int width, int height) {
+    const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
+    if (!dx12) {
+        SM_ERROR("RendererBackendDX12 is null");
+        return;
+    }
+
+    dx12->m_Settings.backBufferWidth = width;
+    dx12->m_Settings.backBufferHeight = height;
+    dx12->m_ResizeRequested = true;
 }
 
 void destroy_device_and_swapchain(RendererBackend* backend) {
@@ -423,7 +435,7 @@ void destroy_device_and_swapchain(RendererBackend* backend) {
     dx12->m_Device12 = nullptr;
 }
 
-void renderer_backend_shutdown(RendererBackend* backend) {
+void directx12::renderer_backend_shutdown(RendererBackend* backend) {
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
         SM_ERROR("RendererBackendDX12 is null");
@@ -435,7 +447,7 @@ void renderer_backend_shutdown(RendererBackend* backend) {
     destroy_device_and_swapchain(backend);
 }
 
-uint32_t* renderer_get_frame_index(RendererBackend* backend) {
+uint32_t* directx12::renderer_get_frame_index(RendererBackend* backend) {
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
         SM_ASSERT(false, "RendererBackendDX12 is null");
@@ -517,7 +529,7 @@ void BackBufferResized(RendererBackend* backend)
     }
 }
 
-bool renderer_begin_frame(RendererBackend* backend)
+bool directx12::renderer_begin_frame(RendererBackend* backend)
 {
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
@@ -529,8 +541,9 @@ bool renderer_begin_frame(RendererBackend* backend)
     DXGI_SWAP_CHAIN_FULLSCREEN_DESC newFullScreenDesc;
     if (SUCCEEDED(dx12->m_SwapChain->GetDesc1(&newSwapChainDesc)) && SUCCEEDED(dx12->m_SwapChain->GetFullscreenDesc(&newFullScreenDesc)))
     {
-        if (dx12->m_FullScreenDesc.Windowed != newFullScreenDesc.Windowed)
+        if (dx12->m_FullScreenDesc.Windowed != newFullScreenDesc.Windowed || dx12->m_ResizeRequested)
         {
+            dx12->m_ResizeRequested = false;
             BackBufferResizing(backend);
 
             dx12->m_FullScreenDesc = newFullScreenDesc;
@@ -550,7 +563,7 @@ bool renderer_begin_frame(RendererBackend* backend)
     return true;
 }
 
-nvrhi::IFramebuffer* renderer_get_framebuffer(RendererBackend* backend, int32_t index) {
+nvrhi::IFramebuffer* directx12::renderer_get_framebuffer(RendererBackend* backend, int32_t index) {
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
         SM_ASSERT(false, "RendererBackendDX12 is null");
@@ -563,7 +576,7 @@ nvrhi::IFramebuffer* renderer_get_framebuffer(RendererBackend* backend, int32_t 
     return dx12->m_SwapChainFramebuffers[index];
 }
 
-bool renderer_present(RendererBackend* backend)
+bool directx12::renderer_present(RendererBackend* backend)
 {
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
@@ -585,7 +598,7 @@ bool renderer_present(RendererBackend* backend)
     return SUCCEEDED(result);
 }
 
-void renderer_update_avg_frame_time(RendererBackend* backend, double elapsedTime)
+void directx12::renderer_update_avg_frame_time(RendererBackend* backend, double elapsedTime)
 {
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
