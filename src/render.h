@@ -254,11 +254,6 @@ inline void draw_quad(glm::ivec2 pos, glm::ivec2 size, DrawData drawData = {})
 }
 
 // #############################################################################
-//                              Font Rendering
-// #############################################################################
-void load_font(char* filePath, int fontSize);
-
-// #############################################################################
 //                     Render Interface Game Font Rendering
 // #############################################################################
 inline void draw_text(char* text, glm::vec2 pos)

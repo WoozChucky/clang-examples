@@ -176,11 +176,51 @@ PlatformContext* platform_init(BumpAllocator* persistentStorage, BumpAllocator* 
   ctx->m_MusicVolume = 0.25f;
   ctx->m_DraggingWindow = false;
 
+  // Initialize frame stats
+  ctx->m_FrameStats = {};
+  ctx->m_FrameStats.deltaSeconds = 0.0f;
+  ctx->m_FrameStats.frameTimeMs = 0.0f;
+  ctx->m_FrameStats.fpsInstant = 0.0f;
+  ctx->m_FrameStats.fpsSmoothed = 0.0f;
+  ctx->m_FrameStats.elapsedSeconds = 0.0;
+  ctx->m_FrameStats.frameCount = 0;
+
   return ctx;
 }
 
 void platform_shutdown(PlatformContext* ctx) {
-  // TODO: Implement
+  if (!ctx) {
+    return;
+  }
+
+  // Stop and destroy any active XAudio2 source voices
+  for (int i = 0; i < MAX_CONCURRENT_SOUNDS; ++i)
+  {
+    xAudioVoice* v = &voiceArr[i];
+    if (v->voice)
+    {
+      v->voice->Stop();
+      v->voice->FlushSourceBuffers();
+      v->voice->DestroyVoice();
+      v->voice = nullptr;
+      v->playing = false;
+      v->fadeTimer = 0.0f;
+      v->options = 0;
+      v->soundPath = nullptr;
+    }
+  }
+
+  // Destroy the window if it exists
+  if (ctx->m_PlatformHandle)
+  {
+    DestroyWindow(static_cast<HWND>(ctx->m_PlatformHandle));
+    ctx->m_PlatformHandle = nullptr;
+  }
+
+  ctx->m_Running = false;
+
+  // Match CoInitializeEx in platform_init_audio
+  CoUninitialize();
 }
 
 bool platform_create_window(PlatformContext* ctx, int width, int height, const char* title, void* windowProps) {

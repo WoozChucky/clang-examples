@@ -1,4 +1,6 @@
 #pragma once
+#include "render.h"
+#include <nvrhi/nvrhi.h>
 
 struct BumpAllocator;
 struct RenderData;
@@ -14,6 +16,16 @@ void renderer_set_vsync(bool enabled);
 
 void* renderer_get_device();
 void* renderer_get_device_context();
+
+struct FontAtlas
+{
+    uint32_t width = 512, height = 512, pixelHeight = 0;
+    Glyph glyphs[128] = {};
+    nvrhi::TextureHandle texture;          // grayscale atlas (R8_UNORM)
+    nvrhi::SamplerHandle sampler;          // clamp + linear
+    nvrhi::BindingLayoutHandle layout;     // layout: t0 + s0
+    nvrhi::BindingSetHandle bindingSet;    // binds font texture at t0, sampler at s0
+};
 
 // HLSL for a textured cube using a texture atlas
 inline auto G_VS_HLSL = R"(
