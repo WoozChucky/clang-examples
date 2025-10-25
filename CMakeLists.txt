@@ -71,6 +71,7 @@ add_executable(main_app
     src/main.cpp
     src/renderer.cpp
     src/renderer_dx12.cpp
+    src/renderer_dx11.cpp
     src/image.cpp
 )
 target_compile_definitions(main_app PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL)

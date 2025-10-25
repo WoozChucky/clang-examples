@@ -7,6 +7,7 @@
 #include "lib.h"
 #include "render.h"
 #include "renderer_dx12.h"
+#include "renderer_dx11.h"
 
 #include <nvrhi/nvrhi.h>
 #include <nvrhi/utils.h>
@@ -14,6 +15,8 @@
 #include "image.h"
 #include "VertexPacked.h"
 
+#define RENDER_API directx12
+#define RENDER_API_NAME RendererBackendDX12
 
 class DebugMessageCallback;
 
@@ -27,8 +30,12 @@ struct DummyRenderPass {
     nvrhi::ShaderHandle m_VertexShader;
     nvrhi::ShaderHandle m_PixelShader;
     nvrhi::BindingLayoutHandle m_BindingLayout;
+    nvrhi::BindingSetHandle m_BindingSet;
     nvrhi::InputLayoutHandle m_InputLayout;
     nvrhi::GraphicsPipelineHandle m_Pipeline;
+    uint32_t m_IndexCount = 0;
+    uint32_t m_AtlasWidth = 0;
+    uint32_t m_AtlasHeight = 0;
 };
 
 typedef struct RendererContext {
@@ -200,9 +207,16 @@ void fill_vertices(VertexPacked* verts) {
 void do_work() {
     SM_ASSERT(g_RendererContext, "Renderer not init");
 
-    g_RendererContext->m_RenderPass.m_VertexShader = CreateShader(G_VS_HLSL, "main_vs", "vs_5_0", nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex));
-    g_RendererContext->m_RenderPass.m_PixelShader = CreateShader(G_PS_HLSL, "main_ps", "ps_5_0", nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel));
-    SM_ASSERT(g_RendererContext->m_RenderPass.m_VertexShader || g_RendererContext->m_RenderPass.m_PixelShader, "Failed to create NVRHI shaders");
+    // Main shaders (textured cube path)
+    g_RendererContext->m_RenderPass.m_VertexShader = CreateShader(G_VS_HLSL, "main_vs", "vs_5_0",
+                                                                  nvrhi::ShaderDesc().setShaderType(
+                                                                      nvrhi::ShaderType::Vertex));
+    g_RendererContext->m_RenderPass.m_PixelShader = CreateShader(G_PS_HLSL, "main_ps", "ps_5_0",
+                                                                 nvrhi::ShaderDesc().setShaderType(
+                                                                     nvrhi::ShaderType::Pixel));
+    // Debug simple blue triangle shaders
+    SM_ASSERT(g_RendererContext->m_RenderPass.m_VertexShader && g_RendererContext->m_RenderPass.m_PixelShader,
+              "Failed to create NVRHI shaders");
 
     g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer = g_RendererContext->m_Device->createBuffer(
         nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(PerDrawCBData), "PerDrawCBData")
@@ -214,43 +228,27 @@ void do_work() {
     SM_ASSERT(g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer, "Failed to create NVRHI constant buffer.");
 
     nvrhi::VertexAttributeDesc attributes[] = {
-        // float3 Pos (12 bytes) at offset 0
         nvrhi::VertexAttributeDesc()
-        .setName("Pos")
-        .setFormat(nvrhi::Format::RGB32_FLOAT)          // three 32-bit floats
+        .setName("POSITION")
+        .setFormat(nvrhi::Format::RGB32_FLOAT)
         .setOffset(offsetof(VertexPacked, pos))
         .setBufferIndex(0)
         .setElementStride(sizeof(VertexPacked)),
 
-        // uint MaterialFlags (4 bytes) at offset 12
         nvrhi::VertexAttributeDesc()
-        .setName("MaterialFlags")
-        .setFormat(nvrhi::Format::R32_UINT)             // 32-bit unsigned integer
+        .setName("TEXCOORD")
+        .setFormat(nvrhi::Format::R32_UINT)
         .setOffset(offsetof(VertexPacked, materialFlags))
         .setBufferIndex(0)
-        .setElementStride(sizeof(VertexPacked)),
-
-        // uint TilePacked (4 bytes) at offset 16
-        nvrhi::VertexAttributeDesc()
-        .setName("TilePacked")
-        .setFormat(nvrhi::Format::R32_UINT)             // contains tileX/tileY packed in lower 16 bits
-        .setOffset(offsetof(VertexPacked, tilePacked))
-        .setBufferIndex(0)
-        .setElementStride(sizeof(VertexPacked)),
-
-        // uint PackedLightUV (4 bytes) at offset 20
-        nvrhi::VertexAttributeDesc()
-        .setName("PackedLightUV")
-        .setFormat(nvrhi::Format::R32_UINT)             // packed light / AO / uvFace bits
-        .setOffset(offsetof(VertexPacked, packedLightUV))
-        .setBufferIndex(0)
+        .setArraySize(3) // use TEXCOORD0,1,2 for our 3 uint attributes
         .setElementStride(sizeof(VertexPacked)),
     };
     g_RendererContext->m_RenderPass.m_InputLayout = g_RendererContext->m_Device->createInputLayout(
         attributes, std::size(attributes), g_RendererContext->m_RenderPass.m_VertexShader);
     SM_ASSERT(g_RendererContext->m_RenderPass.m_InputLayout, "Failed to create input layout");
 
-    g_RendererContext->m_CommandList->open();
+	const auto commandList = g_RendererContext->m_Device->createCommandList();
+    commandList->open();
 
     VertexPacked vertices[24];
     fill_vertices(vertices);
@@ -263,9 +261,9 @@ void do_work() {
     g_RendererContext->m_RenderPass.m_VertexBuffer = g_RendererContext->m_Device->createBuffer(vertexBufferDesc);
     SM_ASSERT(g_RendererContext->m_RenderPass.m_VertexBuffer, "Failed to create vertex buffer");
 
-    g_RendererContext->m_CommandList->beginTrackingBufferState(g_RendererContext->m_RenderPass.m_VertexBuffer, nvrhi::ResourceStates::CopyDest);
-    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_VertexBuffer, vertices, sizeof(vertices));
-    g_RendererContext->m_CommandList->setPermanentBufferState(g_RendererContext->m_RenderPass.m_VertexBuffer, nvrhi::ResourceStates::VertexBuffer);
+    commandList->beginTrackingBufferState(g_RendererContext->m_RenderPass.m_VertexBuffer, nvrhi::ResourceStates::CopyDest);
+    commandList->writeBuffer(g_RendererContext->m_RenderPass.m_VertexBuffer, vertices, sizeof(vertices));
+    commandList->setPermanentBufferState(g_RendererContext->m_RenderPass.m_VertexBuffer, nvrhi::ResourceStates::VertexBuffer);
 
     static const uint16_t indices[] = {
         0,1,2, 0,2,3,
@@ -275,6 +273,7 @@ void do_work() {
         16,17,18, 16,18,19,
         20,21,22, 20,22,23,
     };
+    g_RendererContext->m_RenderPass.m_IndexCount = std::size(indices);
 
     nvrhi::BufferDesc indexBufferDesc;
     indexBufferDesc.byteSize = sizeof(indices);
@@ -284,14 +283,16 @@ void do_work() {
     g_RendererContext->m_RenderPass.m_IndexBuffer = g_RendererContext->m_Device->createBuffer(indexBufferDesc);
     SM_ASSERT(g_RendererContext->m_RenderPass.m_IndexBuffer, "Failed to create index buffer");
 
-    g_RendererContext->m_CommandList->beginTrackingBufferState(g_RendererContext->m_RenderPass.m_IndexBuffer, nvrhi::ResourceStates::CopyDest);
-    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_IndexBuffer, indices, sizeof(indices));
-    g_RendererContext->m_CommandList->setPermanentBufferState(g_RendererContext->m_RenderPass.m_IndexBuffer, nvrhi::ResourceStates::IndexBuffer);
+    commandList->beginTrackingBufferState(g_RendererContext->m_RenderPass.m_IndexBuffer, nvrhi::ResourceStates::CopyDest);
+    commandList->writeBuffer(g_RendererContext->m_RenderPass.m_IndexBuffer, indices, sizeof(indices));
+    commandList->setPermanentBufferState(g_RendererContext->m_RenderPass.m_IndexBuffer, nvrhi::ResourceStates::IndexBuffer);
 
     int imageWidth = 0;
     int imageHeight = 0;
     int imageChannels = 0;
     const auto* imageData = static_cast<char *>(image_load("assets/block_atlas.png", &imageWidth, &imageHeight, &imageChannels));
+    g_RendererContext->m_RenderPass.m_AtlasWidth = imageWidth;
+    g_RendererContext->m_RenderPass.m_AtlasHeight = imageHeight;
     SM_ASSERT(imageData, "Failed to load image");
     SM_ASSERT(imageWidth > 0 && imageHeight > 0, "Invalid image dimensions");
 
@@ -339,7 +340,7 @@ void do_work() {
 
     const char* dataPointer = texture.data;
 
-    g_RendererContext->m_CommandList->beginTrackingTextureState(texture.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
+    commandList->beginTrackingTextureState(texture.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
 
     for (uint32_t arraySlice = 0; arraySlice < texture.arraySize; arraySlice++)
     {
@@ -347,15 +348,15 @@ void do_work() {
         {
             const TextureSubresourceData& layout = texture.dataLayout[arraySlice][mipLevel];
 
-            g_RendererContext->m_CommandList->writeTexture(texture.texture, arraySlice, mipLevel, dataPointer + layout.dataOffset,
+            commandList->writeTexture(texture.texture, arraySlice, mipLevel, dataPointer + layout.dataOffset,
                                                            layout.rowPitch, layout.depthPitch);
         }
     }
 
     texture.data = nullptr;
 
-    g_RendererContext->m_CommandList->setPermanentTextureState(texture.texture, nvrhi::ResourceStates::ShaderResource);
-    g_RendererContext->m_CommandList->commitBarriers();
+    commandList->setPermanentTextureState(texture.texture, nvrhi::ResourceStates::ShaderResource);
+    commandList->commitBarriers();
 
     g_RendererContext->m_RenderPass.m_Texture = texture.texture;
 
@@ -366,21 +367,26 @@ void do_work() {
 
     nvrhi::BindingSetDesc bindingSetDesc;
     bindingSetDesc.bindings = {
-        //nvrhi::BindingSetItem::ConstantBuffer(0, constantBuffer, nvrhi::BufferRange(sizeof(ConstantBufferEntry) * viewIndex, sizeof(ConstantBufferEntry))),
-        nvrhi::BindingSetItem::Texture_SRV(0, texture.texture),
-        nvrhi::BindingSetItem::Sampler(0, g_RendererContext->m_RenderPass.m_PointClampSampler)
+        nvrhi::BindingSetItem::ConstantBuffer(0, g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer), // b0
+        nvrhi::BindingSetItem::ConstantBuffer(1, g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer),  // b1
+        nvrhi::BindingSetItem::Texture_SRV(0, texture.texture),                                             // t0
+        nvrhi::BindingSetItem::Sampler(0, g_RendererContext->m_RenderPass.m_PointClampSampler)              // s0
     };
 
-    nvrhi::BindingLayoutHandle m_BindingLayout;
-    nvrhi::BindingSetHandle m_BindingSet;
-
-    // Create the binding layout (if it's empty -- so, on the first iteration) and the binding set.
-    if (!nvrhi::utils::CreateBindingSetAndLayout(g_RendererContext->m_Device, nvrhi::ShaderType::All, 0, bindingSetDesc, g_RendererContext->m_RenderPass.m_BindingLayout, m_BindingSet))
+    // Create the binding layout and the binding set, store in the render pass
+    if (!nvrhi::utils::CreateBindingSetAndLayout(
+            g_RendererContext->m_Device,
+            nvrhi::ShaderType::All,
+            0,
+            bindingSetDesc,
+            g_RendererContext->m_RenderPass.m_BindingLayout,
+            g_RendererContext->m_RenderPass.m_BindingSet))
     {
         SM_ASSERT(false, "Failed to create bindings set or layout");
     }
 
-    g_RendererContext->m_CommandList->close();
+    commandList->close();
+    g_RendererContext->m_Device->executeCommandList(commandList);
 }
 
 void renderer_init(const int width, const int height, void* handle, BumpAllocator* persistentStorage) {
@@ -391,21 +397,27 @@ void renderer_init(const int width, const int height, void* handle, BumpAllocato
         return;
     }
 
-    g_RendererContext->m_Backend = reinterpret_cast<RendererBackend *>(bump_alloc(persistentStorage, sizeof(RendererBackendDX12)));
+    void* backendMem = bump_alloc(persistentStorage, sizeof(RENDER_API_NAME));
+    if (!backendMem) {
+        SM_ERROR("Failed to allocate RendererBackend");
+        return;
+    }
+    auto* backend = new (backendMem) RENDER_API_NAME();
+    g_RendererContext->m_Backend = reinterpret_cast<RendererBackend *>(backend);
     if (!g_RendererContext->m_Backend) {
-        SM_ERROR("Failed to allocate RendererBackendDX12");
+        SM_ERROR("Failed to allocate renderer backend");
         return;
     }
 
-    create_internal_instance(g_RendererContext->m_Backend);
+    RENDER_API::create_internal_instance(g_RendererContext->m_Backend);
 
-    g_RendererContext->m_Device = create_device(g_RendererContext->m_Backend);
+    g_RendererContext->m_Device = RENDER_API::create_device(g_RendererContext->m_Backend);
     if (!g_RendererContext->m_Device) {
-        SM_ERROR("Failed to create NVRHI device");
+        SM_ERROR("Failed to create graphics device");
         return;
     }
 
-    create_swapchain(g_RendererContext->m_Backend, static_cast<HWND>(handle), width, height);
+    RENDER_API::create_swapchain(g_RendererContext->m_Backend, static_cast<HWND>(handle), width, height);
 
     g_RendererContext->m_CommandList = g_RendererContext->m_Device->createCommandList();
 
@@ -413,7 +425,16 @@ void renderer_init(const int width, const int height, void* handle, BumpAllocato
 }
 
 void renderer_shutdown() {
-    renderer_backend_shutdown(g_RendererContext->m_Backend);
+    if (g_RendererContext && g_RendererContext->m_Backend) {
+        RENDER_API::renderer_backend_shutdown(g_RendererContext->m_Backend);
+        std::destroy_at(reinterpret_cast<RENDER_API_NAME*>(g_RendererContext->m_Backend));
+        g_RendererContext->m_Backend = nullptr;
+    }
+    if (g_RendererContext) {
+        std::destroy_at(g_RendererContext);
+        g_RendererContext = nullptr;
+    }
+    SM_TRACE("Renderer context destroyed");
 }
 
 bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
@@ -427,15 +448,14 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
     double curTime = std::chrono::duration<double>(currentTime.time_since_epoch()).count();
     double elapsedTime = curTime - g_RendererContext->m_PreviousFrameTimestamp;
 
-    uint32_t* backendFrameIndex = renderer_get_frame_index(g_RendererContext->m_Backend);
+    uint32_t* backendFrameIndex = RENDER_API::renderer_get_frame_index(g_RendererContext->m_Backend);
 
     if (*backendFrameIndex > 0) {
-        if (renderer_begin_frame(g_RendererContext->m_Backend)) {
+        if (RENDER_API::renderer_begin_frame(g_RendererContext->m_Backend)) {
 
-            const auto frameBuffer = renderer_get_framebuffer(g_RendererContext->m_Backend);
+            const auto frameBuffer = RENDER_API::renderer_get_framebuffer(g_RendererContext->m_Backend);
 
             if (!g_RendererContext->m_RenderPass.m_Pipeline) {
-
                 const auto fbi = frameBuffer->getFramebufferInfo();
 
                 nvrhi::GraphicsPipelineDesc psoDesc;
@@ -445,6 +465,7 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                 psoDesc.bindingLayouts = { g_RendererContext->m_RenderPass.m_BindingLayout };
                 psoDesc.primType = nvrhi::PrimitiveType::TriangleList;
                 psoDesc.renderState.depthStencilState.depthTestEnable = false;
+                psoDesc.renderState.rasterState.setFrontCounterClockwise(true);
                 g_RendererContext->m_RenderPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(psoDesc, fbi);
             }
 
@@ -452,12 +473,60 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
 
             nvrhi::utils::ClearColorAttachment(g_RendererContext->m_CommandList, frameBuffer, 0, nvrhi::Color(0.8f, 0.2f, 0.3f, 1.0f));
 
+            // Update constant buffers
+            if (g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer && renderData)
+            {
+                PerFrameCBData perFrame = {};
+                perFrame.Model = renderData->modelMatrix3D;
+                {
+                    glm::mat4 V = renderData->gameCamera.get_view_matrix();
+                    glm::mat4 P = renderData->gameCamera.get_projection_matrix();
+                    perFrame.VP = P * V;
+                }
+                perFrame.CameraPos = renderData->gameCamera.position;
+                perFrame.SunColor = glm::vec3(1.0f);
+                perFrame.Ambient = 0.08f;
+
+                //g_RendererContext->m_CommandList->beginTrackingBufferState(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, nvrhi::ResourceStates::ConstantBuffer);
+                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, &perFrame, sizeof(perFrame));
+            }
+
+            if (g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer)
+            {
+                PerDrawCBData perDraw = {};
+                constexpr float tilePixelW = 16.0f;
+                constexpr float tilePixelH = 16.0f;
+                perDraw.chunkOffset = glm::vec3(0.0f);
+                perDraw.tileSizeUV = glm::vec2(tilePixelW / (float)std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth),
+                                               tilePixelH / (float)std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight));
+                perDraw.tileTexelOffset = glm::vec2(0.5f / (float)std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth),
+                                                    0.5f / (float)std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight));
+                perDraw.materialTint = glm::vec4(1.0f);
+
+                //g_RendererContext->m_CommandList->beginTrackingBufferState(g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer, nvrhi::ResourceStates::ConstantBuffer);
+                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer, &perDraw, sizeof(perDraw));
+            }
+
+            // g_RendererContext->m_CommandList->commitBarriers();
+
+            // Set graphics state and bindings
             nvrhi::GraphicsState state;
-            state.pipeline = g_RendererContext->m_RenderPass.m_Pipeline;
+            state.pipeline = g_RendererContext->m_RenderPass.m_Pipeline.Get();
             state.framebuffer = frameBuffer;
             state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+            state.bindings = { g_RendererContext->m_RenderPass.m_BindingSet };
+            state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_RenderPass.m_VertexBuffer, 0, 0) };
+            state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_RenderPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
 
             g_RendererContext->m_CommandList->setGraphicsState(state);
+
+            // Draw indexed cube
+            nvrhi::DrawArguments drawArgs;
+            drawArgs.vertexCount = g_RendererContext->m_RenderPass.m_IndexCount; // for indexed: this is the index count
+            drawArgs.instanceCount = 1;
+            drawArgs.startIndexLocation = 0;
+            drawArgs.startVertexLocation = 0;
+            g_RendererContext->m_CommandList->drawIndexed(drawArgs);
 
             g_RendererContext->m_CommandList->close();
             g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);
@@ -466,7 +535,7 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                 uiOverlay();
             }
 
-            const bool presentSuccess = renderer_present(g_RendererContext->m_Backend);
+            const bool presentSuccess = RENDER_API::renderer_present(g_RendererContext->m_Backend);
             if (!presentSuccess) {
                 SM_ERROR("renderer_present failed");
                 return false;
@@ -476,7 +545,7 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
 
     g_RendererContext->m_Device->runGarbageCollection();
 
-    renderer_update_avg_frame_time(g_RendererContext->m_Backend, elapsedTime);
+    RENDER_API::renderer_update_avg_frame_time(g_RendererContext->m_Backend, elapsedTime);
     g_RendererContext->m_PreviousFrameTimestamp = curTime;
 
     ++*backendFrameIndex;
@@ -484,7 +553,7 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
 }
 
 void renderer_resize(int width, int height) {
-    //renderer_resize_swapchain(g_RendererContext->m_Backend, width, height);
+    RENDER_API::renderer_resize_swapchain(g_RendererContext->m_Backend, width, height);
 }
 
 void renderer_set_vsync(bool enabled) {
