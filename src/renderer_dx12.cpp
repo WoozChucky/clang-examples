@@ -11,6 +11,7 @@
 #include "nvrhi/utils.h"
 
 #define HR_ASSERT(x, msg) SM_ASSERT(SUCCEEDED(x), msg)
+#undef _DEBUG
 
 void DebugMessageCallback::message(nvrhi::MessageSeverity severity, const char* messageText) {
     SM_TRACE("NVRHI: %s", messageText);
@@ -315,15 +316,6 @@ void directx12::create_swapchain(RendererBackend* backend, HWND hWnd, const int 
 
     dx12->m_Settings.backBufferWidth = width;
     dx12->m_Settings.backBufferHeight = height;
-
-    {
-        // Temporary default settings
-        dx12->m_Settings.refreshRate = 0; // Use default refresh rate
-        dx12->m_Settings.swapChainBufferCount = 3;
-        dx12->m_Settings.swapChainFormat = nvrhi::Format::SRGBA8_UNORM;
-        dx12->m_Settings.swapChainSampleCount = 1;
-        dx12->m_Settings.swapChainSampleQuality = 0;
-    }
 
     ZeroMemory(&dx12->m_SwapChainDesc, sizeof(dx12->m_SwapChainDesc));
     dx12->m_SwapChainDesc.Width = width;

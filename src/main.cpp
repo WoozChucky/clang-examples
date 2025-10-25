@@ -138,8 +138,6 @@ int main(int argc, char** argv) {
 
         platform_update_audio(g_PlatformContext, dt);
 
-        platform_sleep(1);
-
         g_TransientStorage.used = 0; // Reset transient storage each frame
     }
 
