@@ -1,9 +1,11 @@
 #pragma once
-#include "input.h"
 #include "lib.h"
+#include "input.h"
+#include "render.h"
 
 #include <cstdint>
 #include <WinString.h>
+
 // define a callback to pass to overlay handling (THIS IS A TEMPORARY PLACEMENT)
 typedef BOOL(*overlay_input_handler)(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -38,6 +40,8 @@ typedef struct PlatformContext {
     overlay_input_handler m_OverlayInputHandler;
     bool m_DraggingWindow;
     FrameStats m_FrameStats; // Per-frame timing statistics
+    Input* m_Input;
+    RenderData* m_RenderData;
 } PlatformContext;
 
 PlatformContext* platform_init(BumpAllocator* persistentStorage, BumpAllocator* transientStorage);

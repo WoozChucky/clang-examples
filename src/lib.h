@@ -152,8 +152,7 @@ struct Array
     count = 0;
   }
 
-  bool is_full()
-  {
+  [[nodiscard]] bool is_full() const {
     return count == N;
   }
 };

@@ -14,7 +14,7 @@ typedef struct RendererBackendSettings {
     uint32_t                         swapChainSampleCount = 1;
     uint32_t                         swapChainSampleQuality = 0;
     uint32_t                         maxFramesInFlight = 2;
-    uint32_t                         backBufferWidth = 800;
-    uint32_t                         backBufferHeight = 600;
+    uint32_t                         backBufferWidth = 1920;
+    uint32_t                         backBufferHeight = 1080;
     bool                             vsyncEnabled = true;
 } RendererBackendSettings;

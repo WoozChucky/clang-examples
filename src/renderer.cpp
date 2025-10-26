@@ -16,8 +16,8 @@
 #include "image.h"
 #include "VertexPacked.h"
 
-#define RENDER_API directx12
-#define RENDER_API_NAME RendererBackendDX12
+#define RENDER_API directx11
+#define RENDER_API_NAME RendererBackendDX11
 
 class DebugMessageCallback;
 
@@ -641,7 +641,7 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                                                             renderData->clearColor.b, renderData->clearColor.a));
 
             // Update constant buffers
-            if (g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer && renderData)
+            if (g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer)
             {
                 PerFrameCBData perFrame = {};
                 perFrame.Model = renderData->modelMatrix3D;
@@ -663,10 +663,10 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                 constexpr float tilePixelW = 16.0f;
                 constexpr float tilePixelH = 16.0f;
                 perDraw.chunkOffset = glm::vec3(0.0f);
-                perDraw.tileSizeUV = glm::vec2(tilePixelW / (float)std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth),
-                                               tilePixelH / (float)std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight));
-                perDraw.tileTexelOffset = glm::vec2(0.5f / (float)std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth),
-                                                    0.5f / (float)std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight));
+                perDraw.tileSizeUV = glm::vec2(tilePixelW / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth)),
+                                               tilePixelH / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight)));
+                perDraw.tileTexelOffset = glm::vec2(0.5f / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth)),
+                                                    0.5f / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight)));
                 perDraw.materialTint = glm::vec4(1.0f);
 
                 g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer, &perDraw, sizeof(perDraw));
@@ -747,120 +747,71 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
 
             g_RendererContext->m_CommandList->setGraphicsState(state);
 
-            // Compute UI scale relative to the initial window size (virtual canvas scaling)
-            float uiScale = 1.0f;
-            if (g_RendererContext->m_RefUIWidth > 0 && g_RendererContext->m_RefUIHeight > 0)
-            {
-                const auto vp2 = frameBuffer->getFramebufferInfo().getViewport();
-                const float cw = std::max(1.0f, vp2.width());
-                const float ch = std::max(1.0f, vp2.height());
-                const float sx = cw / static_cast<float>(g_RendererContext->m_RefUIWidth);
-                const float sy = ch / static_cast<float>(g_RendererContext->m_RefUIHeight);
-                uiScale = std::min(sx, sy);
-            }
-
-            // Build a small batch of UI instances (1 quad + sample text)
+            // Build UI instances from game-layer UI command buffers
             std::vector<UIInstanceCPU> uiInstances;
-            uiInstances.reserve(256);
+            uiInstances.reserve(512);
 
-            // Demo quad in top-left (scale with window)
+            // 1) Rects / lines (solid color, no sampling)
+            for (int i = 0; i < renderData->uiRects.count; ++i)
             {
+                const UIRectCmd& rc = renderData->uiRects.elements[i];
+                glm::vec2 pos = rc.pos;
+                glm::vec2 size = rc.size;
+
                 UIInstanceCPU inst{};
-                glm::vec2 pos = {50.f, 50.f};
-                glm::vec2 size = {200.f, 200.f};
-                pos *= uiScale;
-                size *= uiScale;
                 inst.Transform = glm::mat4(1.0f);
                 inst.Transform[0][0] = size.x;
                 inst.Transform[1][1] = size.y;
                 inst.Transform[3][0] = pos.x;
                 inst.Transform[3][1] = pos.y;
-                inst.Color = glm::vec4(0.2f, 0.6f, 1.0f, 0.85f); // colored demo quad
-                // Use full UVs (unit quad)
+                inst.Color = rc.color;
                 inst.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f);
-                inst.Flags = 0u; // solid color, do not sample texture
+                inst.Flags = 0u; // solid color
                 uiInstances.push_back(inst);
             }
 
-            // Sample text using the font atlas
-            if (g_RendererContext->m_FontAtlas.texture)
+            // 2) Texts (sample font atlas)
+            if (g_RendererContext->m_FontAtlas.texture && renderData->uiTexts.count > 0)
             {
-                //const auto txt = "UI Overlay Test";
-                static char fpsBuffer[256];
-                static char frameTimeBuffer[256];
-
-                static float lastFpsTimer = 0.0f;
-                lastFpsTimer += dt;
-                if (lastFpsTimer >= 1.0f) {
-                    lastFpsTimer = 0.0f;
-                    snprintf(fpsBuffer, 256, "FPS: %d", static_cast<int>(renderData->fps));
-                    snprintf(frameTimeBuffer, 256, "Frame: %.3f ms", renderData->frameTime);
-                }
-
                 const auto aw = static_cast<float>(g_RendererContext->m_FontAtlas.width);
                 const auto ah = static_cast<float>(g_RendererContext->m_FontAtlas.height);
 
-                glm::vec2 fpsStart = {1.f, g_RendererContext->m_Height - 20 * uiScale }; // baseline start (virtual canvas coordinates)
-                for (const char* p = fpsBuffer; *p; ++p)
+                for (int ti = 0; ti < renderData->uiTexts.count; ++ti)
                 {
-                    auto c = static_cast<unsigned char>(*p);
-                    if (c >= 128u) continue;
-                    const Glyph& g = g_RendererContext->m_FontAtlas.glyphs[c];
-                    glm::vec2 pos;
-                    pos.x = fpsStart.x + g.offset.x;
-                    pos.y = fpsStart.y - g.offset.y; // top-left convention
-                    glm::vec2 size = g.size;
+                    const UITextCmd& tc = renderData->uiTexts.elements[ti];
+                    const uint32_t off = tc.textOffset;
+                    const uint32_t len = tc.textLength;
+                    if (off + len > UI_TEXT_BUFFER_BYTES) continue; // safety
+                    const char* str = renderData->uiTextBuffer + off;
 
-                    // Apply proportional UI scaling based on initial reference resolution
-                    pos *= uiScale;
-                    size *= uiScale;
+                    glm::vec2 pen = tc.pos; // baseline origin, top-left convention
+                    for (uint32_t k = 0; k < len; ++k)
+                    {
+                        const auto c = static_cast<unsigned char>(str[k]);
+                        if (c >= 128u) continue;
+                        const Glyph& g = g_RendererContext->m_FontAtlas.glyphs[c];
 
-                    UIInstanceCPU inst{};
-                    inst.Transform = glm::mat4(1.0f);
-                    inst.Transform[0][0] = size.x;
-                    inst.Transform[1][1] = size.y;
-                    inst.Transform[3][0] = pos.x;
-                    inst.Transform[3][1] = pos.y;
-                    inst.Color = glm::vec4(1,1,1,1);
-                    inst.Flags = UI_OPT_SAMPLE_TEXTURE; // sample texture for glyphs
+                        glm::vec2 pos;
+                        pos.x = pen.x + g.offset.x;
+                        pos.y = pen.y - g.offset.y; // top-left convention
+                        glm::vec2 size = g.size;
 
-                    glm::vec2 uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
-                    glm::vec2 uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
-                    inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
+                        UIInstanceCPU inst{};
+                        inst.Transform = glm::mat4(1.0f);
+                        inst.Transform[0][0] = size.x;
+                        inst.Transform[1][1] = size.y;
+                        inst.Transform[3][0] = pos.x;
+                        inst.Transform[3][1] = pos.y;
+                        inst.Color = tc.color;
+                        inst.Flags = UI_OPT_SAMPLE_TEXTURE;
 
-                    uiInstances.push_back(inst);
-                    fpsStart.x += g.advance.x * uiScale; // advance scales as well
-                }
-                glm::vec2 frameTimeStart = {1.f, g_RendererContext->m_Height - 8 * uiScale}; // baseline start (virtual canvas coordinates)
-                for (const char* p = frameTimeBuffer; *p; ++p)
-                {
-                    auto c = static_cast<unsigned char>(*p);
-                    if (c >= 128u) continue;
-                    const Glyph& g = g_RendererContext->m_FontAtlas.glyphs[c];
-                    glm::vec2 pos;
-                    pos.x = frameTimeStart.x + g.offset.x;
-                    pos.y = frameTimeStart.y - g.offset.y; // top-left convention
-                    glm::vec2 size = g.size;
+                        const auto uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
+                        const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
+                        inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
 
-                    // Apply proportional UI scaling based on initial reference resolution
-                    pos *= uiScale;
-                    size *= uiScale;
-
-                    UIInstanceCPU inst{};
-                    inst.Transform = glm::mat4(1.0f);
-                    inst.Transform[0][0] = size.x;
-                    inst.Transform[1][1] = size.y;
-                    inst.Transform[3][0] = pos.x;
-                    inst.Transform[3][1] = pos.y;
-                    inst.Color = glm::vec4(1,1,1,1);
-                    inst.Flags = UI_OPT_SAMPLE_TEXTURE; // sample texture for glyphs
-
-                    glm::vec2 uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
-                    glm::vec2 uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
-                    inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
-
-                    uiInstances.push_back(inst);
-                    frameTimeStart.x += g.advance.x * uiScale; // advance scales as well
+                        uiInstances.push_back(inst);
+                        pen.x += g.advance.x;
+                    }
                 }
             }
 
@@ -878,6 +829,11 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                 uiDrawArgs.startVertexLocation = 0;
                 g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
             }
+
+            // Clear per-frame UI command buffers (defensive; game can also call ui_begin_frame)
+            renderData->uiRects.clear();
+            renderData->uiTexts.clear();
+            renderData->uiTextBufferCount = 0;
 
             g_RendererContext->m_CommandList->close();
             g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);

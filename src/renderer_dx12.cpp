@@ -540,8 +540,6 @@ bool directx12::renderer_begin_frame(RendererBackend* backend)
 
             dx12->m_FullScreenDesc = newFullScreenDesc;
             dx12->m_SwapChainDesc = newSwapChainDesc;
-            dx12->m_Settings.backBufferWidth = newSwapChainDesc.Width;
-            dx12->m_Settings.backBufferHeight = newSwapChainDesc.Height;
 
             resize_swapchain(dx12);
             BackBufferResized(backend);

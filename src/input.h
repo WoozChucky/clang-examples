@@ -111,15 +111,29 @@ struct Input
 // #############################################################################
 //                           Input Globals
 // #############################################################################
-static Input* g_Input;
+// static Input* g_Input;
 
 // #############################################################################
 //                           Input Functions
 // #############################################################################
-inline bool key_is_down(KeyCodeID key)
+inline bool key_is_down(const Input* input, const KeyCodeID key)
 {
-  return g_Input->keys[key].isDown;
+  return input->keys[key].isDown;
 }
+
+inline bool key_pressed_this_frame(const Input* input, const KeyCodeID key)
+{
+  const Key k = input->keys[key];
+  return k.halfTransitionCount > 0 && k.isDown || k.halfTransitionCount > 1;
+}
+
+inline bool key_released_this_frame(const Input* input, const KeyCodeID key)
+{
+  const Key k = input->keys[key];
+  return k.halfTransitionCount > 0 && !k.isDown || k.halfTransitionCount > 1;
+}
+
+/*
 
 inline bool key_pressed_this_frame(KeyCodeID key)
 {
@@ -127,8 +141,15 @@ inline bool key_pressed_this_frame(KeyCodeID key)
   return k.halfTransitionCount > 0 && k.isDown || k.halfTransitionCount > 1;
 }
 
+inline bool key_is_down(KeyCodeID key)
+{
+  return g_Input->keys[key].isDown;
+}
+
 inline bool key_released_this_frame(KeyCodeID key)
 {
   Key k = g_Input->keys[key];
   return k.halfTransitionCount > 0 && !k.isDown || k.halfTransitionCount > 1;
 }
+
+*/

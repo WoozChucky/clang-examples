@@ -308,8 +308,6 @@ bool directx11::renderer_begin_frame(RendererBackend* backend) {
             BackBufferResizing(dx11);
 
             dx11->m_SwapChainDesc = newSwapChainDesc;
-            dx11->m_Settings.backBufferWidth = newSwapChainDesc.BufferDesc.Width;
-            dx11->m_Settings.backBufferHeight = newSwapChainDesc.BufferDesc.Height;
 
             //if (newSwapChainDesc.Windowed)
             //    glfwSetWindowMonitor(m_Window, nullptr, 50, 50, newSwapChainDesc.BufferDesc.Width, newSwapChainDesc.BufferDesc.Height, 0);

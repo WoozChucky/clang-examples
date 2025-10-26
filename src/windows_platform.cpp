@@ -90,11 +90,15 @@ LRESULT CALLBACK windows_window_callback(HWND window, UINT msg,
       RECT rect = {0};
       GetClientRect(window, &rect);
 
-      g_Input->screenSize.x = (rect.right - rect.left);
-      g_Input->screenSize.y = (rect.bottom - rect.top);
+      const UINT dpi = GetDpiForWindow(window);
+      const int physicalW = MulDiv((rect.right - rect.left), dpi, 96);
+      const int physicalH = MulDiv((rect.bottom - rect.top), dpi, 96);
+
+      ctx->m_Input->screenSize.x = static_cast<float>(physicalW);
+      ctx->m_Input->screenSize.y = static_cast<float>(physicalH);
       ctx->m_ResizeRequested = true;
-      ctx->m_Width = g_Input->screenSize.x;
-      ctx->m_Height = g_Input->screenSize.y;
+      ctx->m_Width = physicalW;
+      ctx->m_Height = physicalH;
 
       SM_TRACE("WM_SIZE, Resizing to %d x %d", ctx->m_Width, ctx->m_Height);
 
@@ -118,8 +122,8 @@ LRESULT CALLBACK windows_window_callback(HWND window, UINT msg,
       bool isDown = (msg == WM_KEYDOWN) || (msg == WM_SYSKEYDOWN) ||
                     (msg == WM_LBUTTONDOWN);
 
-      KeyCodeID keyCode = ctx->m_KeyCodeLookupTable[wParam];
-      Key* key = &g_Input->keys[keyCode];
+      const KeyCodeID keyCode = ctx->m_KeyCodeLookupTable[wParam];
+      Key* key = &ctx->m_Input->keys[keyCode];
       key->justPressed = !key->justPressed && !key->isDown && isDown;
       key->justReleased = !key->justReleased && key->isDown && !isDown;
       key->isDown = isDown;
@@ -141,7 +145,7 @@ LRESULT CALLBACK windows_window_callback(HWND window, UINT msg,
         (msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP)? VK_MBUTTON: VK_RBUTTON;
 
       const KeyCodeID keyCode = ctx->m_KeyCodeLookupTable[mouseCode];
-      Key* key = &g_Input->keys[keyCode];
+      Key* key = &ctx->m_Input->keys[keyCode];
       key->justPressed = !key->justPressed && !key->isDown && isDown;
       key->justReleased = !key->justReleased && key->isDown && !isDown;
       key->isDown = isDown;
@@ -228,6 +232,8 @@ bool platform_create_window(PlatformContext* ctx, int width, int height, const c
   if (windowProps) {
     hInstance = static_cast<HINSTANCE>(windowProps);
   }
+
+  SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
   // Setup and register window class
   HICON hIcon = LoadIconA(hInstance, IDI_APPLICATION);
@@ -419,15 +425,15 @@ void platform_update_window(PlatformContext* ctx) {
     GetCursorPos(&point);
     ScreenToClient(static_cast<HWND>(ctx->m_PlatformHandle), &point);
 
-    g_Input->mousePos.x = point.x;
-    g_Input->mousePos.y = point.y;
+    ctx->m_Input->mousePos.x = point.x;
+    ctx->m_Input->mousePos.y = point.y;
 
     // Mouse Position World
     {
-      glm::ivec2 w = screen_to_world(g_Input->mousePos);
-      g_Input->mouseWorldPos.x = (float)w.x;
-      g_Input->mouseWorldPos.y = (float)w.y;
-      g_Input->mouseWorldPos.z = 0.0f;
+      glm::ivec2 w = screen_to_world(ctx->m_Input, ctx->m_RenderData, ctx->m_Input->mousePos);
+      ctx->m_Input->mouseWorldPos.x = static_cast<float>(w.x);
+      ctx->m_Input->mouseWorldPos.y = static_cast<float>(w.y);
+      ctx->m_Input->mouseWorldPos.z = 0.0f;
     }
   }
 }
