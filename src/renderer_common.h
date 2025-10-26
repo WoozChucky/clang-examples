@@ -8,7 +8,7 @@ public:
 };
 
 typedef struct RendererBackendSettings {
-    uint32_t                         refreshRate = 60;
+    uint32_t                         refreshRate = 0;
     uint32_t                         swapChainBufferCount = 3;
     nvrhi::Format                    swapChainFormat = nvrhi::Format::SRGBA8_UNORM;
     uint32_t                         swapChainSampleCount = 1;

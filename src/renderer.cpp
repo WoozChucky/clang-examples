@@ -761,7 +761,7 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
 
                 static float lastFpsTimer = 0.0f;
                 lastFpsTimer += dt;
-                if (lastFpsTimer >= 0.5f) {
+                if (lastFpsTimer >= 1.0f) {
                     lastFpsTimer = 0.0f;
                     snprintf(tempBuffer, 256, "FPS: %.1f || Frame Time: %.2f ms", renderData->fps, renderData->frameTime);
                 }
@@ -837,6 +837,8 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
 
 void renderer_resize(int width, int height) {
     RENDER_API::renderer_resize_swapchain(g_RendererContext->m_Backend, width, height);
+    g_RendererContext->m_RenderPass.m_Pipeline = nullptr;
+    g_RendererContext->m_UIPass.m_Pipeline = nullptr;
 }
 
 void renderer_set_vsync(bool enabled) {

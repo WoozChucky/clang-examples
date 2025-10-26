@@ -15,9 +15,9 @@ void update_game_input(float dt);
 void update(float dt);
 
 // #############################################################################
-//                           Update Game (Exported from DLL)
+//                           Game Update (Exported from DLL)
 // #############################################################################
-EXPORT_FN void update_game(GameState* gameStateIn, Input* inputIn, RenderData* renderDataIn, 
+EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* renderDataIn,
                            SoundState* soundStateIn, UIState* uiStateIn,
                            BumpAllocator* transientStorageIn, float frameTime)
 {
@@ -92,7 +92,31 @@ EXPORT_FN void update_game(GameState* gameStateIn, Input* inputIn, RenderData* r
   // draw(interpolatedDT);
 }
 
+// #############################################################################
+//                           Game Resize (Exported from DLL)
+// #############################################################################
+
+EXPORT_FN void game_resize(const int width, const int height)
+{
+  if(g_RenderData)
+  {
+    // Game Camera
+    g_RenderData->gameCamera.aspectRatio = static_cast<float>(width) / static_cast<float>(height);
+    g_RenderData->gameCamera.invalidate();
+    // UI Camera
+    g_RenderData->uiCamera.dimensions.x = width;
+    g_RenderData->uiCamera.dimensions.y = height;
+    // Top Left is going to be 0/0 now
+    g_RenderData->uiCamera.position.x = g_RenderData->uiCamera.dimensions.x / 2.0f;
+    g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
+  }
+}
+
 void update(float dt) {
+  if (key_is_down(KEY_ESCAPE)) {
+    g_GameState->quitRequested = true;
+    return;
+  }
   if (key_is_down(KEY_W)) {
     // Z+
     g_RenderData->gameCamera.position.z -= 10.0f * dt;
