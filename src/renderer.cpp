@@ -16,8 +16,8 @@
 #include "image.h"
 #include "VertexPacked.h"
 
-#define RENDER_API directx11
-#define RENDER_API_NAME RendererBackendDX11
+#define RENDER_API directx12
+#define RENDER_API_NAME RendererBackendDX12
 
 class DebugMessageCallback;
 
@@ -896,8 +896,18 @@ void renderer_resize(int width, int height) {
     g_RendererContext->m_Height = height;
 }
 
-void renderer_set_vsync(bool enabled) {
+void renderer_toggle_vsync() {
+    if (!g_RendererContext || !g_RendererContext->m_Backend) {
+        SM_WARN("renderer_set_vsync called before renderer_init");
+        return;
+    }
 
+    // The backend type is selected via RENDER_API_NAME (DX11/DX12). Update its settings flag.
+    auto* backend = reinterpret_cast<RENDER_API_NAME*>(g_RendererContext->m_Backend);
+    const bool prev = backend->m_Settings.vsyncEnabled;
+    backend->m_Settings.vsyncEnabled = !prev;
+
+    SM_TRACE("VSync %s", backend->m_Settings.vsyncEnabled ? "ENABLED" : "DISABLED");
 }
 
 void* renderer_get_device() {
