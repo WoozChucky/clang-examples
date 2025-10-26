@@ -44,8 +44,6 @@ static render_overlay_type* render_overlay_ptr;
 typedef decltype(overlay_shutdown) shutdown_overlay_type;
 static shutdown_overlay_type* shutdown_overlay_ptr;
 
-
-
 void reload_game_dll(BumpAllocator* transientStorage);
 void reload_ui_dll(BumpAllocator* transientStorage);
 float get_delta_time();
@@ -59,14 +57,14 @@ int main(int argc, char** argv) {
     BumpAllocator g_TransientStorage = make_bump_allocator(MB(50));
     BumpAllocator g_PersistentStorage = make_bump_allocator(MB(256));
 
-    g_Input = reinterpret_cast<Input *>(bump_alloc(&g_PersistentStorage, sizeof(Input)));
+    const auto g_Input = reinterpret_cast<Input *>(bump_alloc(&g_PersistentStorage, sizeof(Input)));
     if(!g_Input)
     {
         SM_ERROR("Failed to allocate Input");
         return -1;
     }
 
-    g_RenderData = reinterpret_cast<RenderData *>(bump_alloc(&g_PersistentStorage, sizeof(RenderData)));
+    const auto g_RenderData = reinterpret_cast<RenderData *>(bump_alloc(&g_PersistentStorage, sizeof(RenderData)));
     if(!g_RenderData)
     {
         SM_ERROR("Failed to allocate RenderData");
@@ -102,7 +100,13 @@ int main(int argc, char** argv) {
     }
 
     g_PlatformContext = platform_init(&g_PersistentStorage, &g_TransientStorage);
-    if (!platform_create_window(g_PlatformContext, 800, 600, "My Window", nullptr)) {
+    if (!g_PlatformContext) {
+        SM_ERROR("Failed to initialize platform");
+        return -1;
+    }
+    g_PlatformContext->m_Input = g_Input;
+    g_PlatformContext->m_RenderData = g_RenderData;
+    if (!platform_create_window(g_PlatformContext, 1920, 1080, "My Window", nullptr)) {
         SM_ERROR("Failed to create window");
         return -1;
     }
@@ -114,8 +118,6 @@ int main(int argc, char** argv) {
 
     renderer_init(g_PlatformContext->m_Width, g_PlatformContext->m_Height, g_PlatformContext->m_PlatformHandle, &g_PersistentStorage);
 
-    float displayFpsTimer = 0.0f;
-
     while (g_PlatformContext->m_Running && !g_GameState->quitRequested) {
         const float dt = get_delta_time();
 
@@ -125,15 +127,8 @@ int main(int argc, char** argv) {
             // reload_ui_dll(&g_TransientStorage);
         }
 
-        displayFpsTimer += dt;
-        if (displayFpsTimer >= 1.0f) {
-            const FrameStats& stats = g_PlatformContext->m_FrameStats;
-            SM_TRACE("FPS: %.2f (Smoothed: %.2f) Frame Time: %.2f ms", stats.fpsInstant, stats.fpsSmoothed, stats.frameTimeMs);
-            displayFpsTimer = 0.0f;
-        }
-
-        g_RenderData->frameTime = g_PlatformContext->m_FrameStats.frameTimeMs;
-        g_RenderData->fps = g_PlatformContext->m_FrameStats.fpsInstant;
+        g_GameState->fps = g_PlatformContext->m_FrameStats.fpsInstant;
+        g_GameState->frameTime = g_PlatformContext->m_FrameStats.frameTimeMs;
 
         platform_update_window(g_PlatformContext);
 
@@ -143,11 +138,11 @@ int main(int argc, char** argv) {
             renderer_resize(g_PlatformContext->m_Width, g_PlatformContext->m_Height);
         }
 
-        if (key_is_down(KEY_F5)) {
+        if (key_is_down(g_Input, KEY_F5)) {
             renderer_set_vsync(false);
         }
 
-        game_update(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, dt);
+        game_update(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, &g_PersistentStorage, dt);
 
         render(dt, g_RenderData, render_overlay_ptr);
 
@@ -171,12 +166,13 @@ void game_update(GameState* gameStateIn,
                 SoundState* soundStateIn,
                 UIState* uiStateIn,
                 BumpAllocator* transientStorageIn,
+                BumpAllocator* persistentStorageIn,
                 float dt) {
-  game_update_ptr(gameStateIn, inputIn, renderDataIn, soundStateIn, uiStateIn, transientStorageIn, dt);
+    if (game_update_ptr) game_update_ptr(gameStateIn, inputIn, renderDataIn, soundStateIn, uiStateIn, transientStorageIn, persistentStorageIn, dt);
 }
 
 void game_resize(const int width, const int height) {
-    game_resize_ptr(width, height);
+    if (game_resize_ptr) game_resize_ptr(width, height);
 }
 
 float get_delta_time() {
@@ -217,21 +213,46 @@ float get_delta_time() {
 
 void reload_game_dll(BumpAllocator* transientStorage)
 {
-    static void* gameDLL;
-    static long long lastEditTimestampGameDLL;
+    // Debounced hot-reload to avoid thrashing while the linker is still writing the DLL
+    static void* gameDLL = nullptr;
+    static long long lastLoadedTimestamp = 0; // timestamp we've actually reloaded to
+    static long long pendingTimestamp = 0;    // a newer timestamp we're observing
+    static std::chrono::steady_clock::time_point pendingSince; // when we first saw pendingTimestamp
+    static const auto debounceWindow = std::chrono::milliseconds(250);
 
-    long long currentTimestampGameDLL = get_timestamp(gameLibName);
-    if(currentTimestampGameDLL > lastEditTimestampGameDLL)
+    const long long currentTimestamp = get_timestamp(gameLibName);
+    if (currentTimestamp <= 0)
+        return;
+
+    // If we saw a change
+    if (currentTimestamp != lastLoadedTimestamp)
     {
-        if(gameDLL)
+        // New change observed; start or continue debounce window
+        if (pendingTimestamp != currentTimestamp)
+        {
+            pendingTimestamp = currentTimestamp;
+            pendingSince = std::chrono::steady_clock::now();
+            return; // wait for stability
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - pendingSince < debounceWindow)
+        {
+            // Still within debounce window; wait a bit longer
+            return;
+        }
+
+        // Debounce window elapsed with a stable timestamp -> perform the reload now
+        if (gameDLL)
         {
             bool freeResult = platform_free_dynamic_library(gameDLL);
             if (!freeResult)
-            SM_ASSERT(freeResult, "Failed to free %s", gameLibName);
+                SM_ASSERT(freeResult, "Failed to free %s", gameLibName);
             gameDLL = nullptr;
             SM_TRACE("Freed %s", gameLibName);
         }
 
+        // Copy may fail while the file is still locked by the toolchain; retry until it works
         while(!copy_file(gameLibName, gameLoadLibName, transientStorage))
         {
             platform_sleep(10);
@@ -245,25 +266,49 @@ void reload_game_dll(BumpAllocator* transientStorage)
         SM_ASSERT(game_update_ptr, "Failed to load game_update function");
         game_resize_ptr = (game_resize_type*)platform_load_dynamic_function(gameDLL, "game_resize");
         SM_ASSERT(game_resize_ptr, "Failed to load game_resize function");
-        lastEditTimestampGameDLL = currentTimestampGameDLL;
+
+        lastLoadedTimestamp = currentTimestamp;
+        pendingTimestamp = 0; // consumed
     }
 }
 
 void reload_ui_dll(BumpAllocator* transientStorage)
 {
-    static void* uiDLL;
-    static long long lastEditTimestampUIDLL;
+    // Debounced hot-reload for the UI overlay DLL
+    static void* uiDLL = nullptr;
+    static long long lastLoadedTimestamp = 0;
+    static long long pendingTimestamp = 0;
+    static std::chrono::steady_clock::time_point pendingSince;
+    static const auto debounceWindow = std::chrono::milliseconds(250);
 
-    long long currentTimestampUIDLL = get_timestamp(overlayLibName);
-    if(currentTimestampUIDLL > lastEditTimestampUIDLL)
+    const long long currentTimestamp = get_timestamp(overlayLibName);
+    if (currentTimestamp <= 0)
+        return;
+
+    if (currentTimestamp != lastLoadedTimestamp)
     {
-        if(uiDLL)
+        if (pendingTimestamp != currentTimestamp)
+        {
+            pendingTimestamp = currentTimestamp;
+            pendingSince = std::chrono::steady_clock::now();
+            return; // wait for stability
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - pendingSince < debounceWindow)
+        {
+            return; // still debouncing
+        }
+
+        // Ready to reload
+        if (uiDLL)
         {
             g_PlatformContext->m_OverlayInputHandler = nullptr;
-            shutdown_overlay_ptr();
+            if (shutdown_overlay_ptr)
+                shutdown_overlay_ptr();
             bool freeResult = platform_free_dynamic_library(uiDLL);
             if (!freeResult)
-            SM_ASSERT(freeResult, "Failed to free %s", overlayLibName);
+                SM_ASSERT(freeResult, "Failed to free %s", overlayLibName);
             uiDLL = nullptr;
             SM_TRACE("Freed %s", overlayLibName);
         }
@@ -293,6 +338,7 @@ void reload_ui_dll(BumpAllocator* transientStorage)
         g_PlatformContext->m_OverlayInputHandler = (overlay_input_handler)platform_load_dynamic_function(uiDLL, "overlay_handle_wndproc");
         SM_ASSERT(g_PlatformContext->m_OverlayInputHandler, "Failed to load overlay_handle_wndproc function");
 
-        lastEditTimestampUIDLL = currentTimestampUIDLL;
+        lastLoadedTimestamp = currentTimestamp;
+        pendingTimestamp = 0;
     }
 }

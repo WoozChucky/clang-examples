@@ -6,6 +6,9 @@
 //                           Game Globals
 // #############################################################################
 static BumpAllocator* transientStorage;
+static BumpAllocator* persistentStorage;
+static Input* g_Input;
+static RenderData* g_RenderData;
 
 // #############################################################################
 //                           Game Functions
@@ -19,7 +22,7 @@ void update(float dt);
 // #############################################################################
 EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* renderDataIn,
                            SoundState* soundStateIn, UIState* uiStateIn,
-                           BumpAllocator* transientStorageIn, float frameTime)
+                           BumpAllocator* transientStorageIn, BumpAllocator* persistentStorageIn, float frameTime)
 {
   if(g_GameState != gameStateIn)
   {
@@ -29,12 +32,24 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
     g_SoundState = soundStateIn;
     g_UIState = uiStateIn;
     transientStorage = transientStorageIn;
+    persistentStorage = persistentStorageIn;
 
     // Sounds
     const char* jumpSound = "assets/sounds/jump_01.wav";
     const char* deathSound = "assets/sounds/died_02.wav";
     // memcpy(g_GameState->jumpSound.path, jumpSound, strlen(jumpSound));
     // memcpy(g_GameState->deathSound.path, deathSound, strlen(deathSound));
+    SM_TRACE("Ptrs mismatch, updating ptrs...");
+    // Game Camera
+    g_RenderData->gameCamera.aspectRatio = (float)g_Input->screenSize.x / (float)g_Input->screenSize.y;
+    // UI Camera
+    g_RenderData->uiCamera.dimensions.x = g_Input->screenSize.x;
+    g_RenderData->uiCamera.dimensions.y = g_Input->screenSize.y;
+    // Top Left is going to be 0/0 now
+    g_RenderData->uiCamera.position.x = g_RenderData->uiCamera.dimensions.x / 2.0f;
+    g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
+
+    SM_TRACE("Screen size %.0fx%.0f", g_Input->screenSize.x, g_Input->screenSize.y);
   }
 
   if(!g_GameState->initialized)
@@ -77,6 +92,7 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
 
   g_GameState->updateTimer += frameTime;
 
+  update_game_input(frameTime);
   update(frameTime);
 
   // Reset Input
@@ -112,42 +128,88 @@ EXPORT_FN void game_resize(const int width, const int height)
   }
 }
 
-void update(float dt) {
-  if (key_is_down(KEY_ESCAPE)) {
+static bool showDiagnostics = true;
+
+void update_game_input(float dt) {
+  if (key_is_down(g_Input, KEY_ESCAPE)) {
     g_GameState->quitRequested = true;
     return;
   }
-  if (key_is_down(KEY_W)) {
+  if (key_is_down(g_Input, KEY_W)) {
     // Z+
     g_RenderData->gameCamera.position.z -= 10.0f * dt;
     g_RenderData->gameCamera.invalidate();
   }
-  if (key_is_down(KEY_S)) {
+  if (key_is_down(g_Input, KEY_S)) {
     // Z-
     g_RenderData->gameCamera.position.z += 10.0f * dt;
     g_RenderData->gameCamera.invalidate();
   }
-  if (key_is_down(KEY_A)) {
+  if (key_is_down(g_Input, KEY_A)) {
     // X-
     g_RenderData->gameCamera.position.x -= 10.0f * dt;
     g_RenderData->gameCamera.invalidate();
   }
-  if (key_is_down(KEY_D)) {
+  if (key_is_down(g_Input, KEY_D)) {
     // X+
     g_RenderData->gameCamera.position.x += 10.0f * dt;
     g_RenderData->gameCamera.invalidate();
   }
-  if (key_is_down(KEY_SPACE)) {
+  if (key_is_down(g_Input, KEY_SPACE)) {
     // Y+
     g_RenderData->gameCamera.position.y += 10.0f * dt;
     g_RenderData->gameCamera.invalidate();
   }
-  if (key_is_down(KEY_SHIFT)) {
+  if (key_is_down(g_Input, KEY_SHIFT)) {
     // Y-
     g_RenderData->gameCamera.position.y -= 10.0f * dt;
     g_RenderData->gameCamera.invalidate();
   }
-  if (key_is_down(KEY_MOUSE_LEFT)) {
-
+  if (key_released_this_frame(g_Input, KEY_1)) {
+    showDiagnostics = !showDiagnostics;
   }
+}
+
+void update(float dt) {
+
+  static float diagnosticsTimer = 0.0f;
+  static float fps = 0.0f;
+  static float frameTimeMs = 0.0f;
+  static size_t persistentMemoryUsed = 0;
+  static size_t frameMemoryUsed = 0;
+  diagnosticsTimer += dt;
+  if (diagnosticsTimer >= 0.25f) {
+    diagnosticsTimer = 0.0f;
+    fps = g_GameState->fps;
+    frameTimeMs = g_GameState->frameTime;
+    persistentMemoryUsed = persistentStorage->used;
+    frameMemoryUsed = transientStorage->used;
+  }
+
+  if (showDiagnostics) {
+    ui_draw_rect(g_RenderData, {0.f, 0.f}, {350.f, 150.f}, {1.0f, 1.0f, 1.0f, 0.3f});
+
+    char* fpsText = bump_alloc(transientStorage, 64);
+    snprintf(fpsText, 64, "FPS: %.0f", fps);
+    ui_draw_text(g_RenderData, fpsText, {2.0f, 15.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+
+    char* frameTimeText = bump_alloc(transientStorage, 64);
+    snprintf(frameTimeText, 64, "Frame: %.3f ms", frameTimeMs);
+    ui_draw_text(g_RenderData, frameTimeText, {2.0f, 30.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+
+    char* persistentMemText = bump_alloc(transientStorage, 64);
+    snprintf(persistentMemText, 64, "Persistent Mem: %.2f MB", persistentMemoryUsed / (1024.0f * 1024.0f));
+    ui_draw_text(g_RenderData, persistentMemText, {2.0f, 45.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+
+    char* transientMemText = bump_alloc(transientStorage, 64);
+    snprintf(transientMemText, 64, "Frame Mem: %.2f MB", frameMemoryUsed / (1024.0f * 1024.0f));
+    ui_draw_text(g_RenderData, transientMemText, {2.0f, 60.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+
+    char* screenSizeText = bump_alloc(transientStorage, 64);
+    snprintf(screenSizeText, 64, "Resolution: %d x %d", static_cast<int>(g_Input->screenSize.x), static_cast<int>(g_Input->screenSize.y));
+    ui_draw_text(g_RenderData, screenSizeText, {2.0f, 75.f}, {1.0f, 1.0f, 0.0f, 1.0f});
+  }
+
+  ui_draw_hline(g_RenderData, {0.f, g_Input->screenSize.y / 2}, g_Input->screenSize.x, 2.0f, {1.0f, 0.0f, 0.0f, 1.0f});
+  ui_draw_vline(g_RenderData, {g_Input->screenSize.x / 2, 0.f}, g_Input->screenSize.y, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
 }
