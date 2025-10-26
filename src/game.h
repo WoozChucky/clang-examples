@@ -128,6 +128,7 @@ struct GameState
 
   Sound jumpSound;
   Sound deathSound;
+  bool quitRequested;
 };
 
 // #############################################################################
@@ -140,7 +141,9 @@ static GameState* g_GameState;
 // #############################################################################
 extern "C"
 {
-  EXPORT_FN void update_game(GameState* gameStateIn, Input* inputIn, RenderData* renderDataIn,
+  EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* renderDataIn,
                              SoundState* soundStateIn, UIState* uiStateIn, 
                              BumpAllocator* transientStorageIn, float frameTime);
+
+  EXPORT_FN void game_resize(int width, int height); // Check
 }

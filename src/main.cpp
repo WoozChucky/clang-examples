@@ -32,8 +32,10 @@ const char* overlayLoadLibName = "imgui_overlay_load.so";
 #include <chrono>
 
 // This is the function pointer to update_game in game.cpp
-typedef decltype(update_game) update_game_type;
-static update_game_type* update_game_ptr;
+typedef decltype(game_update) game_update_type;
+static game_update_type* game_update_ptr;
+typedef decltype(game_resize) game_resize_type;
+static game_resize_type* game_resize_ptr;
 
 typedef decltype(overlay_setup) setup_overlay_type;
 static setup_overlay_type* setup_overlay_ptr;
@@ -114,11 +116,11 @@ int main(int argc, char** argv) {
 
     float displayFpsTimer = 0.0f;
 
-    while (g_PlatformContext->m_Running) {
+    while (g_PlatformContext->m_Running && !g_GameState->quitRequested) {
         const float dt = get_delta_time();
 
         {
-            //TODO: Use file watcher instead of polling
+            //TODO(Nuno): Use file watcher instead of polling
             reload_game_dll(&g_TransientStorage);
             // reload_ui_dll(&g_TransientStorage);
         }
@@ -137,6 +139,7 @@ int main(int argc, char** argv) {
 
         if (g_PlatformContext->m_ResizeRequested) {
             g_PlatformContext->m_ResizeRequested = false;
+            game_resize(g_PlatformContext->m_Width, g_PlatformContext->m_Height);
             renderer_resize(g_PlatformContext->m_Width, g_PlatformContext->m_Height);
         }
 
@@ -144,7 +147,7 @@ int main(int argc, char** argv) {
             renderer_set_vsync(false);
         }
 
-        update_game(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, dt);
+        game_update(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, dt);
 
         render(dt, g_RenderData, render_overlay_ptr);
 
@@ -162,14 +165,18 @@ int main(int argc, char** argv) {
     return 0;
 }
 
-void update_game(GameState* gameStateIn, 
+void game_update(GameState* gameStateIn,
                 Input* inputIn,
                 RenderData* renderDataIn, 
                 SoundState* soundStateIn,
                 UIState* uiStateIn,
                 BumpAllocator* transientStorageIn,
                 float dt) {
-  update_game_ptr(gameStateIn, inputIn, renderDataIn, soundStateIn, uiStateIn, transientStorageIn, dt);
+  game_update_ptr(gameStateIn, inputIn, renderDataIn, soundStateIn, uiStateIn, transientStorageIn, dt);
+}
+
+void game_resize(const int width, const int height) {
+    game_resize_ptr(width, height);
 }
 
 float get_delta_time() {
@@ -234,8 +241,10 @@ void reload_game_dll(BumpAllocator* transientStorage)
         gameDLL = platform_load_dynamic_library(gameLoadLibName);
         SM_ASSERT(gameDLL, "Failed to load %s", gameLoadLibName);
 
-        update_game_ptr = (update_game_type*)platform_load_dynamic_function(gameDLL, "update_game");
-        SM_ASSERT(update_game_ptr, "Failed to load update_game function");
+        game_update_ptr = (game_update_type*)platform_load_dynamic_function(gameDLL, "game_update");
+        SM_ASSERT(game_update_ptr, "Failed to load game_update function");
+        game_resize_ptr = (game_resize_type*)platform_load_dynamic_function(gameDLL, "game_resize");
+        SM_ASSERT(game_resize_ptr, "Failed to load game_resize function");
         lastEditTimestampGameDLL = currentTimestampGameDLL;
     }
 }
