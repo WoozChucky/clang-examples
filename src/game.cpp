@@ -9,6 +9,7 @@ static BumpAllocator* transientStorage;
 static BumpAllocator* persistentStorage;
 static Input* g_Input;
 static RenderData* g_RenderData;
+static size_t g_LastFrameAllocationBytes = 0;
 
 // #############################################################################
 //                           Game Functions
@@ -18,12 +19,21 @@ void update_game_input(float dt);
 void update(float dt);
 
 // #############################################################################
+//                           Game API Version (Exported)
+// #############################################################################
+EXPORT_FN uint32_t get_game_api_version()
+{
+  return GAME_API_VERSION;
+}
+
+// #############################################################################
 //                           Game Update (Exported from DLL)
 // #############################################################################
 EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* renderDataIn,
                            SoundState* soundStateIn, UIState* uiStateIn,
-                           BumpAllocator* transientStorageIn, BumpAllocator* persistentStorageIn, float frameTime)
+                           BumpAllocator* transientStorageIn, BumpAllocator* persistentStorageIn, size_t lastFrameAllocationBytes, float frameTime)
 {
+  g_LastFrameAllocationBytes = lastFrameAllocationBytes;
   if(g_GameState != gameStateIn)
   {
     g_GameState = gameStateIn;
@@ -39,17 +49,14 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
     const char* deathSound = "assets/sounds/died_02.wav";
     // memcpy(g_GameState->jumpSound.path, jumpSound, strlen(jumpSound));
     // memcpy(g_GameState->deathSound.path, deathSound, strlen(deathSound));
-    SM_TRACE("Ptrs mismatch, updating ptrs...");
     // Game Camera
-    g_RenderData->gameCamera.aspectRatio = (float)g_Input->screenSize.x / (float)g_Input->screenSize.y;
+    g_RenderData->gameCamera.aspectRatio = g_Input->screenSize.x / g_Input->screenSize.y;
     // UI Camera
     g_RenderData->uiCamera.dimensions.x = g_Input->screenSize.x;
     g_RenderData->uiCamera.dimensions.y = g_Input->screenSize.y;
     // Top Left is going to be 0/0 now
     g_RenderData->uiCamera.position.x = g_RenderData->uiCamera.dimensions.x / 2.0f;
     g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
-
-    SM_TRACE("Screen size %.0fx%.0f", g_Input->screenSize.x, g_Input->screenSize.y);
   }
 
   if(!g_GameState->initialized)
@@ -183,7 +190,7 @@ void update(float dt) {
     fps = g_GameState->fps;
     frameTimeMs = g_GameState->frameTime;
     persistentMemoryUsed = persistentStorage->used;
-    frameMemoryUsed = transientStorage->used;
+    frameMemoryUsed = g_LastFrameAllocationBytes;
   }
 
   if (showDiagnostics) {
@@ -212,4 +219,8 @@ void update(float dt) {
 
   ui_draw_hline(g_RenderData, {0.f, g_Input->screenSize.y / 2}, g_Input->screenSize.x, 2.0f, {1.0f, 0.0f, 0.0f, 1.0f});
   ui_draw_vline(g_RenderData, {g_Input->screenSize.x / 2, 0.f}, g_Input->screenSize.y, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
+
+  char* todoText = bump_alloc(transientStorage, 124);
+  snprintf(todoText, 124, "TODO(Nuno): Fix VSync, Asserts with MsgBox + Line Number + FileName + Minimize Crash");
+  ui_draw_text(g_RenderData, todoText, {g_Input->screenSize.x / 4.f, g_Input->screenSize.y / 2 - 5.f}, {1.0f, 1.0f, 1.0f, 1.0f});
 }

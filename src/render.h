@@ -101,6 +101,7 @@ struct UITextCmd
   glm::vec4 color;       // rgba
   uint32_t textOffset;   // offset into RenderData::uiTextBuffer
   uint32_t textLength;   // number of bytes (without null terminator)
+  uint32_t glyphCount;   // precomputed ASCII glyph count (<128) to avoid double iteration in renderer
 };
 
 typedef struct RenderData
@@ -193,6 +194,14 @@ inline void ui_draw_text(RenderData* renderData, const char* text, glm::vec2 pos
   if (renderData->uiTexts.count >= renderData->uiTexts.maxElements)
     return; // out of commands
 
+  // Precompute ASCII glyph count (<128) so renderer doesn't need a counting pass
+  uint32_t glyphCount = 0;
+  for (size_t i = 0; i < len; ++i)
+  {
+    const unsigned char c = static_cast<unsigned char>(text[i]);
+    if (c < 128u) ++glyphCount;
+  }
+
   const uint32_t offset = renderData->uiTextBufferCount;
   memcpy(renderData->uiTextBuffer + offset, text, len);
   renderData->uiTextBufferCount += static_cast<uint32_t>(len);
@@ -202,6 +211,7 @@ inline void ui_draw_text(RenderData* renderData, const char* text, glm::vec2 pos
   cmd.color = color;
   cmd.textOffset = offset;
   cmd.textLength = static_cast<uint32_t>(len);
+  cmd.glyphCount = glyphCount;
   renderData->uiTexts.add(cmd);
 }
 

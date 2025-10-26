@@ -602,7 +602,7 @@ void renderer_shutdown() {
     SM_TRACE("Renderer context destroyed");
 }
 
-bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
+bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, pfnRenderUIOverlay uiOverlay) {
 
     if (!g_RendererContext || !g_RendererContext->m_Backend) {
         SM_ASSERT(false, "RendererContext or RendererBackend is null");
@@ -747,16 +747,46 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
 
             g_RendererContext->m_CommandList->setGraphicsState(state);
 
-            // Build UI instances from game-layer UI command buffers
-            std::vector<UIInstanceCPU> uiInstances;
-            uiInstances.reserve(512);
+            // Build UI instances from game-layer UI command buffers without heap allocations
+            // First pass: count how many instances we need (rects + glyphs)
+            uint32_t rectCount = static_cast<uint32_t>(renderData->uiRects.count);
+            uint32_t glyphCount = 0;
+            if (g_RendererContext->m_FontAtlas.texture && renderData->uiTexts.count > 0)
+            {
+                for (int ti = 0; ti < renderData->uiTexts.count; ++ti)
+                {
+                    const UITextCmd& tc = renderData->uiTexts.elements[ti];
+                    // Safety: ensure text slice is within buffer; if not, skip counting
+                    const uint32_t off = tc.textOffset;
+                    const uint32_t len = tc.textLength;
+                    if (off + len > UI_TEXT_BUFFER_BYTES) continue;
+                    // Use precomputed glyphCount recorded at submission time to avoid re-iterating the string here
+                    glyphCount += tc.glyphCount;
+                }
+            }
+
+            uint32_t totalInstances = rectCount + glyphCount;
+            if (totalInstances > g_RendererContext->m_UIPass.m_MaxInstances)
+            {
+                SM_WARN("UI instances truncated: %u -> %u", totalInstances, g_RendererContext->m_UIPass.m_MaxInstances);
+                totalInstances = g_RendererContext->m_UIPass.m_MaxInstances;
+            }
+
+            UIInstanceCPU* instances = nullptr;
+            if (totalInstances > 0)
+            {
+                instances = reinterpret_cast<UIInstanceCPU*>(bump_alloc(transientStorage, totalInstances * sizeof(UIInstanceCPU)));
+                SM_ASSERT(instances, "Out of transient memory for UI instances");
+            }
+
+            uint32_t outIdx = 0;
 
             // 1) Rects / lines (solid color, no sampling)
-            for (int i = 0; i < renderData->uiRects.count; ++i)
+            for (int i = 0; i < renderData->uiRects.count && outIdx < totalInstances; ++i)
             {
                 const UIRectCmd& rc = renderData->uiRects.elements[i];
-                glm::vec2 pos = rc.pos;
-                glm::vec2 size = rc.size;
+                const glm::vec2 pos = rc.pos;   // current pixels
+                const glm::vec2 size = rc.size; // current pixels
 
                 UIInstanceCPU inst{};
                 inst.Transform = glm::mat4(1.0f);
@@ -767,16 +797,16 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                 inst.Color = rc.color;
                 inst.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f);
                 inst.Flags = 0u; // solid color
-                uiInstances.push_back(inst);
+                instances[outIdx++] = inst;
             }
 
             // 2) Texts (sample font atlas)
-            if (g_RendererContext->m_FontAtlas.texture && renderData->uiTexts.count > 0)
+            if (g_RendererContext->m_FontAtlas.texture && renderData->uiTexts.count > 0 && outIdx < totalInstances)
             {
                 const auto aw = static_cast<float>(g_RendererContext->m_FontAtlas.width);
                 const auto ah = static_cast<float>(g_RendererContext->m_FontAtlas.height);
 
-                for (int ti = 0; ti < renderData->uiTexts.count; ++ti)
+                for (int ti = 0; ti < renderData->uiTexts.count && outIdx < totalInstances; ++ti)
                 {
                     const UITextCmd& tc = renderData->uiTexts.elements[ti];
                     const uint32_t off = tc.textOffset;
@@ -785,7 +815,7 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                     const char* str = renderData->uiTextBuffer + off;
 
                     glm::vec2 pen = tc.pos; // baseline origin, top-left convention
-                    for (uint32_t k = 0; k < len; ++k)
+                    for (uint32_t k = 0; k < len && outIdx < totalInstances; ++k)
                     {
                         const auto c = static_cast<unsigned char>(str[k]);
                         if (c >= 128u) continue;
@@ -794,7 +824,7 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                         glm::vec2 pos;
                         pos.x = pen.x + g.offset.x;
                         pos.y = pen.y - g.offset.y; // top-left convention
-                        glm::vec2 size = g.size;
+                        const glm::vec2 size = g.size;
 
                         UIInstanceCPU inst{};
                         inst.Transform = glm::mat4(1.0f);
@@ -809,22 +839,21 @@ bool render(float dt, RenderData* renderData, pfnRenderUIOverlay uiOverlay) {
                         const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
                         inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
 
-                        uiInstances.push_back(inst);
+                        instances[outIdx++] = inst;
                         pen.x += g.advance.x;
                     }
                 }
             }
 
             // Upload instances to GPU
-            if (!uiInstances.empty())
+            if (outIdx > 0)
             {
-                const size_t bytes = uiInstances.size() * sizeof(UIInstanceCPU);
-
-                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, uiInstances.data(), bytes);
+                const size_t bytes = static_cast<size_t>(outIdx) * sizeof(UIInstanceCPU);
+                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, instances, bytes);
 
                 nvrhi::DrawArguments uiDrawArgs;
                 uiDrawArgs.vertexCount = g_RendererContext->m_UIPass.m_IndexCount; // indexed draw uses index count here
-                uiDrawArgs.instanceCount = static_cast<uint32_t>(uiInstances.size());
+                uiDrawArgs.instanceCount = outIdx;
                 uiDrawArgs.startIndexLocation = 0;
                 uiDrawArgs.startVertexLocation = 0;
                 g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
