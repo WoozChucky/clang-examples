@@ -192,11 +192,15 @@ cbuffer UIFrame : register(b0)
     float4x4 uOrtho;        // orthographic projection to clip space
 };
 
+// Per-instance rendering flags (bitmask)
+// bit 0 (1): SAMPLE_TEXTURE — sample atlas in PS; otherwise output solid color
 struct UIInstance
 {
     float4x4 Transform; // per-instance 2D transform (pos/scale/rotation in pixels)
     float4   Color;     // per-instance multiplicative color (rgba)
     float4   UVRect;    // xy = uvScale, zw = uvOffset (normalized)
+    uint     Flags;     // bitmask of UI options (see above)
+    uint3    _pad;      // padding to keep 16-byte alignment for structure stride
 };
 
 StructuredBuffer<UIInstance> gUIInstances : register(t1);
@@ -212,6 +216,7 @@ struct VSOut
     float4 PosH     : SV_POSITION;
     float2 UV       : TEXCOORD0;
     float4 Color    : COLOR0;
+    nointerpolation uint Flags : TEXCOORD1;
 };
 
 VSOut main_vs(VSIn vin, uint instId : SV_InstanceID)
@@ -225,30 +230,41 @@ VSOut main_vs(VSIn vin, uint instId : SV_InstanceID)
     o.PosH = mul(uOrtho, wp);
     o.UV = vin.UV * inst.UVRect.xy + inst.UVRect.zw; // scale + offset into atlas
     o.Color = inst.Color;
+    o.Flags = inst.Flags;
     return o;
 }
 )";
 
 inline auto QUAD_PS_HLSL = R"(
 // UI Quad Pixel Shader
-// For font rendering from an R8 atlas: use sampled .r as alpha and pin.Color as RGB.
-// For RGBA UI textures this can be extended with a mode flag; for now we favor font rendering.
+// Supports two modes controlled by per-instance Flags (see VS):
+// - bit 0 (SAMPLE_TEXTURE): sample atlas (R channel as coverage) and modulate with Color
+// - bit 0 off: output solid Color as-is
 
 Texture2D    uTexture : register(t0);
 SamplerState uSampler : register(s0);
+
+static const uint UI_OPT_SAMPLE_TEXTURE = 1u << 0;
 
 struct PSIn
 {
     float4 PosH  : SV_POSITION;
     float2 UV    : TEXCOORD0;
     float4 Color : COLOR0;
+    nointerpolation uint Flags : TEXCOORD1;
 };
 
 float4 main_ps(PSIn pin) : SV_Target
 {
-    float4 texel = uTexture.Sample(uSampler, pin.UV);
-    float alpha = texel.r; // R8_UNORM font atlas stores coverage in .r
-    float4 outColor = float4(pin.Color.rgb, pin.Color.a * alpha);
-    return outColor;
+    if ((pin.Flags & UI_OPT_SAMPLE_TEXTURE) != 0u)
+    {
+        float4 texel = uTexture.Sample(uSampler, pin.UV);
+        float alpha = texel.r; // R8_UNORM font atlas stores coverage in .r
+        return float4(pin.Color.rgb, pin.Color.a * alpha);
+    }
+    else
+    {
+        return pin.Color;
+    }
 }
 )";
