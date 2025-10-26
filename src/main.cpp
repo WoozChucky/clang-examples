@@ -63,6 +63,7 @@ int main(int argc, char** argv) {
         SM_ERROR("Failed to allocate Input");
         return -1;
     }
+    SM_TRACE("[Input] Persistent storage allocated: %d MB", g_PersistentStorage.used / (1024 * 1024));
 
     const auto g_RenderData = reinterpret_cast<RenderData *>(bump_alloc(&g_PersistentStorage, sizeof(RenderData)));
     if(!g_RenderData)
@@ -70,6 +71,7 @@ int main(int argc, char** argv) {
         SM_ERROR("Failed to allocate RenderData");
         return -1;
     }
+    SM_TRACE("[RenderData] Persistent storage allocated: %d MB", g_PersistentStorage.used / (1024 * 1024));
 
     g_GameState = reinterpret_cast<GameState *>(bump_alloc(&g_PersistentStorage, sizeof(GameState)));
     if(!g_GameState)
@@ -77,6 +79,7 @@ int main(int argc, char** argv) {
         SM_ERROR("Failed to allocate GameState");
         return -1;
     }
+    SM_TRACE("[GameState] Persistent storage allocated: %d MB", g_PersistentStorage.used / (1024 * 1024));
 
     g_UIState = reinterpret_cast<UIState *>(bump_alloc(&g_PersistentStorage, sizeof(UIState)));
     if(!g_UIState)
@@ -84,6 +87,7 @@ int main(int argc, char** argv) {
         SM_ERROR("Failed to allocate UIState")
         return -1;
     }
+    SM_TRACE("[UIState] Persistent storage allocated: %d MB", g_PersistentStorage.used / (1024 * 1024));
 
     g_SoundState = reinterpret_cast<SoundState *>(bump_alloc(&g_PersistentStorage, sizeof(SoundState)));
     if(!g_SoundState)
@@ -91,6 +95,7 @@ int main(int argc, char** argv) {
         SM_ERROR("Failed to allocate SoundState");
         return -1;
     }
+    SM_TRACE("[SoundState] Persistent storage allocated: %d MB", g_PersistentStorage.used / (1024 * 1024));
     g_SoundState->transientStorage = &g_TransientStorage;
     g_SoundState->allocatedsoundsBuffer = bump_alloc(&g_PersistentStorage, SOUNDS_BUFFER_SIZE);
     if(!g_SoundState->allocatedsoundsBuffer)
@@ -98,12 +103,14 @@ int main(int argc, char** argv) {
         SM_ERROR("Failed to allocated Sounds Buffer");
         return -1;
     }
+    SM_TRACE("[SoundState] Sounds buffer allocated: %d MB", SOUNDS_BUFFER_SIZE / (1024 * 1024));
 
     g_PlatformContext = platform_init(&g_PersistentStorage, &g_TransientStorage);
     if (!g_PlatformContext) {
         SM_ERROR("Failed to initialize platform");
         return -1;
     }
+    SM_TRACE("[Platform] Persistent storage allocated: %d MB", g_PersistentStorage.used / (1024 * 1024));
     g_PlatformContext->m_Input = g_Input;
     g_PlatformContext->m_RenderData = g_RenderData;
     if (!platform_create_window(g_PlatformContext, 1920, 1080, "My Window", nullptr)) {
@@ -117,6 +124,9 @@ int main(int argc, char** argv) {
     }
 
     renderer_init(g_PlatformContext->m_Width, g_PlatformContext->m_Height, g_PlatformContext->m_PlatformHandle, &g_PersistentStorage);
+    SM_TRACE("[Renderer] Persistent storage allocated: %d MB", g_PersistentStorage.used / (1024 * 1024));
+
+    size_t frameAllocationBytes = 0;
 
     while (g_PlatformContext->m_Running && !g_GameState->quitRequested) {
         const float dt = get_delta_time();
@@ -142,12 +152,13 @@ int main(int argc, char** argv) {
             renderer_set_vsync(false);
         }
 
-        game_update(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, &g_PersistentStorage, dt);
+        game_update(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, &g_PersistentStorage, frameAllocationBytes, dt);
 
-        render(dt, g_RenderData, render_overlay_ptr);
+        render(dt, g_RenderData, &g_TransientStorage, render_overlay_ptr);
 
         platform_update_audio(g_PlatformContext, dt);
 
+        frameAllocationBytes = g_TransientStorage.used;
         g_TransientStorage.used = 0; // Reset transient storage each frame
     }
 
@@ -167,8 +178,9 @@ void game_update(GameState* gameStateIn,
                 UIState* uiStateIn,
                 BumpAllocator* transientStorageIn,
                 BumpAllocator* persistentStorageIn,
+                size_t lastFrameAllocationBytes,
                 float dt) {
-    if (game_update_ptr) game_update_ptr(gameStateIn, inputIn, renderDataIn, soundStateIn, uiStateIn, transientStorageIn, persistentStorageIn, dt);
+    if (game_update_ptr) game_update_ptr(gameStateIn, inputIn, renderDataIn, soundStateIn, uiStateIn, transientStorageIn, persistentStorageIn, lastFrameAllocationBytes, dt);
 }
 
 void game_resize(const int width, const int height) {
@@ -243,29 +255,59 @@ void reload_game_dll(BumpAllocator* transientStorage)
         }
 
         // Debounce window elapsed with a stable timestamp -> perform the reload now
-        if (gameDLL)
-        {
-            bool freeResult = platform_free_dynamic_library(gameDLL);
-            if (!freeResult)
-                SM_ASSERT(freeResult, "Failed to free %s", gameLibName);
-            gameDLL = nullptr;
-            SM_TRACE("Freed %s", gameLibName);
-        }
-
-        // Copy may fail while the file is still locked by the toolchain; retry until it works
+        // 1) Copy new DLL under a load-safe name
         while(!copy_file(gameLibName, gameLoadLibName, transientStorage))
         {
             platform_sleep(10);
         }
         SM_TRACE("Copied %s into %s", gameLibName, gameLoadLibName);
 
-        gameDLL = platform_load_dynamic_library(gameLoadLibName);
-        SM_ASSERT(gameDLL, "Failed to load %s", gameLoadLibName);
+        // 2) Load new DLL into a temporary handle first (don’t drop current until we validate)
+        void* newDLL = platform_load_dynamic_library(gameLoadLibName);
+        if (!newDLL)
+        {
+            SM_ERROR("Failed to load %s", gameLoadLibName);
+            return;
+        }
 
-        game_update_ptr = (game_update_type*)platform_load_dynamic_function(gameDLL, "game_update");
-        SM_ASSERT(game_update_ptr, "Failed to load game_update function");
-        game_resize_ptr = (game_resize_type*)platform_load_dynamic_function(gameDLL, "game_resize");
-        SM_ASSERT(game_resize_ptr, "Failed to load game_resize function");
+        // 3) Resolve and validate API version before swapping
+        using get_game_api_version_type = uint32_t (*)();
+        auto get_api_version = (get_game_api_version_type)platform_load_dynamic_function(newDLL, "get_game_api_version");
+        if (!get_api_version)
+        {
+            SM_ERROR("%s missing get_game_api_version(); keeping previous game DLL.", gameLoadLibName);
+            platform_free_dynamic_library(newDLL);
+            return;
+        }
+        const uint32_t dllVersion = get_api_version();
+        if (dllVersion != GAME_API_VERSION)
+        {
+            SM_ERROR("Game DLL API version mismatch. EXE=%u, DLL=%u. Keeping previous game DLL.", (unsigned)GAME_API_VERSION, (unsigned)dllVersion);
+            platform_free_dynamic_library(newDLL);
+            return;
+        }
+
+        // 4) Resolve required entry points on the new DLL
+        auto new_update = (game_update_type*)platform_load_dynamic_function(newDLL, "game_update");
+        auto new_resize = (game_resize_type*)platform_load_dynamic_function(newDLL, "game_resize");
+        if (!new_update || !new_resize)
+        {
+            SM_ERROR("Failed to resolve required game DLL symbols (update/resize). Keeping previous game DLL.");
+            platform_free_dynamic_library(newDLL);
+            return;
+        }
+
+        // 5) Swap: free previous, install new pointers+handle
+        if (gameDLL)
+        {
+            bool freeResult = platform_free_dynamic_library(gameDLL);
+            if (!freeResult)
+                SM_ASSERT(freeResult, "Failed to free %s", gameLibName);
+            SM_TRACE("Freed previous %s", gameLibName);
+        }
+        gameDLL = newDLL;
+        game_update_ptr = new_update;
+        game_resize_ptr = new_resize;
 
         lastLoadedTimestamp = currentTimestamp;
         pendingTimestamp = 0; // consumed

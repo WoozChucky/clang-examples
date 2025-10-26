@@ -142,11 +142,18 @@ static GameState* g_GameState;
 // #############################################################################
 //                           Game Functions (Exposed)
 // #############################################################################
+
+// Runtime API versioning between main EXE and game DLL
+constexpr uint32_t GAME_API_VERSION = 1;
+
 extern "C"
 {
+  // The game DLL must export this; the EXE will check it during hot-reload
+  EXPORT_FN uint32_t get_game_api_version();
+
   EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* renderDataIn,
                              SoundState* soundStateIn, UIState* uiStateIn, 
-                             BumpAllocator* transientStorageIn, BumpAllocator* persistentStorageIn, float frameTime);
+                             BumpAllocator* transientStorageIn, BumpAllocator* persistentStorageIn, size_t lastFrameAllocationBytes, float frameTime);
 
   EXPORT_FN void game_resize(int width, int height); // Check
 }
