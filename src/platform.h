@@ -49,9 +49,11 @@ void platform_shutdown(PlatformContext* ctx);
 bool platform_create_window(PlatformContext* ctx, int width, int height, const char* title, void* windowProps);
 void platform_fill_keycode_lookup_table(PlatformContext* ctx);
 void platform_update_window(PlatformContext* ctx);
+bool platform_is_minimized(PlatformContext* ctx);
 void* platform_load_dynamic_library(const char* dll);
 void* platform_load_dynamic_function(PlatformContext* ctx, void* dll, const char* funName);
 bool platform_free_dynamic_library(PlatformContext* ctx, void* dll);
 bool platform_init_audio(PlatformContext* ctx);
 void platform_update_audio(PlatformContext* ctx, float dt);
 void platform_sleep(unsigned int ms);
+

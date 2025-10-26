@@ -599,6 +599,12 @@ void platform_sleep(const unsigned int ms) {
   ::Sleep(ms);
 }
 
+bool platform_is_minimized(PlatformContext* ctx)
+{
+  if (!ctx || !ctx->m_PlatformHandle) return false;
+  return IsIconic(static_cast<HWND>(ctx->m_PlatformHandle));
+}
+
 // Platform-specific assertion handler for Windows.
 // Shows a message box with details and then breaks into the debugger.
 void platform_debug_break(const char* expr, const char* file, int line, const char* message)
