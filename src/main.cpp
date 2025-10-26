@@ -148,8 +148,8 @@ int main(int argc, char** argv) {
             renderer_resize(g_PlatformContext->m_Width, g_PlatformContext->m_Height);
         }
 
-        if (key_is_down(g_Input, KEY_F5)) {
-            renderer_set_vsync(false);
+        if (key_released_this_frame(g_Input, KEY_F5)) {
+            renderer_toggle_vsync();
         }
 
         game_update(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, &g_PersistentStorage, frameAllocationBytes, dt);

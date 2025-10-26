@@ -12,7 +12,7 @@ void renderer_init(int width, int height, void* handle, BumpAllocator* persisten
 void renderer_shutdown();
 bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, pfnRenderUIOverlay uiOverlay = nullptr);
 void renderer_resize(int width, int height);
-void renderer_set_vsync(bool enabled);
+void renderer_toggle_vsync();
 
 void* renderer_get_device();
 void* renderer_get_device_context();
