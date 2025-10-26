@@ -154,7 +154,15 @@ int main(int argc, char** argv) {
 
         game_update(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, &g_PersistentStorage, frameAllocationBytes, dt);
 
-        render(dt, g_RenderData, &g_TransientStorage, render_overlay_ptr);
+        // Skip rendering when the window is minimized to avoid unnecessary work
+        if (!platform_is_minimized(g_PlatformContext))
+        {
+            render(dt, g_RenderData, &g_TransientStorage, render_overlay_ptr);
+        }
+        else
+        {
+            platform_sleep(16);
+        }
 
         platform_update_audio(g_PlatformContext, dt);
 
@@ -230,7 +238,7 @@ void reload_game_dll(BumpAllocator* transientStorage)
     static long long lastLoadedTimestamp = 0; // timestamp we've actually reloaded to
     static long long pendingTimestamp = 0;    // a newer timestamp we're observing
     static std::chrono::steady_clock::time_point pendingSince; // when we first saw pendingTimestamp
-    static const auto debounceWindow = std::chrono::milliseconds(250);
+    static constexpr auto debounceWindow = std::chrono::milliseconds(250);
 
     const long long currentTimestamp = get_timestamp(gameLibName);
     if (currentTimestamp <= 0)
@@ -239,7 +247,7 @@ void reload_game_dll(BumpAllocator* transientStorage)
     // If we saw a change
     if (currentTimestamp != lastLoadedTimestamp)
     {
-        // New change observed; start or continue debounce window
+        // New change observed; start or continue the debounce window
         if (pendingTimestamp != currentTimestamp)
         {
             pendingTimestamp = currentTimestamp;
