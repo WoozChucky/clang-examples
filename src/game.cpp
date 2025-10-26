@@ -87,7 +87,7 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
     g_RenderData->gameCamera.position = {0.0, 2.5f, +5.0f};
     g_RenderData->gameCamera.rotation = {0.0f, 0.0f, 0.0f};
     g_RenderData->gameCamera.fov = glm::radians(80.0f);
-    g_RenderData->gameCamera.aspectRatio = (float)g_Input->screenSize.x / (float)g_Input->screenSize.y;
+    g_RenderData->gameCamera.aspectRatio = g_Input->screenSize.x / g_Input->screenSize.y;
     g_RenderData->gameCamera.nearClip = 0.1f;
     g_RenderData->gameCamera.farClip = 1000.0f;
     g_RenderData->gameCamera.invalidate();
@@ -149,44 +149,49 @@ EXPORT_FN void game_resize(const int width, const int height)
 }
 
 static bool showDiagnostics = true;
+static bool showHUD = true;
 
 void update_game_input(float dt) {
   if (key_is_down(g_Input, KEY_ESCAPE)) {
     g_GameState->quitRequested = true;
     return;
   }
-  if (key_is_down(g_Input, KEY_W)) {
-    // Z+
-    g_RenderData->gameCamera.position.z -= 10.0f * dt;
-    g_RenderData->gameCamera.invalidate();
-  }
-  if (key_is_down(g_Input, KEY_S)) {
-    // Z-
-    g_RenderData->gameCamera.position.z += 10.0f * dt;
-    g_RenderData->gameCamera.invalidate();
-  }
-  if (key_is_down(g_Input, KEY_A)) {
-    // X-
-    g_RenderData->gameCamera.position.x -= 10.0f * dt;
-    g_RenderData->gameCamera.invalidate();
-  }
-  if (key_is_down(g_Input, KEY_D)) {
-    // X+
-    g_RenderData->gameCamera.position.x += 10.0f * dt;
-    g_RenderData->gameCamera.invalidate();
-  }
-  if (key_is_down(g_Input, KEY_SPACE)) {
-    // Y+
-    g_RenderData->gameCamera.position.y += 10.0f * dt;
-    g_RenderData->gameCamera.invalidate();
-  }
-  if (key_is_down(g_Input, KEY_SHIFT)) {
-    // Y-
-    g_RenderData->gameCamera.position.y -= 10.0f * dt;
-    g_RenderData->gameCamera.invalidate();
-  }
+
+  const glm::vec3 rot= g_RenderData->gameCamera.rotation; // pitch(x), yaw(y), roll(z)
+  const float cp = cosf(rot.x), sp = sinf(rot.x);
+  const float cy = cosf(rot.y), sy = sinf(rot.y);
+
+  // Camera-to-world forward for RH, y-up, default forward = -Z:
+  // forward = (Rx * Ry * Rz) * (0,0,-1) with roll=0
+  const glm::vec3 forward = glm::normalize(glm::vec3(
+      -sy,            // x
+       sp * cy,       // y
+      -cp * cy        // z
+  ));
+
+  // Right vector consistent with RH system
+  const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0,1,0)));
+
+  float moveSpeed = 7.5f; // units/sec
+  if (key_is_down(g_Input, KEY_W)) { g_RenderData->gameCamera.position += forward * (moveSpeed * dt); g_RenderData->gameCamera.invalidate(); }
+  if (key_is_down(g_Input, KEY_S)) { g_RenderData->gameCamera.position -= forward * (moveSpeed * dt); g_RenderData->gameCamera.invalidate(); }
+  if (key_is_down(g_Input, KEY_A)) { g_RenderData->gameCamera.position -= right   * (moveSpeed * dt); g_RenderData->gameCamera.invalidate(); }
+  if (key_is_down(g_Input, KEY_D)) { g_RenderData->gameCamera.position += right   * (moveSpeed * dt); g_RenderData->gameCamera.invalidate(); }
+
+  // For up/down you can keep world y or derive from a camera up vector
+  if (key_is_down(g_Input, KEY_SPACE)) { g_RenderData->gameCamera.position.y += moveSpeed * dt; g_RenderData->gameCamera.invalidate(); }
+  if (key_is_down(g_Input, KEY_SHIFT)) { g_RenderData->gameCamera.position.y -= moveSpeed * dt; g_RenderData->gameCamera.invalidate(); }
+
+  constexpr float yawSpeed = glm::radians(120.0f);
+  auto& yaw = g_RenderData->gameCamera.rotation.y;
+  if (key_is_down(g_Input, KEY_Q)) { yaw += yawSpeed * dt; g_RenderData->gameCamera.invalidate(); }
+  if (key_is_down(g_Input, KEY_E)) { yaw -= yawSpeed * dt; g_RenderData->gameCamera.invalidate(); }
+
   if (key_released_this_frame(g_Input, KEY_1)) {
     showDiagnostics = !showDiagnostics;
+  }
+  if (key_released_this_frame(g_Input, KEY_2)) {
+    showHUD = !showHUD;
   }
 }
 
@@ -230,11 +235,23 @@ void update(float dt) {
     ui_draw_text(g_RenderData, screenSizeText, {2.0f, 75.f}, {1.0f, 1.0f, 0.0f, 1.0f});
   }
 
+  if (showHUD) {
+    ui_draw_rect(g_RenderData, {g_Input->screenSize.x - 410.f, g_Input->screenSize.y - 60.f}, {400.f, 50.f}, {0.0f, 0.0f, 0.0f, 0.3f});
+
+    char* positionText = bump_alloc(transientStorage, 128);
+    snprintf(positionText, 128, "Camera Pos: (%.2f, %.2f, %.2f)", g_RenderData->gameCamera.position.x, g_RenderData->gameCamera.position.y, g_RenderData->gameCamera.position.z);
+    ui_draw_text(g_RenderData, positionText, {g_Input->screenSize.x - 400.f, g_Input->screenSize.y - 45.f}, {1.0f, 1.0f, 1.0f, 1.0f});
+
+    char* rotationText = bump_alloc(transientStorage, 128);
+    snprintf(rotationText, 128, "Camera Rot: (%.2f, %.2f, %.2f)", glm::degrees(g_RenderData->gameCamera.rotation.x), glm::degrees(g_RenderData->gameCamera.rotation.y), glm::degrees(g_RenderData->gameCamera.rotation.z));
+    ui_draw_text(g_RenderData, rotationText, {g_Input->screenSize.x - 400.f, g_Input->screenSize.y - 30.f}, {1.0f, 1.0f, 1.0f, 1.0f});
+  }
+
   ui_draw_hline(g_RenderData, {0.f, g_Input->screenSize.y / 2}, g_Input->screenSize.x, 2.0f, {1.0f, 0.0f, 0.0f, 1.0f});
   ui_draw_vline(g_RenderData, {g_Input->screenSize.x / 2, 0.f}, g_Input->screenSize.y, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
 
-  char* todoText = bump_alloc(transientStorage, 124);
-  snprintf(todoText, 124, "TODO(Nuno): Fix VSync, Asserts with MsgBox + Line Number + FileName + Minimize Crash");
+  char* todoText = bump_alloc(transientStorage, 128);
+  snprintf(todoText, 128, "TODO(Nuno): Fix VSync, Asserts with MsgBox + Line Number + FileName + Minimize Crash");
   ui_draw_text(g_RenderData, todoText, {g_Input->screenSize.x / 4.f, g_Input->screenSize.y / 2 - 5.f}, {1.0f, 1.0f, 1.0f, 1.0f});
 }
 
