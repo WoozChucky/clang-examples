@@ -1,18 +1,18 @@
 #pragma once
 
 // Used to open Files
-#include <stdio.h>
+#include <cstdio>
 
 // Used to get malloc
-#include <stdlib.h>
+#include <cstdlib>
 
-#include <math.h>
+#include <cmath>
 
 // Used to get the timestamp of a file
 #include <sys/stat.h>
 
 // Used to get memset
-#include <string.h>
+#include <cstring>
 
 #include <print>
 #include <ostream>
@@ -107,13 +107,28 @@ void _log(const char* prefix, const char* msg, TextColor textColor, Args... args
 #define SM_WARN(msg, ...) _log("WARN:", msg, TEXT_COLOR_YELLOW, "\033[0m", ##__VA_ARGS__);
 #define SM_ERROR(msg, ...) _log("ERROR:", msg, TEXT_COLOR_RED, "\033[0m", ##__VA_ARGS__);
 
-#define SM_ASSERT(x, msg, ...)     \
-{                                  \
-  if(!(x))                         \
-  {                                \
-    SM_ERROR(msg, ##__VA_ARGS__);  \
-    DEBUG_BREAK();                 \
-  }                                \
+// Forward-declare a platform-specific debug break that can show dialogs, etc.
+void platform_debug_break(const char* expr, const char* file, int line, const char* message);
+
+// Helper to format, log, and delegate to the platform for assertion handling
+template <typename... Args>
+inline void sm_assert_fail(const char* expr, const char* file, int line, const char* fmt, Args... args)
+{
+  // Format the message once for both logging and platform handler
+  char formatted[1024] = {};
+  sprintf(formatted, fmt, args...);
+  // Log through our normal logger
+  _log("ERROR:", "%s", TEXT_COLOR_RED, "\033[0m", formatted);
+  // Delegate to platform to decide how to break/notify
+  platform_debug_break(expr, file, line, formatted);
+}
+
+#define SM_ASSERT(x, msg, ...)                   \
+{                                                \
+  if(!(x))                                       \
+  {                                              \
+    sm_assert_fail(#x, __FILE__, __LINE__, msg, ##__VA_ARGS__); \
+  }                                              \
 }
 
 // #############################################################################

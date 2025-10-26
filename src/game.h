@@ -146,10 +146,16 @@ static GameState* g_GameState;
 // Runtime API versioning between main EXE and game DLL
 constexpr uint32_t GAME_API_VERSION = 1;
 
+// Function pointer type for platform-provided debug break handler
+using game_debug_break_fn = void(*)(const char* expr, const char* file, int line, const char* message);
+
 extern "C"
 {
   // The game DLL must export this; the EXE will check it during hot-reload
-  EXPORT_FN uint32_t get_game_api_version();
+  EXPORT_FN uint32_t game_get_api_version();
+
+  // Allows the host executable to provide its platform-specific debug break handler
+  EXPORT_FN void game_set_platform_debug_break(game_debug_break_fn fn);
 
   EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* renderDataIn,
                              SoundState* soundStateIn, UIState* uiStateIn, 
