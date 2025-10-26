@@ -271,18 +271,18 @@ void reload_game_dll(BumpAllocator* transientStorage)
         }
 
         // 3) Resolve and validate API version before swapping
-        using get_game_api_version_type = uint32_t (*)();
-        auto get_api_version = (get_game_api_version_type)platform_load_dynamic_function(newDLL, "get_game_api_version");
+        using game_get_api_version_type = uint32_t (*)();
+        const auto get_api_version = (game_get_api_version_type)platform_load_dynamic_function(newDLL, "game_get_api_version");
         if (!get_api_version)
         {
-            SM_ERROR("%s missing get_game_api_version(); keeping previous game DLL.", gameLoadLibName);
+            SM_ERROR("%s missing game_get_api_version(); keeping previous game DLL.", gameLoadLibName);
             platform_free_dynamic_library(newDLL);
             return;
         }
         const uint32_t dllVersion = get_api_version();
         if (dllVersion != GAME_API_VERSION)
         {
-            SM_ERROR("Game DLL API version mismatch. EXE=%u, DLL=%u. Keeping previous game DLL.", (unsigned)GAME_API_VERSION, (unsigned)dllVersion);
+            SM_ERROR("Game DLL API version mismatch. EXE=%u, DLL=%u. Keeping previous game DLL.", GAME_API_VERSION, dllVersion);
             platform_free_dynamic_library(newDLL);
             return;
         }
@@ -295,6 +295,18 @@ void reload_game_dll(BumpAllocator* transientStorage)
             SM_ERROR("Failed to resolve required game DLL symbols (update/resize). Keeping previous game DLL.");
             platform_free_dynamic_library(newDLL);
             return;
+        }
+
+        // 4.1) Optionally provide platform-specific debug break callback to the game DLL
+        using game_set_platform_debug_break_type = void (*)(game_debug_break_fn);
+        if (auto set_dbg = (game_set_platform_debug_break_type)platform_load_dynamic_function(newDLL, "game_set_platform_debug_break"))
+        {
+            // Pass the EXE's platform_debug_break so the DLL can use MessageBox, etc.
+            set_dbg(&platform_debug_break);
+        }
+        else
+        {
+            SM_WARN("Game DLL missing set_platform_debug_break (optional). Using DLL fallback for asserts.");
         }
 
         // 5) Swap: free previous, install new pointers+handle

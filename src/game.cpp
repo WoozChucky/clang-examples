@@ -21,9 +21,22 @@ void update(float dt);
 // #############################################################################
 //                           Game API Version (Exported)
 // #############################################################################
-EXPORT_FN uint32_t get_game_api_version()
+EXPORT_FN uint32_t game_get_api_version()
 {
   return GAME_API_VERSION;
+}
+
+// #############################################################################
+//                   Platform Debug Break Handler (Exported)
+// #############################################################################
+
+// Platform-provided debug break callback (optional, set by host EXE)
+static game_debug_break_fn g_PlatformDebugBreak = nullptr;
+
+// Setter exported from the game DLL so the host can pass its platform handler
+EXPORT_FN void game_set_platform_debug_break(const game_debug_break_fn fn)
+{
+  g_PlatformDebugBreak = fn;
 }
 
 // #############################################################################
@@ -223,4 +236,21 @@ void update(float dt) {
   char* todoText = bump_alloc(transientStorage, 124);
   snprintf(todoText, 124, "TODO(Nuno): Fix VSync, Asserts with MsgBox + Line Number + FileName + Minimize Crash");
   ui_draw_text(g_RenderData, todoText, {g_Input->screenSize.x / 4.f, g_Input->screenSize.y / 2 - 5.f}, {1.0f, 1.0f, 1.0f, 1.0f});
+}
+
+// Assertion handler entry point used inside the game DLL.
+// If the host EXE provided a platform-specific handler via set_platform_debug_break,
+// we forward to it; otherwise, we use a minimal fallback (log + debugbreak).
+void platform_debug_break(const char* expr, const char* file, int line, const char* message)
+{
+  if (g_PlatformDebugBreak)
+  {
+    g_PlatformDebugBreak(expr, file, line, message);
+    return;
+  }
+
+  // Fallback when no platform callback has been set yet
+  _log("ASSERT:", "Expression: %s | File: %s | Line: %d | %s", TEXT_COLOR_RED,
+       (expr ? expr : "<none>"), (file ? file : "<unknown>"), line, (message ? message : ""));
+  DEBUG_BREAK();
 }
