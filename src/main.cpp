@@ -238,7 +238,7 @@ void reload_game_dll(BumpAllocator* transientStorage)
     static long long lastLoadedTimestamp = 0; // timestamp we've actually reloaded to
     static long long pendingTimestamp = 0;    // a newer timestamp we're observing
     static std::chrono::steady_clock::time_point pendingSince; // when we first saw pendingTimestamp
-    static constexpr auto debounceWindow = std::chrono::milliseconds(250);
+    static constexpr auto debounceWindow = std::chrono::milliseconds(1000);
 
     const long long currentTimestamp = get_timestamp(gameLibName);
     if (currentTimestamp <= 0)
