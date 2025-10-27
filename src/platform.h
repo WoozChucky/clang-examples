@@ -26,6 +26,9 @@ enum class PlatformType {
     PLATFORM_COUNT
 };
 
+// Opaque handle for platform file watching
+struct FileWatchHandle;
+
 typedef struct PlatformContext {
     PlatformType m_Type;
     void* m_PlatformHandle;
@@ -50,10 +53,24 @@ bool platform_create_window(PlatformContext* ctx, int width, int height, const c
 void platform_fill_keycode_lookup_table(PlatformContext* ctx);
 void platform_update_window(PlatformContext* ctx);
 bool platform_is_minimized(PlatformContext* ctx);
+
+// Dynamic library helpers
 void* platform_load_dynamic_library(const char* dll);
-void* platform_load_dynamic_function(PlatformContext* ctx, void* dll, const char* funName);
-bool platform_free_dynamic_library(PlatformContext* ctx, void* dll);
+void* platform_load_dynamic_function(void* dll, const char* funName);
+bool platform_free_dynamic_library(void* dll);
+
+// Audio
 bool platform_init_audio(PlatformContext* ctx);
 void platform_update_audio(PlatformContext* ctx, float dt);
+
+// Misc
 void platform_sleep(unsigned int ms);
+
+// Generic file watching API (implemented per-platform)
+// Starts watching the given file path. Returns a handle or nullptr on failure.
+FileWatchHandle* platform_watch_file(const char* file_path, BumpAllocator* allocator);
+// Returns true if the watched file has changed since the last call.
+bool platform_file_changed(FileWatchHandle* handle);
+// Stops watching and releases resources.
+void platform_unwatch_file(FileWatchHandle* handle);
 

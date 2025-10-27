@@ -3,6 +3,8 @@
 
 #include <Windows.h>
 #include <xaudio2.h>
+#include <atomic>
+#include <string.h>
 
 // #############################################################################
 //                           Windows Structs
@@ -53,8 +55,8 @@ LRESULT CALLBACK windows_window_callback(HWND window, UINT msg,
   // WM_NCCREATE (or WM_CREATE) gives us the CREATESTRUCT with lpCreateParams
   if (msg == WM_NCCREATE)
   {
-    auto* cs = reinterpret_cast<CREATESTRUCTA*>(lParam);
-    auto* createCtx = reinterpret_cast<PlatformContext*>(cs->lpCreateParams);
+    const auto* cs = reinterpret_cast<CREATESTRUCTA*>(lParam);
+    auto* createCtx = static_cast<PlatformContext*>(cs->lpCreateParams);
     if (createCtx)
     {
       // store it in GWLP_USERDATA for future callbacks
@@ -425,15 +427,39 @@ void platform_update_window(PlatformContext* ctx) {
     GetCursorPos(&point);
     ScreenToClient(static_cast<HWND>(ctx->m_PlatformHandle), &point);
 
-    ctx->m_Input->mousePos.x = point.x;
-    ctx->m_Input->mousePos.y = point.y;
+    // If the OS is dragging/resizing the window, swallow deltas to avoid spikes
+    if (ctx->m_DraggingWindow) {
+      ctx->m_Input->relMouse = {0, 0};
+      ctx->m_Input->mousePos = {point.x, point.y};
+      ctx->m_Input->prevMousePos = ctx->m_Input->mousePos;
 
-    // Mouse Position World
-    {
       glm::ivec2 w = screen_to_world(ctx->m_Input, ctx->m_RenderData, ctx->m_Input->mousePos);
-      ctx->m_Input->mouseWorldPos.x = static_cast<float>(w.x);
-      ctx->m_Input->mouseWorldPos.y = static_cast<float>(w.y);
-      ctx->m_Input->mouseWorldPos.z = 0.0f;
+      glm::vec3 worldPos = { static_cast<float>(w.x), static_cast<float>(w.y), 0.0f };
+      ctx->m_Input->relMouseWorld = {0.0f, 0.0f, 0.0f};
+      ctx->m_Input->mouseWorldPos = worldPos;
+      ctx->m_Input->prevMouseWorldPos = worldPos;
+    } else {
+      // Compute relative mouse movement (screen space)
+      ctx->m_Input->relMouse.x = point.x - ctx->m_Input->prevMousePos.x;
+      ctx->m_Input->relMouse.y = point.y - ctx->m_Input->prevMousePos.y;
+
+      // Update current and previous mouse positions (screen space)
+      ctx->m_Input->mousePos.x = point.x;
+      ctx->m_Input->mousePos.y = point.y;
+      ctx->m_Input->prevMousePos = ctx->m_Input->mousePos;
+
+      // Mouse Position World
+      {
+        glm::ivec2 w = screen_to_world(ctx->m_Input, ctx->m_RenderData, ctx->m_Input->mousePos);
+        glm::vec3 worldPos = { static_cast<float>(w.x), static_cast<float>(w.y), 0.0f };
+
+        // Compute relative mouse movement (world space)
+        ctx->m_Input->relMouseWorld = worldPos - ctx->m_Input->prevMouseWorldPos;
+
+        // Update current and previous mouse positions (world space)
+        ctx->m_Input->mouseWorldPos = worldPos;
+        ctx->m_Input->prevMouseWorldPos = worldPos;
+      }
     }
   }
 }
@@ -458,6 +484,222 @@ bool platform_free_dynamic_library(void* dll) {
   SM_ASSERT(freeResult, "Failed to FreeLibrary");
 
   return static_cast<bool>(freeResult);
+}
+
+// #############################
+// File system watcher (Windows)
+// #############################
+struct FileWatchHandle {
+  HANDLE changeHandle;
+  HANDLE stopEvent;
+  HANDLE threadHandle;
+  char   directory[MAX_PATH];
+  char   filename[MAX_PATH];
+  char   fullpath[MAX_PATH];
+  FILETIME lastWriteTime;
+  std::atomic<bool> changed;
+  DWORD  debounceMs;
+  // Coalescing window to suppress multiple signals from a single build/link
+  ULONGLONG lastSignalTick;
+  DWORD  coalesceMs;
+};
+
+static void split_path_file(const char* path, char* outDir, size_t outDirSize, char* outFile, size_t outFileSize)
+{
+  const char* lastSlash = strrchr(path, '\\');
+  const char* lastFwd   = strrchr(path, '/');
+  const char* sep = lastSlash ? lastSlash : lastFwd;
+  if (sep) {
+    size_t dirLen = static_cast<size_t>(sep - path);
+    if (dirLen >= outDirSize) dirLen = outDirSize - 1;
+    memcpy(outDir, path, dirLen);
+    outDir[dirLen] = '\0';
+
+    const char* fileStart = sep + 1;
+    strncpy_s(outFile, outFileSize, fileStart, _TRUNCATE);
+  } else {
+    // No directory component; use current directory
+    strncpy_s(outDir, outDirSize, ".", _TRUNCATE);
+    strncpy_s(outFile, outFileSize, path, _TRUNCATE);
+  }
+}
+
+static bool get_file_last_write_timeA(const char* path, FILETIME* out)
+{
+  WIN32_FILE_ATTRIBUTE_DATA fad{};
+  if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fad))
+    return false;
+  *out = fad.ftLastWriteTime;
+  return true;
+}
+
+static DWORD WINAPI file_watch_thread_proc(LPVOID param)
+{
+  auto* h = reinterpret_cast<FileWatchHandle*>(param);
+  HANDLE waitHandles[2] = { h->stopEvent, h->changeHandle };
+
+  for (;;) {
+    DWORD w = WaitForMultipleObjects(2, waitHandles, FALSE, INFINITE);
+    if (w == WAIT_OBJECT_0) {
+      // stopEvent signaled
+      break;
+    }
+    if (w == WAIT_OBJECT_0 + 1) {
+      // Directory changed: first rearm the change notification so we can wait for a quiet period
+      if (!FindNextChangeNotification(h->changeHandle)) {
+        break;
+      }
+
+      // Snapshot current file time (may fail if file not present yet)
+      FILETIME snapshot{};
+      bool snapshotValid = get_file_last_write_timeA(h->fullpath, &snapshot);
+
+      // Debounce loop: wait for no further directory changes for debounceMs
+      for (;;) {
+        DWORD wq = WaitForMultipleObjects(2, waitHandles, FALSE, h->debounceMs);
+        if (wq == WAIT_OBJECT_0) {
+          // stop requested
+          return 0;
+        }
+        if (wq == WAIT_TIMEOUT) {
+          // Quiet period elapsed: verify file timestamp stability
+          FILETIME nowFT{};
+          bool nowValid = get_file_last_write_timeA(h->fullpath, &nowFT);
+          if (!nowValid) {
+            // File missing; keep debouncing until it reappears
+            snapshotValid = false;
+            continue;
+          }
+
+          // If we didn't have a valid snapshot, treat current as the first stable observation
+          if (!snapshotValid) {
+            // Only signal if this differs from the previously recorded timestamp
+            if (CompareFileTime(&nowFT, &h->lastWriteTime) != 0) {
+              // Coalesce multiple notifications occurring shortly after the first stable change
+              ULONGLONG tick = GetTickCount64();
+              if (h->lastSignalTick == 0 || (tick - h->lastSignalTick) >= h->coalesceMs) {
+                h->lastSignalTick = tick;
+                h->lastWriteTime = nowFT;
+                h->changed.store(true, std::memory_order_release);
+              } else {
+                // Suppress extra event within coalescing window, but still update lastWriteTime
+                h->lastWriteTime = nowFT;
+              }
+            }
+            break; // either way, exit debounce loop; watcher is re-armed already
+          }
+
+          // We had a snapshot and it's equal after quiet window -> stable
+          if (CompareFileTime(&nowFT, &snapshot) == 0) {
+            // Only signal if this stable time is actually different from what we last reported
+            if (CompareFileTime(&nowFT, &h->lastWriteTime) != 0) {
+              // Coalesce multiple notifications occurring shortly after the first stable change
+              ULONGLONG tick = GetTickCount64();
+              if (h->lastSignalTick == 0 || (tick - h->lastSignalTick) >= h->coalesceMs) {
+                h->lastSignalTick = tick;
+                h->lastWriteTime = nowFT;
+                h->changed.store(true, std::memory_order_release);
+              } else {
+                // Suppress extra event within coalescing window, but still update lastWriteTime
+                h->lastWriteTime = nowFT;
+              }
+            }
+            break; // done with this change notification
+          } else {
+            // Timestamp still changing; update snapshot and wait another quiet window
+            snapshot = nowFT;
+            snapshotValid = true;
+            continue;
+          }
+        }
+        if (wq == WAIT_OBJECT_0 + 1) {
+          // Another directory change arrived; rearm and continue waiting
+          if (!FindNextChangeNotification(h->changeHandle)) {
+            return 0;
+          }
+          // refresh snapshot to the latest write time if available
+          FILETIME tmp{};
+          bool got = get_file_last_write_timeA(h->fullpath, &tmp);
+          if (got) {
+            snapshot = tmp;
+          }
+          snapshotValid = got;
+          continue;
+        }
+      }
+
+      // Already re-armed inside the loop; ready for next notifications
+    }
+  }
+
+  return 0;
+}
+
+FileWatchHandle* platform_watch_file(const char* file_path, BumpAllocator* allocator)
+{
+  if (!file_path) return nullptr;
+
+  void* memBlock = bump_alloc(allocator, sizeof(FileWatchHandle));
+  if (!memBlock) return nullptr;
+  auto* h = new (memBlock) FileWatchHandle();
+  memset(h, 0, sizeof(FileWatchHandle));
+  h->changed.store(false, std::memory_order_relaxed);
+  h->debounceMs = 250; // default debounce for stabilization window
+  h->lastSignalTick = 0; // no previous signals
+  h->coalesceMs = 2000;  // suppress back-to-back signals within this window
+
+  // Fill paths
+  strncpy_s(h->fullpath, file_path, _TRUNCATE);
+  split_path_file(file_path, h->directory, sizeof(h->directory), h->filename, sizeof(h->filename));
+
+  // Prime last write time (ok if it fails)
+  get_file_last_write_timeA(h->fullpath, &h->lastWriteTime);
+
+  h->stopEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+  if (!h->stopEvent) { delete h; return nullptr; }
+
+  // Watch directory for relevant changes
+  const DWORD filter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION;
+  h->changeHandle = FindFirstChangeNotificationA(h->directory, FALSE, filter);
+  if (h->changeHandle == INVALID_HANDLE_VALUE) {
+    CloseHandle(h->stopEvent);
+    return nullptr;
+  }
+
+  // Start background thread
+  h->threadHandle = CreateThread(nullptr, 0, &file_watch_thread_proc, h, 0, nullptr);
+  if (!h->threadHandle) {
+    FindCloseChangeNotification(h->changeHandle);
+    CloseHandle(h->stopEvent);
+    return nullptr;
+  }
+
+  return h;
+}
+
+bool platform_file_changed(FileWatchHandle* handle)
+{
+  if (!handle) return false;
+  return handle->changed.exchange(false, std::memory_order_acquire);
+}
+
+void platform_unwatch_file(FileWatchHandle* handle)
+{
+  if (!handle) return;
+  // Signal stop and wait
+  if (handle->stopEvent) {
+    SetEvent(handle->stopEvent);
+  }
+  if (handle->threadHandle) {
+    WaitForSingleObject(handle->threadHandle, 5000);
+    CloseHandle(handle->threadHandle);
+  }
+  if (handle->changeHandle && handle->changeHandle != INVALID_HANDLE_VALUE) {
+    FindCloseChangeNotification(handle->changeHandle);
+  }
+  if (handle->stopEvent) {
+    CloseHandle(handle->stopEvent);
+  }
 }
 
 bool platform_init_audio(PlatformContext* ctx) {

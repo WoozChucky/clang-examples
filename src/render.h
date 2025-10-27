@@ -104,6 +104,21 @@ struct UITextCmd
   uint32_t glyphCount;   // precomputed ASCII glyph count (<128) to avoid double iteration in renderer
 };
 
+// #############################################################################
+//                           3D Primitives (game -> renderer)
+// #############################################################################
+enum class PrimitiveType : uint32_t { Plane = 0, Cube = 1, Sphere = 2, Cone = 3, Line = 4 };
+
+struct PrimitiveInstance
+{
+  PrimitiveType type;
+  glm::mat4     transform; // world transform
+  glm::vec4     color;     // base color (not all primitives use it)
+  glm::vec4     params;    // optional parameters per primitive
+};
+
+constexpr int PRIM_MAX = 1024;
+
 typedef struct RenderData
 {
   glm::vec4 clearColor;
@@ -120,6 +135,9 @@ typedef struct RenderData
   Array<UITextCmd, UI_MAX_TEXTS> uiTexts;
   char uiTextBuffer[UI_TEXT_BUFFER_BYTES] = {};
   uint32_t uiTextBufferCount = 0; // bytes used in uiTextBuffer
+
+  // 3D primitives (immediate mode style, cleared every frame)
+  Array<PrimitiveInstance, PRIM_MAX> primitives;
 } RenderData;
 
 // #############################################################################
@@ -221,4 +239,25 @@ inline void ui_begin_frame(RenderData* renderData)
   renderData->uiRects.clear();
   renderData->uiTexts.clear();
   renderData->uiTextBufferCount = 0;
+}
+
+// #############################################################################
+//                           Primitives Helper Functions
+// #############################################################################
+inline void prim_begin_frame(RenderData* renderData)
+{
+  if (!renderData) return;
+  renderData->primitives.clear();
+}
+
+inline void prim_draw_grid_plane(RenderData* renderData, const glm::mat4& transform)
+{
+  if (!renderData) return;
+  if (renderData->primitives.count >= renderData->primitives.maxElements) return;
+  PrimitiveInstance inst{};
+  inst.type = PrimitiveType::Plane;
+  inst.transform = transform; // Typically identity for Y=0 grid
+  inst.color = {1,1,1,1};
+  inst.params = {0,0,0,0};
+  renderData->primitives.add(inst);
 }

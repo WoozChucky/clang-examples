@@ -1,6 +1,4 @@
 #include "game.h"
-#include "input.h"
-#include "render.h"
 
 // #############################################################################
 //                           Game Globals
@@ -140,8 +138,8 @@ EXPORT_FN void game_resize(const int width, const int height)
     g_RenderData->gameCamera.aspectRatio = static_cast<float>(width) / static_cast<float>(height);
     g_RenderData->gameCamera.invalidate();
     // UI Camera
-    g_RenderData->uiCamera.dimensions.x = width;
-    g_RenderData->uiCamera.dimensions.y = height;
+    g_RenderData->uiCamera.dimensions.x = static_cast<float>(width);
+    g_RenderData->uiCamera.dimensions.y = static_cast<float>(height);
     // Top Left is going to be 0/0 now
     g_RenderData->uiCamera.position.x = g_RenderData->uiCamera.dimensions.x / 2.0f;
     g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
@@ -193,6 +191,39 @@ void update_game_input(float dt) {
   if (key_released_this_frame(g_Input, KEY_2)) {
     showHUD = !showHUD;
   }
+
+  // Mouse look when holding right mouse button
+  const float mouseSensitivity = 0.0025f;
+  if (key_is_down(g_Input, KEY_MOUSE_RIGHT)) {
+    // Apply a small deadzone and axis-dominance filter to prevent cross-axis jitter
+    int dx = g_Input->relMouse.x;
+    int dy = g_Input->relMouse.y;
+
+    // Deadzone (ignore tiny sub-pixel jitters)
+    const int deadzonePx = 1; // tweak to 2 if needed
+    if (dx > -deadzonePx && dx < deadzonePx) dx = 0;
+    if (dy > -deadzonePx && dy < deadzonePx) dy = 0;
+
+    // Axis-dominance suppression: if one axis movement is much larger, zero the other
+    const int axisLockRatio = 3; // dominant axis must be >= 3x the minor axis
+    int adx = (dx >= 0) ? dx : -dx;
+    int ady = (dy >= 0) ? dy : -dy;
+    if (adx >= ady * axisLockRatio) {
+      dy = 0; // horizontal look only
+    } else if (ady >= adx * axisLockRatio) {
+      dx = 0; // vertical look only
+    }
+
+    SM_TRACE("Holding Mouse 1 Input (dx: %d, dy: %d)", dx, dy);
+
+    g_RenderData->gameCamera.rotation.y -= dx * mouseSensitivity; // yaw
+    g_RenderData->gameCamera.rotation.x -= dy * mouseSensitivity; // pitch
+    // Clamp pitch to avoid flipping
+    const float pitchLimit = glm::radians(89.0f);
+    if (g_RenderData->gameCamera.rotation.x > pitchLimit) g_RenderData->gameCamera.rotation.x = pitchLimit;
+    if (g_RenderData->gameCamera.rotation.x < -pitchLimit) g_RenderData->gameCamera.rotation.x = -pitchLimit;
+    g_RenderData->gameCamera.invalidate();
+  }
 }
 
 void update(float dt) {
@@ -211,8 +242,21 @@ void update(float dt) {
     frameMemoryUsed = g_LastFrameAllocationBytes;
   }
 
+  prim_draw_grid_plane(g_RenderData, glm::mat4(1.0f));
+
+  static constexpr glm::vec4 bgColor = {1.0f, 1.0f, 1.0f, 0.3f};
+  static constexpr glm::vec4 bgHoveredColor = {1.0f, 1.0f, 1.0f, 0.5f};
+  static bool isHovered = false;
+
+  if (g_Input->mousePos.x >= 0 && g_Input->mousePos.x <= 350.f &&
+      g_Input->mousePos.y >= 0 && g_Input->mousePos.y <= 150.f) {
+    isHovered = true;
+  } else {
+    isHovered = false;
+  }
+
   if (showDiagnostics) {
-    ui_draw_rect(g_RenderData, {0.f, 0.f}, {350.f, 150.f}, {1.0f, 1.0f, 1.0f, 0.3f});
+    ui_draw_rect(g_RenderData, {0.f, 0.f}, {350.f, 150.f}, isHovered ? bgHoveredColor : bgColor);
 
     char* fpsText = bump_alloc(transientStorage, 64);
     snprintf(fpsText, 64, "FPS: %.0f", fps);
@@ -223,11 +267,13 @@ void update(float dt) {
     ui_draw_text(g_RenderData, frameTimeText, {2.0f, 30.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
 
     char* persistentMemText = bump_alloc(transientStorage, 64);
-    snprintf(persistentMemText, 64, "Persistent Mem: %.2f MB", persistentMemoryUsed / (1024.0f * 1024.0f));
+    const double persistentMB = static_cast<double>(persistentMemoryUsed) / (1024.0 * 1024.0);
+    snprintf(persistentMemText, 64, "Persistent Mem: %.2f MB", persistentMB);
     ui_draw_text(g_RenderData, persistentMemText, {2.0f, 45.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
 
     char* transientMemText = bump_alloc(transientStorage, 64);
-    snprintf(transientMemText, 64, "Frame Mem: %.2f MB", frameMemoryUsed / (1024.0f * 1024.0f));
+    const double frameMB = static_cast<double>(frameMemoryUsed) / (1024.0 * 1024.0);
+    snprintf(transientMemText, 64, "Frame Mem: %.2f MB", frameMB);
     ui_draw_text(g_RenderData, transientMemText, {2.0f, 60.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
 
     char* screenSizeText = bump_alloc(transientStorage, 64);
@@ -236,7 +282,7 @@ void update(float dt) {
   }
 
   if (showHUD) {
-    ui_draw_rect(g_RenderData, {g_Input->screenSize.x - 410.f, g_Input->screenSize.y - 60.f}, {400.f, 50.f}, {0.0f, 0.0f, 0.0f, 0.3f});
+    ui_draw_rect(g_RenderData, {g_Input->screenSize.x - 410.f, g_Input->screenSize.y - 55.f}, {400.f, 50.f}, {0.0f, 0.0f, 0.0f, 0.3f});
 
     char* positionText = bump_alloc(transientStorage, 128);
     snprintf(positionText, 128, "Camera Pos: (%.2f, %.2f, %.2f)", g_RenderData->gameCamera.position.x, g_RenderData->gameCamera.position.y, g_RenderData->gameCamera.position.z);
@@ -247,12 +293,12 @@ void update(float dt) {
     ui_draw_text(g_RenderData, rotationText, {g_Input->screenSize.x - 400.f, g_Input->screenSize.y - 30.f}, {1.0f, 1.0f, 1.0f, 1.0f});
   }
 
-  ui_draw_hline(g_RenderData, {0.f, g_Input->screenSize.y / 2}, g_Input->screenSize.x, 2.0f, {1.0f, 0.0f, 0.0f, 1.0f});
-  ui_draw_vline(g_RenderData, {g_Input->screenSize.x / 2, 0.f}, g_Input->screenSize.y, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
+  ui_draw_hline(g_RenderData, {g_Input->screenSize.x / 2 - 5.f, g_Input->screenSize.y / 2}, 10.f, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
+  ui_draw_vline(g_RenderData, {g_Input->screenSize.x / 2, g_Input->screenSize.y / 2 - 5.f}, 10.f, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
 
   char* todoText = bump_alloc(transientStorage, 128);
-  snprintf(todoText, 128, "TODO(Nuno): Fix VSync, Asserts with MsgBox + Line Number + FileName + Minimize Crash");
-  ui_draw_text(g_RenderData, todoText, {g_Input->screenSize.x / 4.f, g_Input->screenSize.y / 2 - 5.f}, {1.0f, 1.0f, 1.0f, 1.0f});
+  snprintf(todoText, 128, "TODO(Joana): Fix VSync");
+  ui_draw_text(g_RenderData, todoText, {g_Input->screenSize.x / 4.f, g_Input->screenSize.y / 2 - 50.f}, {1.0f, 1.0f, 1.0f, 1.0f});
 }
 
 // Assertion handler entry point used inside the game DLL.

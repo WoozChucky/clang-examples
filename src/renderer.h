@@ -182,6 +182,95 @@ float4 main_ps(PSIn pin) : SV_Target
 }
 )";
 
+inline auto PRIM_VS_HLSL = R"(
+cbuffer PerFrame : register(b0)
+{
+    float4x4 uModel;
+    float4x4 uVP;
+    float3   uCameraPos;
+    float    pad0;
+    float3   uSunColor;
+    float    uAmbient;
+};
+
+cbuffer PrimPerDraw : register(b2)
+{
+    float4 GridColor;    // rgb grid lines
+    float4 AxisXColor;   // x axis color
+    float4 AxisZColor;   // z axis color
+    float2 GridParams;   // x = gridScale (cells per unit), y = line thickness
+    float2 FadeParams;   // x = fadeStart, y = fadeEnd
+};
+
+struct VSIn { float3 Pos : POSITION; };
+struct VSOut {
+    float4 PosH  : SV_POSITION;
+    float3 World : TEXCOORD0;
+};
+
+VSOut main_vs(VSIn vin)
+{
+    VSOut o;
+    float4 wpos = mul(float4(vin.Pos, 1.0f), uModel);
+    o.World = wpos.xyz;
+    o.PosH = mul(uVP, wpos);
+    return o;
+}
+)";
+
+inline auto PRIM_PS_HLSL = R"(
+cbuffer PrimPerDraw : register(b2)
+{
+    float4 GridColor;
+    float4 AxisXColor;
+    float4 AxisZColor;
+    float2 GridParams;  // (gridScale, lineThickness)
+    float2 FadeParams;  // (fadeStart, fadeEnd)
+}
+
+struct PSIn {
+    float4 PosH   : SV_POSITION;
+    float3 World  : TEXCOORD0;
+};
+
+float aa_line(float x, float thickness)
+{
+    float w = fwidth(x) * thickness;
+    return 1.0 - saturate(x / max(w, 1e-4));
+}
+
+float4 main_ps(PSIn i) : SV_TARGET
+{
+    float3 P = i.World;
+
+    float dist = length(P);
+    float fade = 1.0;
+    if (FadeParams.x < FadeParams.y) {
+        fade = saturate(1.0 - smoothstep(FadeParams.x, FadeParams.y, dist));
+    }
+
+    float gridScale = max(GridParams.x, 1e-4);
+    float2 g = P.xz * gridScale;
+    float2 fracg = abs(frac(g) - 0.5);
+    float2 d = fracg;
+
+    float thickness = max(GridParams.y, 0.5);
+    float gx = aa_line( (0.5 - d.x), thickness);
+    float gz = aa_line( (0.5 - d.y), thickness);
+    float gridLine = max(gx, gz);
+
+    float axisWidth = 1.5 * thickness;
+    float ax = aa_line(abs(P.x * gridScale), axisWidth);
+    float az = aa_line(abs(P.z * gridScale), axisWidth);
+
+    float3 color = GridColor.rgb * gridLine;
+    color = lerp(color, AxisXColor.rgb, ax);
+    color = lerp(color, AxisZColor.rgb, az);
+
+    return float4(color * fade, 1.0);
+}
+)";
+
 inline auto QUAD_VS_HLSL = R"(
 // UI Quad Vertex Shader (instanced)
 // Transforms 2D quad vertices (in pixels) using per-instance transform read from a StructuredBuffer

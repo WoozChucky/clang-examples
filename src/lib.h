@@ -551,7 +551,7 @@ inline long get_file_size(const char* filePath)
   auto file = fopen(filePath, "rb");
   if(!file)
   {
-    SM_ERROR("Failed opening File: %s", filePath);
+    SM_ERROR("Failed opening File (to get_file_size): %s", filePath);
     return 0;
   }
 
@@ -631,14 +631,15 @@ inline bool copy_file(const char* fileName, const char* outputName, char* buffer
   auto outputFile = fopen(outputName, "wb");
   if(!outputFile)
   {
-    SM_ERROR("Failed opening File: %s", outputName);
+    fprintf(stdout, "%d\n", errno);
+    SM_ERROR("Failed opening File(open-output): %s", outputName);
     return false;
   }
 
   int result = fwrite(data, sizeof(char), fileSize, outputFile);
   if(!result)
   {
-    SM_ERROR("Failed opening File: %s", outputName);
+    SM_ERROR("Failed opening File(write-output): %s", outputName);
     return false;
   }
   

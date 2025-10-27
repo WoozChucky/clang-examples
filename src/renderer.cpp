@@ -39,6 +39,19 @@ struct DummyRenderPass {
     uint32_t m_AtlasHeight = 0;
 };
 
+struct PrimitivePass {
+    nvrhi::BufferHandle m_VertexBuffer;      // plane VB
+    nvrhi::BufferHandle m_IndexBuffer;       // plane IB
+    nvrhi::BufferHandle m_PerDrawCB;         // grid params
+    nvrhi::ShaderHandle m_VS;
+    nvrhi::ShaderHandle m_PS;
+    nvrhi::InputLayoutHandle m_InputLayout;
+    nvrhi::BindingLayoutHandle m_BindingLayout;
+    nvrhi::BindingSetHandle m_BindingSet;
+    nvrhi::GraphicsPipelineHandle m_Pipeline;
+    uint32_t m_IndexCount = 0;
+};
+
 struct UIPass {
     nvrhi::BufferHandle m_VertexBuffer;            // static quad vertices (pos, uv)
     nvrhi::BufferHandle m_IndexBuffer;             // static quad indices
@@ -61,6 +74,7 @@ typedef struct RendererContext {
     RendererBackend*         m_Backend;
     double                   m_PreviousFrameTimestamp;
     DummyRenderPass          m_RenderPass{};
+    PrimitivePass            m_PrimPass{};
     FontAtlas                m_FontAtlas{};
     UIPass                   m_UIPass{};
     uint32_t                 m_RefUIWidth = 0;   // reference UI resolution (width)
@@ -91,6 +105,15 @@ struct PerDrawCBData {
 };
 
 static_assert(sizeof(PerDrawCBData) % 16 == 0);
+
+struct PrimPerDrawCB {
+    glm::vec4 GridColor;
+    glm::vec4 AxisXColor;
+    glm::vec4 AxisZColor;
+    glm::vec2 GridParams;
+    glm::vec2 FadeParams;
+};
+static_assert(sizeof(PrimPerDrawCB) % 16 == 0);
 
 struct UIVertex
 {
@@ -546,6 +569,84 @@ static void create_ui_pass()
     g_RendererContext->m_Device->executeCommandList(cl);
 }
 
+static void create_primitives_pass()
+{
+    SM_ASSERT(g_RendererContext, "Renderer not init");
+
+    g_RendererContext->m_PrimPass.m_PerDrawCB = g_RendererContext->m_Device->createBuffer(
+        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(PrimPerDrawCB), "PrimPerDrawCB")
+            .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
+            .setKeepInitialState(true));
+
+    // Compile primitive shaders (procedural grid)
+    g_RendererContext->m_PrimPass.m_VS = CreateShader(PRIM_VS_HLSL, "main_vs", "vs_5_0",
+        nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex));
+    g_RendererContext->m_PrimPass.m_PS = CreateShader(PRIM_PS_HLSL, "main_ps", "ps_5_0",
+        nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel));
+
+    SM_ASSERT(g_RendererContext->m_PrimPass.m_VS && g_RendererContext->m_PrimPass.m_PS, "Failed to create primitive shaders");
+
+    // Create big plane geometry on Y=0 (two triangles)
+    struct PrimVertex { float x,y,z; };
+    const float S = 10000.0f;
+    PrimVertex verts[4] = { {-S,0,-S}, {+S,0,-S}, {+S,0,+S}, {-S,0,+S} };
+    uint16_t inds[6] = { 0,1,2, 0,2,3 };
+
+    auto cl = g_RendererContext->m_Device->createCommandList();
+    cl->open();
+
+    nvrhi::BufferDesc vbDesc;
+    vbDesc.byteSize = sizeof(verts);
+    vbDesc.isVertexBuffer = true;
+    vbDesc.debugName = "PrimPlaneVB";
+    vbDesc.initialState = nvrhi::ResourceStates::CopyDest;
+    g_RendererContext->m_PrimPass.m_VertexBuffer = g_RendererContext->m_Device->createBuffer(vbDesc);
+
+    cl->beginTrackingBufferState(g_RendererContext->m_PrimPass.m_VertexBuffer, nvrhi::ResourceStates::CopyDest);
+    cl->writeBuffer(g_RendererContext->m_PrimPass.m_VertexBuffer, verts, sizeof(verts));
+    cl->setPermanentBufferState(g_RendererContext->m_PrimPass.m_VertexBuffer, nvrhi::ResourceStates::VertexBuffer);
+
+    nvrhi::BufferDesc ibDesc;
+    ibDesc.byteSize = sizeof(inds);
+    ibDesc.isIndexBuffer = true;
+    ibDesc.debugName = "PrimPlaneIB";
+    ibDesc.initialState = nvrhi::ResourceStates::CopyDest;
+    g_RendererContext->m_PrimPass.m_IndexBuffer = g_RendererContext->m_Device->createBuffer(ibDesc);
+
+    cl->beginTrackingBufferState(g_RendererContext->m_PrimPass.m_IndexBuffer, nvrhi::ResourceStates::CopyDest);
+    cl->writeBuffer(g_RendererContext->m_PrimPass.m_IndexBuffer, inds, sizeof(inds));
+    cl->setPermanentBufferState(g_RendererContext->m_PrimPass.m_IndexBuffer, nvrhi::ResourceStates::IndexBuffer);
+
+    cl->close();
+
+    g_RendererContext->m_PrimPass.m_IndexCount = 6;
+
+    g_RendererContext->m_Device->executeCommandList(cl);
+
+    // Create input layout (POSITION only)
+    nvrhi::VertexAttributeDesc attr;
+    attr.setName("POSITION").setFormat(nvrhi::Format::RGB32_FLOAT).setOffset(0).setBufferIndex(0).setElementStride(sizeof(PrimVertex));
+    g_RendererContext->m_PrimPass.m_InputLayout = g_RendererContext->m_Device->createInputLayout(&attr, 1, g_RendererContext->m_PrimPass.m_VS);
+
+    // Create binding layout/set (b0 = PerFrame from main pass, b2 = PrimPerDraw)
+    nvrhi::BindingSetDesc bs;
+    bs.bindings = {
+        nvrhi::BindingSetItem::ConstantBuffer(0, g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer),
+        nvrhi::BindingSetItem::ConstantBuffer(2, g_RendererContext->m_PrimPass.m_PerDrawCB)
+    };
+
+    if (!nvrhi::utils::CreateBindingSetAndLayout(
+            g_RendererContext->m_Device,
+            nvrhi::ShaderType::All,
+            0,
+            bs,
+            g_RendererContext->m_PrimPass.m_BindingLayout,
+            g_RendererContext->m_PrimPass.m_BindingSet))
+    {
+        SM_ASSERT(false, "Failed to create Primitive binding set/layout");
+    }
+}
+
 void renderer_init(const int width, const int height, void* handle, BumpAllocator* persistentStorage) {
 
     g_RendererContext = reinterpret_cast<RendererContext *>(bump_alloc(persistentStorage, sizeof(RendererContext)));
@@ -587,6 +688,7 @@ void renderer_init(const int width, const int height, void* handle, BumpAllocato
     create_cube();
     load_font_atlas();
     create_ui_pass();
+    create_primitives_pass();
 }
 
 void renderer_shutdown() {
@@ -620,6 +722,28 @@ bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, p
 
             const auto frameBuffer = RENDER_API::renderer_get_framebuffer(g_RendererContext->m_Backend);
 
+            g_RendererContext->m_CommandList->open();
+
+            nvrhi::utils::ClearColorAttachment(g_RendererContext->m_CommandList, frameBuffer, 0,
+                                               nvrhi::Color(renderData->clearColor.r, renderData->clearColor.g,
+                                                            renderData->clearColor.b, renderData->clearColor.a));
+
+            // --- Primitives (Grid Plane) Pipeline ---
+            if (!g_RendererContext->m_PrimPass.m_Pipeline)
+            {
+                const auto fbi = frameBuffer->getFramebufferInfo();
+                nvrhi::GraphicsPipelineDesc pso;
+                pso.VS = g_RendererContext->m_PrimPass.m_VS;
+                pso.PS = g_RendererContext->m_PrimPass.m_PS;
+                pso.inputLayout = g_RendererContext->m_PrimPass.m_InputLayout;
+                pso.bindingLayouts = { g_RendererContext->m_PrimPass.m_BindingLayout };
+                pso.primType = nvrhi::PrimitiveType::TriangleList;
+                pso.renderState.depthStencilState.depthTestEnable = false; // no depth buffer yet
+                pso.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+                g_RendererContext->m_PrimPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(pso, fbi);
+            }
+
+            // --- Cube Pipeline ---
             if (!g_RendererContext->m_RenderPass.m_Pipeline) {
                 const auto fbi = frameBuffer->getFramebufferInfo();
 
@@ -634,64 +758,7 @@ bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, p
                 g_RendererContext->m_RenderPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(psoDesc, fbi);
             }
 
-            g_RendererContext->m_CommandList->open();
-
-            nvrhi::utils::ClearColorAttachment(g_RendererContext->m_CommandList, frameBuffer, 0,
-                                               nvrhi::Color(renderData->clearColor.r, renderData->clearColor.g,
-                                                            renderData->clearColor.b, renderData->clearColor.a));
-
-            // Update constant buffers
-            if (g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer)
-            {
-                PerFrameCBData perFrame = {};
-                perFrame.Model = renderData->modelMatrix3D;
-                {
-                    glm::mat4 V = renderData->gameCamera.get_view_matrix();
-                    glm::mat4 P = renderData->gameCamera.get_projection_matrix();
-                    perFrame.VP = P * V;
-                }
-                perFrame.CameraPos = renderData->gameCamera.position;
-                perFrame.SunColor = glm::vec3(1.0f);
-                perFrame.Ambient = 0.08f;
-
-                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, &perFrame, sizeof(perFrame));
-            }
-
-            if (g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer)
-            {
-                PerDrawCBData perDraw = {};
-                constexpr float tilePixelW = 16.0f;
-                constexpr float tilePixelH = 16.0f;
-                perDraw.chunkOffset = glm::vec3(0.0f);
-                perDraw.tileSizeUV = glm::vec2(tilePixelW / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth)),
-                                               tilePixelH / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight)));
-                perDraw.tileTexelOffset = glm::vec2(0.5f / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth)),
-                                                    0.5f / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight)));
-                perDraw.materialTint = glm::vec4(1.0f);
-
-                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer, &perDraw, sizeof(perDraw));
-            }
-
-            // Set graphics state and bindings
-            nvrhi::GraphicsState state;
-            state.pipeline = g_RendererContext->m_RenderPass.m_Pipeline.Get();
-            state.framebuffer = frameBuffer;
-            state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
-            state.bindings = { g_RendererContext->m_RenderPass.m_BindingSet };
-            state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_RenderPass.m_VertexBuffer, 0, 0) };
-            state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_RenderPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
-
-            g_RendererContext->m_CommandList->setGraphicsState(state);
-
-            // Draw indexed cube
-            nvrhi::DrawArguments drawArgs;
-            drawArgs.vertexCount = g_RendererContext->m_RenderPass.m_IndexCount; // for indexed: this is the index count
-            drawArgs.instanceCount = 1;
-            drawArgs.startIndexLocation = 0;
-            drawArgs.startVertexLocation = 0;
-            g_RendererContext->m_CommandList->drawIndexed(drawArgs);
-
-            // Create UI pipeline lazily
+            // --- UI Pipeline ---
             if (!g_RendererContext->m_UIPass.m_Pipeline)
             {
                 const auto fbi2 = frameBuffer->getFramebufferInfo();
@@ -719,150 +786,261 @@ bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, p
                 g_RendererContext->m_UIPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(uiDesc, fbi2);
             }
 
-            // Update UI frame CB with orthographic matrix (pixels -> clip space)
-            if (g_RendererContext->m_UIPass.m_PerFrameCB)
+            // Primitive Pass
             {
-                const auto vp = frameBuffer->getFramebufferInfo().getViewport();
-                const float w = vp.width();
-                const float h = vp.height();
-                // Map (0,0) top-left to (-1,+1), (w,h) to (+1,-1)
-                // Matrix that does: x' = 2/w*x - 1, y' = 1 - 2/h*y
-                glm::mat4 ortho(1.0f);
-                ortho[0][0] = 2.0f / w;  ortho[1][0] = 0.0f;       ortho[2][0] = 0.0f; ortho[3][0] = -1.0f; // column 0..3
-                ortho[0][1] = 0.0f;       ortho[1][1] = -2.0f / h; ortho[2][1] = 0.0f; ortho[3][1] =  1.0f;
-                ortho[0][2] = 0.0f;       ortho[1][2] = 0.0f;       ortho[2][2] = 1.0f; ortho[3][2] =  0.0f;
-                ortho[0][3] = 0.0f;       ortho[1][3] = 0.0f;       ortho[2][3] = 0.0f; ortho[3][3] =  1.0f;
-
-                UIFrameCBData uiFrame{};
-                uiFrame.Ortho = ortho;
-                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_PerFrameCB, &uiFrame, sizeof(uiFrame));
-            }
-
-            state.pipeline = g_RendererContext->m_UIPass.m_Pipeline.Get();
-            state.framebuffer = frameBuffer;
-            state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
-            state.bindings = { g_RendererContext->m_UIPass.m_BindingSet };
-            state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_UIPass.m_VertexBuffer, 0, 0) };
-            state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_UIPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
-
-            g_RendererContext->m_CommandList->setGraphicsState(state);
-
-            // Build UI instances from game-layer UI command buffers without heap allocations
-            // First pass: count how many instances we need (rects + glyphs)
-            uint32_t rectCount = static_cast<uint32_t>(renderData->uiRects.count);
-            uint32_t glyphCount = 0;
-            if (g_RendererContext->m_FontAtlas.texture && renderData->uiTexts.count > 0)
-            {
-                for (int ti = 0; ti < renderData->uiTexts.count; ++ti)
+                if (renderData && renderData->primitives.count > 0)
                 {
-                    const UITextCmd& tc = renderData->uiTexts.elements[ti];
-                    // Safety: ensure text slice is within buffer; if not, skip counting
-                    const uint32_t off = tc.textOffset;
-                    const uint32_t len = tc.textLength;
-                    if (off + len > UI_TEXT_BUFFER_BYTES) continue;
-                    // Use precomputed glyphCount recorded at submission time to avoid re-iterating the string here
-                    glyphCount += tc.glyphCount;
+                    // Common VP for this frame
+                    glm::mat4 V = renderData->gameCamera.get_view_matrix();
+                    glm::mat4 P = renderData->gameCamera.get_projection_matrix();
+
+                    // Defaults for the grid
+                    PrimPerDrawCB prim{};
+                    prim.GridColor  = {0.35f, 0.35f, 0.35f, 1.0f};
+                    prim.AxisXColor = {1.0f, 0.2f, 0.2f, 1.0f};
+                    prim.AxisZColor = {0.2f, 0.6f, 1.0f, 1.0f};
+                    prim.GridParams = {0.5f, 2.0f};   // 1 unit per cell, 1px thickness
+                    prim.FadeParams = {500.0f, 1000.0f};
+                    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_PrimPass.m_PerDrawCB, &prim, sizeof(prim));
+
+                    // State
+                    nvrhi::GraphicsState primState;
+                    primState.pipeline = g_RendererContext->m_PrimPass.m_Pipeline.Get();
+                    primState.framebuffer = frameBuffer;
+                    primState.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+                    primState.bindings = { g_RendererContext->m_PrimPass.m_BindingSet };
+                    primState.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_PrimPass.m_VertexBuffer, 0, 0) };
+                    primState.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_PrimPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+
+                    for (int i = 0; i < renderData->primitives.count; ++i)
+                    {
+                        const auto& inst = renderData->primitives[i];
+                        if (inst.type != PrimitiveType::Plane) continue;
+
+                        PerFrameCBData pf{};
+                        pf.Model = inst.transform;
+                        pf.VP = P * V;
+                        pf.CameraPos = renderData->gameCamera.position;
+                        pf.SunColor = glm::vec3(1.0f);
+                        pf.Ambient = 0.08f;
+                        g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, &pf, sizeof(pf));
+
+                        g_RendererContext->m_CommandList->setGraphicsState(primState);
+
+                        nvrhi::DrawArguments args{};
+                        args.vertexCount = g_RendererContext->m_PrimPass.m_IndexCount; // index count for indexed draw
+                        args.instanceCount = 1;
+                        args.startIndexLocation = 0;
+                        args.startVertexLocation = 0;
+                        g_RendererContext->m_CommandList->drawIndexed(args);
+                    }
+
+                    renderData->primitives.clear();
                 }
             }
 
-            uint32_t totalInstances = rectCount + glyphCount;
-            if (totalInstances > g_RendererContext->m_UIPass.m_MaxInstances)
+            // Cube Packed Pass
             {
-                SM_WARN("UI instances truncated: %u -> %u", totalInstances, g_RendererContext->m_UIPass.m_MaxInstances);
-                totalInstances = g_RendererContext->m_UIPass.m_MaxInstances;
-            }
-
-            UIInstanceCPU* instances = nullptr;
-            if (totalInstances > 0)
-            {
-                instances = reinterpret_cast<UIInstanceCPU*>(bump_alloc(transientStorage, totalInstances * sizeof(UIInstanceCPU)));
-                SM_ASSERT(instances, "Out of transient memory for UI instances");
-            }
-
-            uint32_t outIdx = 0;
-
-            // 1) Rects / lines (solid color, no sampling)
-            for (int i = 0; i < renderData->uiRects.count && outIdx < totalInstances; ++i)
-            {
-                const UIRectCmd& rc = renderData->uiRects.elements[i];
-                const glm::vec2 pos = rc.pos;   // current pixels
-                const glm::vec2 size = rc.size; // current pixels
-
-                UIInstanceCPU inst{};
-                inst.Transform = glm::mat4(1.0f);
-                inst.Transform[0][0] = size.x;
-                inst.Transform[1][1] = size.y;
-                inst.Transform[3][0] = pos.x;
-                inst.Transform[3][1] = pos.y;
-                inst.Color = rc.color;
-                inst.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f);
-                inst.Flags = 0u; // solid color
-                instances[outIdx++] = inst;
-            }
-
-            // 2) Texts (sample font atlas)
-            if (g_RendererContext->m_FontAtlas.texture && renderData->uiTexts.count > 0 && outIdx < totalInstances)
-            {
-                const auto aw = static_cast<float>(g_RendererContext->m_FontAtlas.width);
-                const auto ah = static_cast<float>(g_RendererContext->m_FontAtlas.height);
-
-                for (int ti = 0; ti < renderData->uiTexts.count && outIdx < totalInstances; ++ti)
+                // Update constant buffers
+                if (g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer)
                 {
-                    const UITextCmd& tc = renderData->uiTexts.elements[ti];
-                    const uint32_t off = tc.textOffset;
-                    const uint32_t len = tc.textLength;
-                    if (off + len > UI_TEXT_BUFFER_BYTES) continue; // safety
-                    const char* str = renderData->uiTextBuffer + off;
-
-                    glm::vec2 pen = tc.pos; // baseline origin, top-left convention
-                    for (uint32_t k = 0; k < len && outIdx < totalInstances; ++k)
+                    PerFrameCBData perFrame = {};
+                    perFrame.Model = renderData->modelMatrix3D;
                     {
-                        const auto c = static_cast<unsigned char>(str[k]);
-                        if (c >= 128u) continue;
-                        const Glyph& g = g_RendererContext->m_FontAtlas.glyphs[c];
+                        glm::mat4 V = renderData->gameCamera.get_view_matrix();
+                        glm::mat4 P = renderData->gameCamera.get_projection_matrix();
+                        perFrame.VP = P * V;
+                    }
+                    perFrame.CameraPos = renderData->gameCamera.position;
+                    perFrame.SunColor = glm::vec3(1.0f);
+                    perFrame.Ambient = 0.08f;
 
-                        glm::vec2 pos;
-                        pos.x = pen.x + g.offset.x;
-                        pos.y = pen.y - g.offset.y; // top-left convention
-                        const glm::vec2 size = g.size;
+                    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, &perFrame, sizeof(perFrame));
+                }
 
-                        UIInstanceCPU inst{};
-                        inst.Transform = glm::mat4(1.0f);
-                        inst.Transform[0][0] = size.x;
-                        inst.Transform[1][1] = size.y;
-                        inst.Transform[3][0] = pos.x;
-                        inst.Transform[3][1] = pos.y;
-                        inst.Color = tc.color;
-                        inst.Flags = UI_OPT_SAMPLE_TEXTURE;
+                if (g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer)
+                {
+                    PerDrawCBData perDraw = {};
+                    constexpr float tilePixelW = 16.0f;
+                    constexpr float tilePixelH = 16.0f;
+                    perDraw.chunkOffset = glm::vec3(0.0f);
+                    perDraw.tileSizeUV = glm::vec2(tilePixelW / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth)),
+                                                   tilePixelH / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight)));
+                    perDraw.tileTexelOffset = glm::vec2(0.5f / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth)),
+                                                        0.5f / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight)));
+                    perDraw.materialTint = glm::vec4(1.0f);
 
-                        const auto uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
-                        const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
-                        inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
+                    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer, &perDraw, sizeof(perDraw));
+                }
 
-                        instances[outIdx++] = inst;
-                        pen.x += g.advance.x;
+                // Set graphics state and bindings
+                nvrhi::GraphicsState state;
+                state.pipeline = g_RendererContext->m_RenderPass.m_Pipeline.Get();
+                state.framebuffer = frameBuffer;
+                state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+                state.bindings = { g_RendererContext->m_RenderPass.m_BindingSet };
+                state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_RenderPass.m_VertexBuffer, 0, 0) };
+                state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_RenderPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+
+                g_RendererContext->m_CommandList->setGraphicsState(state);
+
+                // Draw indexed cube
+                nvrhi::DrawArguments drawArgs;
+                drawArgs.vertexCount = g_RendererContext->m_RenderPass.m_IndexCount; // for indexed: this is the index count
+                drawArgs.instanceCount = 1;
+                drawArgs.startIndexLocation = 0;
+                drawArgs.startVertexLocation = 0;
+                g_RendererContext->m_CommandList->drawIndexed(drawArgs);
+            }
+
+            // UI Pass
+            {
+                // Update UI frame CB with orthographic matrix (pixels -> clip space)
+                if (g_RendererContext->m_UIPass.m_PerFrameCB)
+                {
+                    const auto vp = frameBuffer->getFramebufferInfo().getViewport();
+                    const float w = vp.width();
+                    const float h = vp.height();
+                    // Map (0,0) top-left to (-1,+1), (w,h) to (+1,-1)
+                    // Matrix that does: x' = 2/w*x - 1, y' = 1 - 2/h*y
+                    glm::mat4 ortho(1.0f);
+                    ortho[0][0] = 2.0f / w;  ortho[1][0] = 0.0f;       ortho[2][0] = 0.0f; ortho[3][0] = -1.0f; // column 0..3
+                    ortho[0][1] = 0.0f;       ortho[1][1] = -2.0f / h; ortho[2][1] = 0.0f; ortho[3][1] =  1.0f;
+                    ortho[0][2] = 0.0f;       ortho[1][2] = 0.0f;       ortho[2][2] = 1.0f; ortho[3][2] =  0.0f;
+                    ortho[0][3] = 0.0f;       ortho[1][3] = 0.0f;       ortho[2][3] = 0.0f; ortho[3][3] =  1.0f;
+
+                    UIFrameCBData uiFrame{};
+                    uiFrame.Ortho = ortho;
+                    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_PerFrameCB, &uiFrame, sizeof(uiFrame));
+                }
+
+                nvrhi::GraphicsState state;
+                state.pipeline = g_RendererContext->m_UIPass.m_Pipeline.Get();
+                state.framebuffer = frameBuffer;
+                state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+                state.bindings = { g_RendererContext->m_UIPass.m_BindingSet };
+                state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_UIPass.m_VertexBuffer, 0, 0) };
+                state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_UIPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+
+                g_RendererContext->m_CommandList->setGraphicsState(state);
+
+                // Build UI instances from game-layer UI command buffers without heap allocations
+                // First pass: count how many instances we need (rects + glyphs)
+                auto rectCount = static_cast<uint32_t>(renderData->uiRects.count);
+                uint32_t glyphCount = 0;
+                if (g_RendererContext->m_FontAtlas.texture && renderData->uiTexts.count > 0)
+                {
+                    for (int ti = 0; ti < renderData->uiTexts.count; ++ti)
+                    {
+                        const UITextCmd& tc = renderData->uiTexts.elements[ti];
+                        // Safety: ensure text slice is within buffer; if not, skip counting
+                        const uint32_t off = tc.textOffset;
+                        const uint32_t len = tc.textLength;
+                        if (off + len > UI_TEXT_BUFFER_BYTES) continue;
+                        // Use precomputed glyphCount recorded at submission time to avoid re-iterating the string here
+                        glyphCount += tc.glyphCount;
                     }
                 }
+
+                uint32_t totalInstances = rectCount + glyphCount;
+                if (totalInstances > g_RendererContext->m_UIPass.m_MaxInstances)
+                {
+                    SM_WARN("UI instances truncated: %u -> %u", totalInstances, g_RendererContext->m_UIPass.m_MaxInstances);
+                    totalInstances = g_RendererContext->m_UIPass.m_MaxInstances;
+                }
+
+                UIInstanceCPU* instances = nullptr;
+                if (totalInstances > 0)
+                {
+                    instances = reinterpret_cast<UIInstanceCPU*>(bump_alloc(transientStorage, totalInstances * sizeof(UIInstanceCPU)));
+                    SM_ASSERT(instances, "Out of transient memory for UI instances");
+                }
+
+                uint32_t outIdx = 0;
+
+                // 1) Rects / lines (solid color, no sampling)
+                for (int i = 0; i < renderData->uiRects.count && outIdx < totalInstances; ++i)
+                {
+                    const UIRectCmd& rc = renderData->uiRects.elements[i];
+                    const glm::vec2 pos = rc.pos;   // current pixels
+                    const glm::vec2 size = rc.size; // current pixels
+
+                    UIInstanceCPU inst{};
+                    inst.Transform = glm::mat4(1.0f);
+                    inst.Transform[0][0] = size.x;
+                    inst.Transform[1][1] = size.y;
+                    inst.Transform[3][0] = pos.x;
+                    inst.Transform[3][1] = pos.y;
+                    inst.Color = rc.color;
+                    inst.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f);
+                    inst.Flags = 0u; // solid color
+                    instances[outIdx++] = inst;
+                }
+
+                // 2) Texts (sample font atlas)
+                if (g_RendererContext->m_FontAtlas.texture && renderData->uiTexts.count > 0 && outIdx < totalInstances)
+                {
+                    const auto aw = static_cast<float>(g_RendererContext->m_FontAtlas.width);
+                    const auto ah = static_cast<float>(g_RendererContext->m_FontAtlas.height);
+
+                    for (int ti = 0; ti < renderData->uiTexts.count && outIdx < totalInstances; ++ti)
+                    {
+                        const UITextCmd& tc = renderData->uiTexts.elements[ti];
+                        const uint32_t off = tc.textOffset;
+                        const uint32_t len = tc.textLength;
+                        if (off + len > UI_TEXT_BUFFER_BYTES) continue; // safety
+                        const char* str = renderData->uiTextBuffer + off;
+
+                        glm::vec2 pen = tc.pos; // baseline origin, top-left convention
+                        for (uint32_t k = 0; k < len && outIdx < totalInstances; ++k)
+                        {
+                            const auto c = static_cast<unsigned char>(str[k]);
+                            if (c >= 128u) continue;
+                            const Glyph& g = g_RendererContext->m_FontAtlas.glyphs[c];
+
+                            glm::vec2 pos;
+                            pos.x = pen.x + g.offset.x;
+                            pos.y = pen.y - g.offset.y; // top-left convention
+                            const glm::vec2 size = g.size;
+
+                            UIInstanceCPU inst{};
+                            inst.Transform = glm::mat4(1.0f);
+                            inst.Transform[0][0] = size.x;
+                            inst.Transform[1][1] = size.y;
+                            inst.Transform[3][0] = pos.x;
+                            inst.Transform[3][1] = pos.y;
+                            inst.Color = tc.color;
+                            inst.Flags = UI_OPT_SAMPLE_TEXTURE;
+
+                            const auto uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
+                            const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
+                            inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
+
+                            instances[outIdx++] = inst;
+                            pen.x += g.advance.x;
+                        }
+                    }
+                }
+
+                // Upload instances to GPU
+                if (outIdx > 0)
+                {
+                    const size_t bytes = static_cast<size_t>(outIdx) * sizeof(UIInstanceCPU);
+                    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, instances, bytes);
+
+                    nvrhi::DrawArguments uiDrawArgs;
+                    uiDrawArgs.vertexCount = g_RendererContext->m_UIPass.m_IndexCount; // indexed draw uses index count here
+                    uiDrawArgs.instanceCount = outIdx;
+                    uiDrawArgs.startIndexLocation = 0;
+                    uiDrawArgs.startVertexLocation = 0;
+                    g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
+                }
+
+                // Clear per-frame UI command buffers (defensive; game can also call ui_begin_frame)
+                renderData->uiRects.clear();
+                renderData->uiTexts.clear();
+                renderData->uiTextBufferCount = 0;
             }
-
-            // Upload instances to GPU
-            if (outIdx > 0)
-            {
-                const size_t bytes = static_cast<size_t>(outIdx) * sizeof(UIInstanceCPU);
-                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, instances, bytes);
-
-                nvrhi::DrawArguments uiDrawArgs;
-                uiDrawArgs.vertexCount = g_RendererContext->m_UIPass.m_IndexCount; // indexed draw uses index count here
-                uiDrawArgs.instanceCount = outIdx;
-                uiDrawArgs.startIndexLocation = 0;
-                uiDrawArgs.startVertexLocation = 0;
-                g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
-            }
-
-            // Clear per-frame UI command buffers (defensive; game can also call ui_begin_frame)
-            renderData->uiRects.clear();
-            renderData->uiTexts.clear();
-            renderData->uiTextBufferCount = 0;
 
             g_RendererContext->m_CommandList->close();
             g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);
