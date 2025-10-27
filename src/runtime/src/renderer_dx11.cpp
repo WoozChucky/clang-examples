@@ -3,7 +3,7 @@
 #include <dxgi1_3.h>
 #include <dxgidebug.h>
 
-#include "lib.h"
+#include <lib.h>
 
 #include <nvrhi/validation.h>
 
