@@ -2,12 +2,10 @@
 
 #include <WinString.h>
 
-#include "imgui.h"
-#include "imgui_impl_win32.h"
-#include "imgui_impl_dx11.h"
-#include "imgui_impl_dx12.h"
-
-#include "renderer_dx12.h"
+#include <imgui.h>
+#include <imgui_impl_win32.h>
+#include <imgui_impl_dx11.h>
+//#include <imgui_impl_dx12.h>
 
 EXPORT_FN void overlay_setup(void* platform_handle, void* device, void* device_context) {
     IMGUI_CHECKVERSION();
@@ -41,6 +39,10 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device, void* device_c
 
     ImGui_ImplWin32_Init(platform_handle);
 
+    //TODO: Fetch device and device_context from void* device, void* device_context
+    ImGui_ImplDX11_Init(nullptr, nullptr);
+
+    /*
     const auto deviceCtx = static_cast<RendererBackendDX12*>(device_context);
     const auto descriptorHeap = deviceCtx->m_Device->getNativeObject(nvrhi::ObjectTypes::D3D12_RenderTargetViewDescriptor);
 
@@ -57,6 +59,7 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device, void* device_c
     init_info.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_handle) { return g_pd3dSrvDescHeapAlloc.Alloc(out_cpu_handle, out_gpu_handle); };
     init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle)            { return g_pd3dSrvDescHeapAlloc.Free(cpu_handle, gpu_handle); };
     ImGui_ImplDX12_Init(&init_info);
+    */
 }
 
 EXPORT_FN void overlay_render() {
@@ -84,7 +87,8 @@ EXPORT_FN void overlay_render() {
 }
 
 EXPORT_FN void overlay_shutdown() {
-    ImGui_ImplDX12_Shutdown();
+    ImGui_ImplDX11_Shutdown();
+    // ImGui_ImplDX12_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
 }

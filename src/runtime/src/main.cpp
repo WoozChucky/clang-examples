@@ -6,7 +6,7 @@
 #include "sound.h"
 #include "render.h"
 #include "renderer.h"
-#include "imgui_overlay.h"
+#include "../../overlay/include/imgui_overlay.h"
 
 #include "platform.h"
 #ifdef _WIN32

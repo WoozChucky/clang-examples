@@ -5,8 +5,8 @@
 #include <thread>
 #include <vector>
 
-#include "lib.h"
-#include "render.h"
+#include <lib.h>
+#include <render.h>
 #include "renderer_dx12.h"
 #include "renderer_dx11.h"
 
