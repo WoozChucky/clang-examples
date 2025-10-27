@@ -16,8 +16,10 @@ using Microsoft::WRL::ComPtr;
 using nvrhi::RefCountPtr;
 
 typedef struct RendererBackendDX12 {
+    RendererBackendAPI                              m_Api = RendererBackendAPI::Direct3D12;
     DebugMessageCallback*                           m_MessageCallback;
     nvrhi::DeviceHandle                             m_Device;
+    nvrhi::CommandListHandle                        m_CommandList;
     nvrhi::d3d12::DeviceDesc                        m_DeviceDesc;
     RefCountPtr<IDXGIFactory2>                      m_DxgiFactory2;
     RefCountPtr<ID3D12Device>                       m_Device12;
@@ -56,6 +58,7 @@ namespace directx12 {
     void create_internal_instance(RendererBackend* backend);
     nvrhi::DeviceHandle create_device(RendererBackend* backend);
     void create_swapchain(RendererBackend* backend, HWND hWnd, int width, int height);
+    nvrhi::CommandListHandle create_command_list(RendererBackend* backend);
     void renderer_resize_swapchain(RendererBackend* backend, int width, int height);
     bool renderer_begin_frame(RendererBackend* backend);
     nvrhi::IFramebuffer* renderer_get_framebuffer(RendererBackend* backend, int32_t index = -1);

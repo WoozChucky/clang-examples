@@ -16,8 +16,8 @@
 #include "image.h"
 #include "VertexPacked.h"
 
-#define RENDER_API directx12
-#define RENDER_API_NAME RendererBackendDX12
+#define RENDER_API directx11
+#define RENDER_API_NAME RendererBackendDX11
 
 class DebugMessageCallback;
 
@@ -683,7 +683,7 @@ void renderer_init(const int width, const int height, void* handle, BumpAllocato
 
     RENDER_API::create_swapchain(g_RendererContext->m_Backend, static_cast<HWND>(handle), width, height);
 
-    g_RendererContext->m_CommandList = g_RendererContext->m_Device->createCommandList();
+    g_RendererContext->m_CommandList = RENDER_API::create_command_list(g_RendererContext->m_Backend);
 
     create_cube();
     load_font_atlas();
@@ -1042,12 +1042,12 @@ bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, p
                 renderData->uiTextBufferCount = 0;
             }
 
-            g_RendererContext->m_CommandList->close();
-            g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);
-
             if (uiOverlay) {
                 uiOverlay();
             }
+
+            g_RendererContext->m_CommandList->close();
+            g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);
 
             const bool presentSuccess = RENDER_API::renderer_present(g_RendererContext->m_Backend);
             if (!presentSuccess) {
@@ -1086,10 +1086,6 @@ void renderer_toggle_vsync() {
     backend->m_Settings.vsyncEnabled = !prev;
 
     SM_TRACE("VSync %s", backend->m_Settings.vsyncEnabled ? "ENABLED" : "DISABLED");
-}
-
-void* renderer_get_device() {
-    return nullptr;
 }
 
 void* renderer_get_device_context() {

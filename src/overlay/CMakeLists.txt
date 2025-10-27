@@ -5,6 +5,7 @@ add_library(imgui_overlay SHARED
 
 target_include_directories(imgui_overlay PUBLIC include)
 target_include_directories(imgui_overlay PRIVATE ../common/include)
+target_include_directories(imgui_overlay PRIVATE ../runtime/src)
 
 target_link_libraries(imgui_overlay PRIVATE imgui nvrhi nvrhi_d3d12 nvrhi_d3d11 nvrhi_vk)
 

@@ -18,3 +18,9 @@ typedef struct RendererBackendSettings {
     uint32_t                         backBufferHeight = 1080;
     bool                             vsyncEnabled = true;
 } RendererBackendSettings;
+
+enum class RendererBackendAPI {
+    Direct3D11,
+    Direct3D12,
+    Vulkan
+};

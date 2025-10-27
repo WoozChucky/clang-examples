@@ -235,6 +235,20 @@ void directx11::create_swapchain(RendererBackend* backend, HWND hWnd, const int 
     create_render_targets(dx11);
 }
 
+nvrhi::CommandListHandle directx11::create_command_list(RendererBackend* backend) {
+    const auto dx11 = reinterpret_cast<RendererBackendDX11 *>(backend);
+    if (!dx11) {
+        SM_ERROR("RendererBackendDX11 is null");
+        return nullptr;
+    }
+
+    if (!dx11->m_CommandList) {
+        dx11->m_CommandList = dx11->m_Device->createCommandList();
+    }
+
+    return dx11->m_CommandList;
+}
+
 void directx11::renderer_resize_swapchain(RendererBackend* backend, const int width, const int height) {
     const auto dx11 = reinterpret_cast<RendererBackendDX11 *>(backend);
     if (!dx11) {

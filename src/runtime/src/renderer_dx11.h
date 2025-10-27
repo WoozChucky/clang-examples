@@ -8,8 +8,10 @@
 using nvrhi::RefCountPtr;
 
 typedef struct RendererBackendDX11 {
+    RendererBackendAPI                              m_Api = RendererBackendAPI::Direct3D11;
     DebugMessageCallback*                           m_MessageCallback;
     nvrhi::DeviceHandle                             m_Device;
+    nvrhi::CommandListHandle                        m_CommandList;
     nvrhi::d3d11::DeviceDesc                        m_DeviceDesc;
     RefCountPtr<IDXGIFactory1>                      m_DxgiFactory1;
     RefCountPtr<IDXGIAdapter>                       m_DxgiAdapter;
@@ -41,6 +43,7 @@ namespace directx11 {
     void create_internal_instance(RendererBackend* backend);
     nvrhi::DeviceHandle create_device(RendererBackend* backend);
     void create_swapchain(RendererBackend* backend, HWND hWnd, int width, int height);
+    nvrhi::CommandListHandle create_command_list(RendererBackend* backend);
     void renderer_resize_swapchain(RendererBackend* backend, int width, int height);
     bool renderer_begin_frame(RendererBackend* backend);
     nvrhi::IFramebuffer* renderer_get_framebuffer(RendererBackend* backend, int32_t index = -1);
