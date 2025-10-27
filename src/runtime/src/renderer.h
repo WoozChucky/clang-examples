@@ -6,7 +6,7 @@ struct BumpAllocator;
 struct RenderData;
 
 // declare PFN to UI Overlay render function
-typedef void(*pfnRenderUIOverlay)();
+typedef void(*pfnRenderUIOverlay)(RenderData* renderData);
 
 void renderer_init(int width, int height, void* handle, BumpAllocator* persistentStorage);
 void renderer_shutdown();
