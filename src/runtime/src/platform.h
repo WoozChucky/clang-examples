@@ -65,6 +65,8 @@ void platform_update_audio(PlatformContext* ctx, float dt);
 
 // Misc
 void platform_sleep(unsigned int ms);
+// Deletes all files in the given directory (non-recursive). Returns true on success or if the directory doesn't exist.
+bool platform_delete_all_files_in_directory(const char* directory);
 
 // Generic file watching API (implemented per-platform)
 // Starts watching the given file path. Returns a handle or nullptr on failure.

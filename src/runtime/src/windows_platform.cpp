@@ -533,6 +533,7 @@ static bool get_file_last_write_timeA(const char* path, FILETIME* out)
   return true;
 }
 
+// ReSharper disable once CppDFAConstantFunctionResult
 static DWORD WINAPI file_watch_thread_proc(LPVOID param)
 {
   auto* h = reinterpret_cast<FileWatchHandle*>(param);
@@ -866,3 +867,62 @@ void platform_debug_break(const char* expr, const char* file, int line, const ch
   DEBUG_BREAK();
 }
 
+
+
+// Deletes all files in a given directory (non-recursive). Used to clear timestamped runtime DLL copies.
+bool platform_delete_all_files_in_directory(const char* directory)
+{
+    if (!directory || !*directory)
+        return false;
+
+    char pattern[MAX_PATH];
+    size_t len = strlen(directory);
+    const bool hasSlash = (len > 0) && (directory[len - 1] == '\\' || directory[len - 1] == '/');
+    if (hasSlash)
+        snprintf(pattern, MAX_PATH, "%s*.*", directory);
+    else
+        snprintf(pattern, MAX_PATH, "%s\\*.*", directory);
+
+    WIN32_FIND_DATAA ffd;
+    HANDLE hFind = FindFirstFileA(pattern, &ffd);
+    if (hFind == INVALID_HANDLE_VALUE)
+    {
+        const DWORD err = GetLastError();
+        if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND)
+        {
+            // Directory doesn't exist or is empty; treat as success
+            return true;
+        }
+        SM_WARN("FindFirstFileA failed for pattern %s (err=%lu)", pattern, err);
+        return false;
+    }
+
+    bool allOk = true;
+    do
+    {
+        const char* name = ffd.cFileName;
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+            continue;
+
+        if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+        {
+            // Non-recursive: skip subdirectories
+            continue;
+        }
+
+        char filePath[MAX_PATH];
+        if (hasSlash)
+            snprintf(filePath, MAX_PATH, "%s%s", directory, name);
+        else
+            snprintf(filePath, MAX_PATH, "%s\\%s", directory, name);
+
+        if (!DeleteFileA(filePath))
+        {
+            allOk = false;
+            SM_WARN("Failed to delete %s (err=%lu)", filePath, GetLastError());
+        }
+    } while (FindNextFileA(hFind, &ffd));
+
+    FindClose(hFind);
+    return allOk;
+}

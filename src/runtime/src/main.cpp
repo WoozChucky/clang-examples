@@ -158,10 +158,12 @@ int main(int argc, char** argv) {
     fullPathSize = strlen(overlayLibName) + strlen(libraryExtension) + 1;
     g_OverlayLibrary = bump_alloc(&g_PersistentStorage, fullPathSize);
     snprintf(g_OverlayLibrary, fullPathSize, "%s%s", overlayLibName, libraryExtension);
-    //g_OverlayDllWatch = platform_watch_file(g_OverlayLibrary, &g_PersistentStorage);
-    //if (!g_OverlayDllWatch) {
-    //    SM_WARN("File watcher couldn't be created for %s; hot-reload will be disabled.", overlayLibName);
-    //}
+    g_OverlayDllWatch = platform_watch_file(g_OverlayLibrary, &g_PersistentStorage);
+    if (!g_OverlayDllWatch) {
+        SM_WARN("File watcher couldn't be created for %s; hot-reload will be disabled.", overlayLibName);
+    }
+    // Force initial load of the DLL at startup
+    g_OverlayDllReloadRequested.store(true);
 
     renderer_init(g_PlatformContext->m_Width, g_PlatformContext->m_Height, g_PlatformContext->m_PlatformHandle, &g_PersistentStorage);
     SM_TRACE("[Renderer] Persistent storage allocated: %d MB", g_PersistentStorage.used / (1024 * 1024));
@@ -177,9 +179,10 @@ int main(int argc, char** argv) {
                 g_GameDllReloadRequested.store(true);
             }
             reload_game_dll(&g_TransientStorage);
-            // For overlay DLL:
-            // if (g_OverlayDllWatch && platform_file_changed(g_OverlayDllWatch)) { g_OverlayDllReloadRequested.store(true); }
-            // reload_ui_dll(&g_TransientStorage);
+            if (g_OverlayDllWatch && platform_file_changed(g_OverlayDllWatch)) {
+                g_OverlayDllReloadRequested.store(true);
+            }
+            reload_ui_dll(&g_TransientStorage);
         }
 
         g_GameState->fps = g_PlatformContext->m_FrameStats.fpsInstant;
@@ -228,6 +231,9 @@ int main(int argc, char** argv) {
     }
 
     platform_shutdown(g_PlatformContext);
+
+    // Clear timestamped runtime DLL copies to avoid accumulation across runs
+    platform_delete_all_files_in_directory(runtimeDirectory);
 
     g_PlatformContext = nullptr;
 
@@ -416,7 +422,7 @@ void reload_ui_dll(BumpAllocator* transientStorage)
     static std::chrono::steady_clock::time_point pendingSince;
     static const auto debounceWindow = std::chrono::milliseconds(250);
 
-    const long long currentTimestamp = get_timestamp(overlayLibName);
+    const long long currentTimestamp = get_timestamp(g_OverlayLibrary);
     if (currentTimestamp <= 0)
         return;
 
@@ -473,9 +479,7 @@ void reload_ui_dll(BumpAllocator* transientStorage)
         render_overlay_ptr = (render_overlay_type*)platform_load_dynamic_function(uiDLL, "overlay_render");
         SM_ASSERT(render_overlay_ptr, "Failed to load overlay_render function");
 
-        setup_overlay_ptr(g_PlatformContext->m_PlatformHandle,
-                          nullptr,
-                          renderer_get_device_context());
+        setup_overlay_ptr(g_PlatformContext->m_PlatformHandle, renderer_get_device_context());
 
         g_PlatformContext->m_OverlayInputHandler = (overlay_input_handler)platform_load_dynamic_function(uiDLL, "overlay_handle_wndproc");
         SM_ASSERT(g_PlatformContext->m_OverlayInputHandler, "Failed to load overlay_handle_wndproc function");

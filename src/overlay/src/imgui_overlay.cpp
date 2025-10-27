@@ -1,13 +1,62 @@
 #include "imgui_overlay.h"
 
+#include <unordered_map>
+#include <nvrhi/nvrhi.h>
+
 #include <WinString.h>
 
 #include <imgui.h>
 #include <imgui_impl_win32.h>
 #include <imgui_impl_dx11.h>
-//#include <imgui_impl_dx12.h>
+#include <imgui_impl_dx12.h>
 
-EXPORT_FN void overlay_setup(void* platform_handle, void* device, void* device_context) {
+#include <renderer_dx11.h>
+#include <renderer_dx12.h>
+
+enum class RenderAPI : uint8_t { None, DirectX11, DirectX12 };
+
+static RenderAPI g_RenderAPI = RenderAPI::None;
+static ID3D12GraphicsCommandList* g_D3D12CommandList = nullptr;
+
+struct ImGui_NVRHI
+{
+    nvrhi::DeviceHandle m_device;
+    nvrhi::CommandListHandle m_commandList;
+
+    nvrhi::ShaderHandle vertexShader;
+    nvrhi::ShaderHandle pixelShader;
+    nvrhi::InputLayoutHandle shaderAttribLayout;
+
+    nvrhi::TextureHandle fontTexture;
+    nvrhi::SamplerHandle fontSampler;
+
+    nvrhi::BufferHandle vertexBuffer;
+    nvrhi::BufferHandle indexBuffer;
+
+    nvrhi::BindingLayoutHandle bindingLayout;
+    nvrhi::GraphicsPipelineDesc basePSODesc;
+
+    nvrhi::GraphicsPipelineHandle pso;
+    std::unordered_map<nvrhi::ITexture*, nvrhi::BindingSetHandle> bindingsCache;
+
+    std::vector<ImDrawVert> vtxBuffer;
+    std::vector<ImDrawIdx> idxBuffer;
+
+    bool init(nvrhi::IDevice* device);
+    bool updateFontTexture();
+    bool render(nvrhi::IFramebuffer* framebuffer);
+    void backbufferResizing();
+
+private:
+    bool reallocateBuffer(nvrhi::BufferHandle& buffer, size_t requiredSize, size_t reallocateSize, bool isIndexBuffer);
+
+
+    nvrhi::IGraphicsPipeline* getPSO(nvrhi::FramebufferInfo const& framebufferInfo);
+    nvrhi::IBindingSet* getBindingSet(nvrhi::ITexture* texture);
+    bool updateGeometry(nvrhi::ICommandList* commandList);
+};
+
+EXPORT_FN void overlay_setup(void* platform_handle, void* device_context) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -39,32 +88,46 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device, void* device_c
 
     ImGui_ImplWin32_Init(platform_handle);
 
-    //TODO: Fetch device and device_context from void* device, void* device_context
-    ImGui_ImplDX11_Init(nullptr, nullptr);
+    // Now we need cast the device_context to determine which backend to use
+    const auto deviceCtxDX11 = static_cast<RendererBackendDX11*>(device_context);
+    if (deviceCtxDX11 && deviceCtxDX11->m_Api == RendererBackendAPI::Direct3D11) {
+        g_RenderAPI = RenderAPI::DirectX11;
+        ImGui_ImplDX11_Init(deviceCtxDX11->m_Device11, deviceCtxDX11->m_ImmediateContext);
+    }
+    else {
+        const auto deviceCtxDX12 = static_cast<RendererBackendDX12*>(device_context);
+        if (deviceCtxDX12 && deviceCtxDX12->m_Api == RendererBackendAPI::Direct3D12) {
+            g_RenderAPI = RenderAPI::DirectX12;
 
-    /*
-    const auto deviceCtx = static_cast<RendererBackendDX12*>(device_context);
-    const auto descriptorHeap = deviceCtx->m_Device->getNativeObject(nvrhi::ObjectTypes::D3D12_RenderTargetViewDescriptor);
+            // const auto descriptorHeap = deviceCtxDX12->m_Device->getNativeObject(nvrhi::ObjectTypes::D3D12_RenderTargetViewDescriptor);
 
+            const auto d3d12_cmd_list = static_cast<ID3D12GraphicsCommandList *>(deviceCtxDX12->m_CommandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList).pointer);
+            const auto test = static_cast<ID3D12GraphicsCommandList *>(deviceCtxDX12->m_Device->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList).pointer);
+            g_D3D12CommandList = d3d12_cmd_list;
 
-    ImGui_ImplDX12_InitInfo init_info = {};
-    init_info.Device = deviceCtx->m_Device12;
-    init_info.CommandQueue = deviceCtx->m_GraphicsQueue;
-    init_info.NumFramesInFlight = deviceCtx->m_Settings.maxFramesInFlight;
-    init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-    init_info.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    // Allocating SRV descriptors (for textures) is up to the application, so we provide callbacks.
-    // (current version of the backend will only allocate one descriptor, future versions will need to allocate more)
-    init_info.SrvDescriptorHeap = static_cast<ID3D12DescriptorHeap*>(descriptorHeap.pointer);
-    init_info.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_handle) { return g_pd3dSrvDescHeapAlloc.Alloc(out_cpu_handle, out_gpu_handle); };
-    init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle)            { return g_pd3dSrvDescHeapAlloc.Free(cpu_handle, gpu_handle); };
-    ImGui_ImplDX12_Init(&init_info);
-    */
+            ImGui_ImplDX12_InitInfo init_info = {};
+            init_info.Device = deviceCtxDX12->m_Device12;
+            init_info.CommandQueue = deviceCtxDX12->m_GraphicsQueue;
+            init_info.NumFramesInFlight = deviceCtxDX12->m_Settings.maxFramesInFlight;
+            init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+            init_info.DSVFormat = DXGI_FORMAT_UNKNOWN;
+            // Allocating SRV descriptors (for textures) is up to the application, so we provide callbacks.
+            // (current version of the backend will only allocate one descriptor, future versions will need to allocate more)
+            //init_info.SrvDescriptorHeap = static_cast<ID3D12DescriptorHeap*>(descriptorHeap.pointer);
+            //init_info.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_handle) { return g_pd3dSrvDescHeapAlloc.Alloc(out_cpu_handle, out_gpu_handle); };
+            //init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle)            { return g_pd3dSrvDescHeapAlloc.Free(cpu_handle, gpu_handle); };
+            ImGui_ImplDX12_Init(&init_info);
+        }
+    }
 }
 
 EXPORT_FN void overlay_render() {
-    ImGui_ImplDX11_NewFrame();
-    //ImGui_ImplDX12_NewFrame();
+    if (g_RenderAPI == RenderAPI::DirectX11)
+        ImGui_ImplDX11_NewFrame();
+    else if (g_RenderAPI == RenderAPI::DirectX12)
+        ImGui_ImplDX12_NewFrame();
+    else return;
+
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     const auto io = ImGui::GetIO();
@@ -75,8 +138,11 @@ EXPORT_FN void overlay_render() {
     ImGui::End();
 
     ImGui::Render();
-    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-    //ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData());
+
+    if (g_RenderAPI == RenderAPI::DirectX11)
+        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+    else if (g_RenderAPI == RenderAPI::DirectX12)
+        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), nullptr);
 
     // Update and Render additional Platform Windows
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
@@ -87,8 +153,11 @@ EXPORT_FN void overlay_render() {
 }
 
 EXPORT_FN void overlay_shutdown() {
-    ImGui_ImplDX11_Shutdown();
-    // ImGui_ImplDX12_Shutdown();
+    if (g_RenderAPI == RenderAPI::DirectX11)
+        ImGui_ImplDX11_Shutdown();
+    else if (g_RenderAPI == RenderAPI::DirectX12)
+        ImGui_ImplDX12_Shutdown();
+    else return;
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
 }

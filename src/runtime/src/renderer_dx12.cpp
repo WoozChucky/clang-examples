@@ -379,6 +379,20 @@ void directx12::create_swapchain(RendererBackend* backend, HWND hWnd, const int 
     }
 }
 
+nvrhi::CommandListHandle directx12::create_command_list(RendererBackend* backend) {
+    const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
+    if (!dx12) {
+        SM_ERROR("RendererBackendDX12 is null");
+        return nullptr;
+    }
+
+    if (!dx12->m_CommandList) {
+        dx12->m_CommandList = dx12->m_Device->createCommandList();
+    }
+
+    return dx12->m_CommandList;
+}
+
 void directx12::renderer_resize_swapchain(RendererBackend* backend, int width, int height) {
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {
