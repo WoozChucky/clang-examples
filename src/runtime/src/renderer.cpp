@@ -1035,16 +1035,16 @@ bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, p
                     uiDrawArgs.startVertexLocation = 0;
                     g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
                 }
-
-                // Clear per-frame UI command buffers (defensive; game can also call ui_begin_frame)
-                renderData->uiRects.clear();
-                renderData->uiTexts.clear();
-                renderData->uiTextBufferCount = 0;
             }
 
             if (uiOverlay) {
-                uiOverlay();
+                uiOverlay(renderData);
             }
+
+            // Clear per-frame UI command buffers (defensive; game can also call ui_begin_frame)
+            renderData->uiRects.clear();
+            renderData->uiTexts.clear();
+            renderData->uiTextBufferCount = 0;
 
             g_RendererContext->m_CommandList->close();
             g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);

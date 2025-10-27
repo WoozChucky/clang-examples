@@ -121,7 +121,7 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device_context) {
     }
 }
 
-EXPORT_FN void overlay_render() {
+EXPORT_FN void overlay_render(RenderData* renderData) {
     if (g_RenderAPI == RenderAPI::DirectX11)
         ImGui_ImplDX11_NewFrame();
     else if (g_RenderAPI == RenderAPI::DirectX12)
@@ -132,9 +132,16 @@ EXPORT_FN void overlay_render() {
     ImGui::NewFrame();
     const auto io = ImGui::GetIO();
 
+    const auto textElementCount = renderData->uiTexts.count;
+    const auto uiRectsCount = renderData->uiRects.count;
+
     ImGui::Begin("Hello, world!");
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
     ImGui::Text("Hello from the dynamically loaded UI Overlay!");
+    ImGui::Separator();
+    ImGui::Text("Text Elements: %d", textElementCount);
+    ImGui::Separator();
+    ImGui::Text("Rectangles: %d", uiRectsCount);
     ImGui::End();
 
     ImGui::Render();
