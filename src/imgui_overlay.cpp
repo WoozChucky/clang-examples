@@ -4,7 +4,7 @@
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
-// #include "imgui_impl_dx11.h"
+#include "imgui_impl_dx11.h"
 #include "imgui_impl_dx12.h"
 
 #include "renderer_dx12.h"
@@ -60,7 +60,8 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device, void* device_c
 }
 
 EXPORT_FN void overlay_render() {
-    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplDX11_NewFrame();
+    //ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     const auto io = ImGui::GetIO();
@@ -71,7 +72,8 @@ EXPORT_FN void overlay_render() {
     ImGui::End();
 
     ImGui::Render();
-    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData());
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+    //ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData());
 
     // Update and Render additional Platform Windows
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)

@@ -1,42 +1,67 @@
 #pragma once
 
+#include <variant>
+
 #include "input.h"
+#include "glm/vec4.hpp"
 
 // #############################################################################
 //                           UI Constants
 // #############################################################################
 constexpr int MAX_UI_ELEMENTS = 100;
-constexpr int MAX_TEXT_CHARS = 256;
 
 // #############################################################################
 //                           UI Structs
 // #############################################################################
-struct UIID
+
+typedef size_t ElementId;
+
+static ElementId g_ElementIdCounter = 1;
+
+enum class UIElementType : uint8_t
 {
-  int ID;
-  int layer;
+  NODE,
+  BUTTON,
+  LABEL,
+  PANEL,
+  COUNT
 };
 
-struct UIElement
-{
-  // SpriteID spriteID;
-  glm::vec2 pos;
+struct UIButton {
+  glm::vec2 position;
+  glm::vec2 size;
+  void (*onClick)(ElementId id);
 };
 
-struct UIText
-{
-  int charCount;
-  char text[MAX_TEXT_CHARS];
-  glm::vec2 pos;
+struct UIPanel {
+  glm::ivec2 position;
+  glm::ivec2 size;
+  glm::vec4 color;
+};
+
+struct UILabel {
+  glm::vec2 position;
+  glm::vec4 color;
+  char text[128];
+};
+
+using UIData = std::variant<std::monostate, UIButton, UIPanel, UILabel>;
+
+struct UIElement {
+  ElementId id = g_ElementIdCounter++;
+  UIElementType type = UIElementType::NODE;
+  UIElement* parent = nullptr;
+  std::vector<UIElement*> children;
+  UIData data;
+
+  template<typename Fn>
+  auto VisitData(Fn&& fn) {
+    return std::visit(std::forward<Fn>(fn), data);
+  }
 };
 
 struct UIState
 {
-  UIID hotLastFrame;
-  UIID hotThisFrame;
-  UIID active;
-
-  Array<UIText, 100> texts;
   Array<UIElement, MAX_UI_ELEMENTS> uiElements;
 };
 
