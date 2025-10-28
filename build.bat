@@ -24,12 +24,12 @@ REM Create a timestamp for unique PDB names (only used in Debug)
 for /f %%i in ('powershell -NoProfile -Command "(Get-Date).ToString(\"yyyyMMdd_HHmmss_fff\")"') do set TS=%%i
 
 REM Inputs/outputs
-set SRC_DLL=src\game.cpp
+set SRC_DLL=src\game\src\game.cpp
 set OUT_DIR=build\debug\bin\Debug
 set OUT_DLL=%OUT_DIR%\game_temp.dll
 
 REM Dependencies and defs (match CMake target_compile_definitions for game)
-set INC=-Ithird_party\glm
+set INC=-Ithird_party\glm -Isrc\common\include -Isrc\game\include
 set DEFINES=-DGAME_EXPORTS -DNOMINMAX -DWIN32_LEAN_AND_MEAN -DGLM_FORCE_DEPTH_ZERO_TO_ONE -DGLM_FORCE_RIGHT_HANDED -DGLM_ENABLE_EXPERIMENTAL
 set LIBS=-luser32.lib -lkernel32.lib -lgdi32.lib -lole32.lib
 

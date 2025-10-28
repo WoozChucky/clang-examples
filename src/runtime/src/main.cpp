@@ -106,7 +106,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    g_UIState = reinterpret_cast<UIState *>(bump_alloc(&g_PersistentStorage, sizeof(UIState)));
+    void* block = bump_alloc(&g_PersistentStorage, sizeof(UIState));
+    const auto g_UIState = new (block) UIState();
     if(!g_UIState)
     {
         SM_ERROR("Failed to allocate UIState")

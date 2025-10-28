@@ -853,7 +853,7 @@ bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, p
                     }
                     perFrame.CameraPos = renderData->gameCamera.position;
                     perFrame.SunColor = glm::vec3(1.0f);
-                    perFrame.Ambient = 0.08f;
+                    perFrame.Ambient = 0.8f;
 
                     g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, &perFrame, sizeof(perFrame));
                 }

@@ -1,4 +1,5 @@
 #include <game.h>
+#include <ui.h>
 
 // #############################################################################
 //                           Game Globals
@@ -7,6 +8,7 @@ static BumpAllocator* transientStorage;
 static BumpAllocator* persistentStorage;
 static Input* g_Input;
 static RenderData* g_RenderData;
+static UIState* g_UIState;
 static size_t g_LastFrameAllocationBytes = 0;
 
 // #############################################################################
@@ -111,7 +113,11 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
   g_GameState->updateTimer += frameTime;
 
   update_game_input(frameTime);
+  // Begin immediate-mode UI frame (collect input + clear UI command buffers)
+  ui_im_begin_frame(g_UIState, g_RenderData, g_Input);
   update(frameTime);
+  // End UI frame (renderer will consume command buffers)
+  ui_im_end_frame(g_UIState);
 
   // Reset Input
   // input->wheelDelta = 0;
@@ -145,9 +151,6 @@ EXPORT_FN void game_resize(const int width, const int height)
     g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
   }
 }
-
-static bool showDiagnostics = true;
-static bool showHUD = true;
 
 void update_game_input(float dt) {
   if (key_is_down(g_Input, KEY_ESCAPE)) {
@@ -186,10 +189,10 @@ void update_game_input(float dt) {
   if (key_is_down(g_Input, KEY_E)) { yaw -= yawSpeed * dt; g_RenderData->gameCamera.invalidate(); }
 
   if (key_released_this_frame(g_Input, KEY_1)) {
-    showDiagnostics = !showDiagnostics;
+    g_UIState->showDiagnostics = !g_UIState->showDiagnostics;
   }
   if (key_released_this_frame(g_Input, KEY_2)) {
-    showHUD = !showHUD;
+    g_UIState->showHUD = !g_UIState->showHUD;
   }
 
   // Mouse look when holding right mouse button
@@ -244,60 +247,154 @@ void update(float dt) {
 
   prim_draw_grid_plane(g_RenderData, glm::mat4(1.0f));
 
-  static constexpr glm::vec4 bgColor = {1.0f, 1.0f, 1.0f, 0.3f};
-  static constexpr glm::vec4 bgHoveredColor = {1.0f, 1.0f, 1.0f, 0.5f};
-  static bool isHovered = false;
+  // Total screen size container
+  {
+    UIPanelOptions opts{};
+    opts.dock = UIDock::Fill;
+    opts.padding = 0.0f;
+    opts.bgColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    ui_push_id(g_UIState, "Screen");
+    ui_begin_panel(g_UIState, g_RenderData, opts);
 
-  if (g_Input->mousePos.x >= 0 && g_Input->mousePos.x <= 350.f &&
-      g_Input->mousePos.y >= 0 && g_Input->mousePos.y <= 150.f) {
-    isHovered = true;
-  } else {
-    isHovered = false;
+    // Always-visible small control panel with buttons
+    {
+      UIPanelOptions opt{};
+      opt.dock = UIDock::Right;
+      opt.x = {10, UIUnit::Px};
+      opt.y = {10, UIUnit::Px};
+      opt.w = {220, UIUnit::Px};
+      opt.h = {80, UIUnit::Px};
+      opt.padding = 6.0f;
+      opt.bgColor = {0.1f, 0.1f, 0.1f, 0.0f};
+      ui_push_id(g_UIState, "Controls");
+      ui_begin_panel(g_UIState, g_RenderData, opt);
+
+
+      if (ui_button(g_UIState, g_RenderData, g_UIState->showDiagnostics ? "Hide Diagnostics" : "Show Diagnostics", {210, 26})) {
+        g_UIState->showDiagnostics = !g_UIState->showDiagnostics;
+      }
+
+      if (ui_button(g_UIState, g_RenderData, g_UIState->showHUD ? "Hide HUD" : "Show HUD", {210, 26})) {
+        g_UIState->showHUD = !g_UIState->showHUD;
+      }
+
+      if (ui_button(g_UIState, g_RenderData, g_UIState->showEditor ? "Hide Editor" : "Show Editor", {210, 26})) {
+        g_UIState->showEditor = !g_UIState->showEditor;
+      }
+
+      ui_end_panel(g_UIState);
+      ui_pop_id(g_UIState);
+    }
+
+    if (g_UIState->showEditor) {
+      // Lets start by drawing a 2D grid that fills the screen
+      // We do this by getting percentages of the screen size for width/height and drawing hlines/vlines all across
+      auto screenW    = g_Input->screenSize.x;
+      auto screenH    = g_Input->screenSize.y;
+      const float gridSpacing = g_UIState->editorState.gridSpacing * g_UIState->editorState.gridScale;
+      const int numVLines = static_cast<int>(screenW / gridSpacing);
+      const int numHLines = static_cast<int>(screenH / gridSpacing);
+      for (int i = 0; i <= numVLines; i++) {
+        float x = i * gridSpacing;
+        ui_draw_vline(g_RenderData, {x, 0.0f}, screenH, 1.f, {0.2f, 0.2f, 0.2f, 1.0f});
+      }
+      for (int j = 0; j <= numHLines; j++) {
+        float y = j * gridSpacing;
+        ui_draw_hline(g_RenderData, {0.0f, y}, screenW, 1.f, {0.2f, 0.2f, 0.2f, 1.0f});
+      }
+
+      // Editor panel docked to left
+      UIPanelOptions opt{};
+      opt.dock = UIDock::Left;
+      opt.w = {300, UIUnit::Px};
+      opt.padding = 6.0f;
+      opt.bgColor = {0.2f, 0.2f, 0.2f, 0.1f};
+      ui_push_id(g_UIState, "Editor Controls");
+      ui_begin_panel(g_UIState, g_RenderData, opt);
+
+      ui_label(g_UIState, g_RenderData, "Editor Panel", {2.0f, 10.0f}, {1.0f, 1.0f, 1.0f, 1.0f});
+      ui_button(g_UIState, g_RenderData, "Add Panel", {180, 26});
+      ui_button(g_UIState, g_RenderData, "Add Label", {180, 26});
+      ui_button(g_UIState, g_RenderData, "Add Button", {180, 26});
+
+      ui_end_panel(g_UIState);
+      ui_pop_id(g_UIState);
+    }
+
+    // Diagnostics panel docked to top (uses percentage+px sizing)
+    if (g_UIState->showDiagnostics) {
+      UIPanelOptions opt{};
+      opt.dock = UIDock::None;
+      opt.x = {10, UIUnit::Px};
+      opt.y = {10, UIUnit::Px};
+      opt.h = {160, UIUnit::Px};
+      opt.w = {340, UIUnit::Px};
+      opt.padding = 6.0f;
+      opt.bgColor = {0.1f, 0.1f, 0.1f, 0.1f};
+      PanelContext pc = ui_begin_panel(g_UIState, g_RenderData, opt);
+
+      // Hover effect overlay
+      const bool hovered = (g_UIState->mousePosUI.x >= pc.panelRect.pos.x && g_UIState->mousePosUI.x <= pc.panelRect.pos.x + pc.panelRect.size.x &&
+                            g_UIState->mousePosUI.y >= pc.panelRect.pos.y && g_UIState->mousePosUI.y <= pc.panelRect.pos.y + pc.panelRect.size.y);
+      if (hovered) {
+        ui_draw_rect(g_RenderData, pc.panelRect.pos, pc.panelRect.size, {1.0f, 1.0f, 1.0f, 0.20f});
+      }
+
+      // Text lines inside content area
+      char* fpsText = bump_alloc(transientStorage, 64);
+      snprintf(fpsText, 64, "FPS: %.0f", fps);
+      ui_label(g_UIState, g_RenderData, fpsText, {2.0f, 10.0f}, {0.0f, 1.0f, 0.0f, 1.0f});
+
+      char* frameTimeText = bump_alloc(transientStorage, 64);
+      snprintf(frameTimeText, 64, "Frame: %.3f ms", frameTimeMs);
+      ui_label(g_UIState, g_RenderData, frameTimeText, {2.0f, 25.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+
+      char* persistentMemText = bump_alloc(transientStorage, 64);
+      const double persistentMB = static_cast<double>(persistentMemoryUsed) / (1024.0 * 1024.0);
+      snprintf(persistentMemText, 64, "Persistent Mem: %.2f MB", persistentMB);
+      ui_label(g_UIState, g_RenderData, persistentMemText, {2.0f, 40.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+
+      char* transientMemText = bump_alloc(transientStorage, 64);
+      const double frameMB = static_cast<double>(frameMemoryUsed) / (1024.0 * 1024.0);
+      snprintf(transientMemText, 64, "Frame Mem: %.2f MB", frameMB);
+      ui_label(g_UIState, g_RenderData, transientMemText, {2.0f, 55.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+
+      char* screenSizeText = bump_alloc(transientStorage, 64);
+      snprintf(screenSizeText, 64, "Resolution: %d x %d", static_cast<int>(g_Input->screenSize.x), static_cast<int>(g_Input->screenSize.y));
+      ui_label(g_UIState, g_RenderData, screenSizeText, {2.0f, 70.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+
+      ui_end_panel(g_UIState);
+    }
+
+    // HUD panel docked to bottom
+    if (g_UIState->showHUD) {
+      UIPanelOptions opt{};
+      opt.dock = UIDock::Bottom;
+      opt.h = {40, UIUnit::Px};
+      opt.padding = 6.0f;
+      ui_begin_panel(g_UIState, g_RenderData, opt);
+
+      char* positionText = bump_alloc(transientStorage, 128);
+      snprintf(positionText, 128, "Camera Pos: (%.2f, %.2f, %.2f)", g_RenderData->gameCamera.position.x, g_RenderData->gameCamera.position.y, g_RenderData->gameCamera.position.z);
+      ui_label(g_UIState, g_RenderData, positionText, {10.0f, 8.0f}, {1.0f, 1.0f, 1.0f, 1.0f});
+
+      char* rotationText = bump_alloc(transientStorage, 128);
+      snprintf(rotationText, 128, "Camera Rot: (%.2f, %.2f, %.2f)", glm::degrees(g_RenderData->gameCamera.rotation.x), glm::degrees(g_RenderData->gameCamera.rotation.y), glm::degrees(g_RenderData->gameCamera.rotation.z));
+      ui_label(g_UIState, g_RenderData, rotationText, {10.0f, 24.0f}, {1.0f, 1.0f, 1.0f, 1.0f});
+
+      ui_end_panel(g_UIState);
+    }
+
+    ui_end_panel(g_UIState);
+    ui_pop_id(g_UIState);
   }
 
-  if (showDiagnostics) {
-    ui_draw_rect(g_RenderData, {0.f, 0.f}, {350.f, 150.f}, isHovered ? bgHoveredColor : bgColor);
-
-    char* fpsText = bump_alloc(transientStorage, 64);
-    snprintf(fpsText, 64, "FPS: %.0f", fps);
-    ui_draw_text(g_RenderData, fpsText, {2.0f, 15.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
-
-    char* frameTimeText = bump_alloc(transientStorage, 64);
-    snprintf(frameTimeText, 64, "Frame: %.3f ms", frameTimeMs);
-    ui_draw_text(g_RenderData, frameTimeText, {2.0f, 30.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
-
-    char* persistentMemText = bump_alloc(transientStorage, 64);
-    const double persistentMB = static_cast<double>(persistentMemoryUsed) / (1024.0 * 1024.0);
-    snprintf(persistentMemText, 64, "Persistent Mem: %.2f MB", persistentMB);
-    ui_draw_text(g_RenderData, persistentMemText, {2.0f, 45.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
-
-    char* transientMemText = bump_alloc(transientStorage, 64);
-    const double frameMB = static_cast<double>(frameMemoryUsed) / (1024.0 * 1024.0);
-    snprintf(transientMemText, 64, "Frame Mem: %.2f MB", frameMB);
-    ui_draw_text(g_RenderData, transientMemText, {2.0f, 60.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
-
-    char* screenSizeText = bump_alloc(transientStorage, 64);
-    snprintf(screenSizeText, 64, "Resolution: %d x %d", static_cast<int>(g_Input->screenSize.x), static_cast<int>(g_Input->screenSize.y));
-    ui_draw_text(g_RenderData, screenSizeText, {2.0f, 75.f}, {1.0f, 1.0f, 0.0f, 1.0f});
-  }
-
-  if (showHUD) {
-    ui_draw_rect(g_RenderData, {g_Input->screenSize.x - 410.f, g_Input->screenSize.y - 55.f}, {400.f, 50.f}, {0.0f, 0.0f, 0.0f, 0.3f});
-
-    char* positionText = bump_alloc(transientStorage, 128);
-    snprintf(positionText, 128, "Camera Pos: (%.2f, %.2f, %.2f)", g_RenderData->gameCamera.position.x, g_RenderData->gameCamera.position.y, g_RenderData->gameCamera.position.z);
-    ui_draw_text(g_RenderData, positionText, {g_Input->screenSize.x - 400.f, g_Input->screenSize.y - 45.f}, {1.0f, 1.0f, 1.0f, 1.0f});
-
-    char* rotationText = bump_alloc(transientStorage, 128);
-    snprintf(rotationText, 128, "Camera Rot: (%.2f, %.2f, %.2f)", glm::degrees(g_RenderData->gameCamera.rotation.x), glm::degrees(g_RenderData->gameCamera.rotation.y), glm::degrees(g_RenderData->gameCamera.rotation.z));
-    ui_draw_text(g_RenderData, rotationText, {g_Input->screenSize.x - 400.f, g_Input->screenSize.y - 30.f}, {1.0f, 1.0f, 1.0f, 1.0f});
-  }
-
-  ui_draw_hline(g_RenderData, {g_Input->screenSize.x / 2 - 5.f, g_Input->screenSize.y / 2}, 10.f, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
-  ui_draw_vline(g_RenderData, {g_Input->screenSize.x / 2, g_Input->screenSize.y / 2 - 5.f}, 10.f, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
+  // Crosshair and a random note label using low-level helpers (still valid)
+  ui_draw_hline(g_RenderData, {g_Input->screenSize.x / 2 - 5.f, g_Input->screenSize.y / 2}, 12.5f, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
+  ui_draw_vline(g_RenderData, {g_Input->screenSize.x / 2, g_Input->screenSize.y / 2 - 5.f}, 12.5f, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
 
   char* todoText = bump_alloc(transientStorage, 128);
-  snprintf(todoText, 128, "TODO(Joana): Fix VSync");
+  snprintf(todoText, 128, "TODO(Nuno): Fix VSync");
   ui_draw_text(g_RenderData, todoText, {g_Input->screenSize.x / 4.f, g_Input->screenSize.y / 2 - 50.f}, {1.0f, 1.0f, 1.0f, 1.0f});
 }
 
