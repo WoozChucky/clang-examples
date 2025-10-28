@@ -1,7 +1,10 @@
 
 # game: shared library loaded at runtime
 add_library(game SHARED
-  src/game.cpp
+    src/game.cpp
+    src/game_main_menu.cpp
+    src/game_in_level.cpp
+    src/game_editor.cpp
 )
 target_include_directories(game PUBLIC include)
 target_include_directories(game PRIVATE ../common/include)

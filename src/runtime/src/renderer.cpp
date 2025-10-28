@@ -75,7 +75,8 @@ typedef struct RendererContext {
     double                   m_PreviousFrameTimestamp;
     DummyRenderPass          m_RenderPass{};
     PrimitivePass            m_PrimPass{};
-    FontAtlas                m_FontAtlas{};
+    FontAtlas                m_FontAtlas{}; // default font (index 0)
+    std::vector<FontAtlas>   m_Fonts;       // additional fonts supported
     UIPass                   m_UIPass{};
     uint32_t                 m_RefUIWidth = 0;   // reference UI resolution (width)
     uint32_t                 m_RefUIHeight = 0;  // reference UI resolution (height)
@@ -84,6 +85,21 @@ typedef struct RendererContext {
 } RendererContext;
 
 static RendererContext* g_RendererContext = nullptr;
+
+static void create_ui_binding_for_font(FontAtlas& fa)
+{
+    if (!g_RendererContext) return;
+    if (!fa.texture || !fa.sampler) return;
+    if (!g_RendererContext->m_UIPass.m_BindingLayout) return;
+    nvrhi::BindingSetDesc bsd;
+    bsd.bindings = {
+        nvrhi::BindingSetItem::ConstantBuffer(0, g_RendererContext->m_UIPass.m_PerFrameCB),        // b0
+        nvrhi::BindingSetItem::Texture_SRV(0, fa.texture),                                         // t0
+        nvrhi::BindingSetItem::StructuredBuffer_SRV(1, g_RendererContext->m_UIPass.m_InstanceBuffer), // t1 SRV
+        nvrhi::BindingSetItem::Sampler(0, fa.sampler)                                              // s0
+    };
+    fa.uiBindingSet = g_RendererContext->m_Device->createBindingSet(bsd, g_RendererContext->m_UIPass.m_BindingLayout);
+}
 
 struct PerFrameCBData {
     glm::mat4 Model;
@@ -460,7 +476,12 @@ void create_cube() {
 }
 
 void load_font_atlas() {
+    // Load default font and register as font index 0
     load_font("assets/AtariClassic-gry3.ttf", 12, g_RendererContext->m_FontAtlas, g_RendererContext->m_Device);
+    // Keep list coherent: ensure index 0 exists
+    g_RendererContext->m_Fonts.clear();
+    g_RendererContext->m_Fonts.push_back(g_RendererContext->m_FontAtlas);
+    renderer_font_load("assets/LiberationSans-Regular.ttf", 12);
 }
 
 static void create_ui_pass()
@@ -545,28 +566,42 @@ static void create_ui_pass()
     };
     g_RendererContext->m_UIPass.m_InputLayout = g_RendererContext->m_Device->createInputLayout(uiAttrs, std::size(uiAttrs), g_RendererContext->m_UIPass.m_VS);
 
-    // Create binding layout + set using font atlas texture/sampler + instance buffer SRV
-    nvrhi::BindingSetDesc bsDesc;
-    bsDesc.bindings = {
-        nvrhi::BindingSetItem::ConstantBuffer(0, g_RendererContext->m_UIPass.m_PerFrameCB),        // b0
-        nvrhi::BindingSetItem::Texture_SRV(0, g_RendererContext->m_FontAtlas.texture),             // t0
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(1, g_RendererContext->m_UIPass.m_InstanceBuffer), // t1 structured buffer
-        nvrhi::BindingSetItem::Sampler(0, g_RendererContext->m_FontAtlas.sampler)                  // s0
+    // Create binding layout for UI pass: b0 (PerFrame), t0 (Font texture), t1 (Instance buffer SRV), s0 (Sampler)
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.bindings = {
+        nvrhi::BindingLayoutItem::ConstantBuffer(0),  // b0
+        nvrhi::BindingLayoutItem::Texture_SRV(0),     // t0
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1), // t1
+        nvrhi::BindingLayoutItem::Sampler(0)          // s0
     };
-
-    if (!nvrhi::utils::CreateBindingSetAndLayout(
-            g_RendererContext->m_Device,
-            nvrhi::ShaderType::All,
-            0,
-            bsDesc,
-            g_RendererContext->m_UIPass.m_BindingLayout,
-            g_RendererContext->m_UIPass.m_BindingSet))
-    {
-        SM_ASSERT(false, "Failed to create UI binding set/layout");
-    }
+    g_RendererContext->m_UIPass.m_BindingLayout = g_RendererContext->m_Device->createBindingLayout(layoutDesc);
 
     cl->close();
     g_RendererContext->m_Device->executeCommandList(cl);
+
+    // Create per-font binding sets using the UI layout
+    auto createFontUIBinding = [&](FontAtlas& fa)
+    {
+        if (!fa.texture || !fa.sampler) return;
+        nvrhi::BindingSetDesc bsd;
+        bsd.bindings = {
+            nvrhi::BindingSetItem::ConstantBuffer(0, g_RendererContext->m_UIPass.m_PerFrameCB),        // b0
+            nvrhi::BindingSetItem::Texture_SRV(0, fa.texture),                                         // t0
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(1, g_RendererContext->m_UIPass.m_InstanceBuffer), // t1 SRV
+            nvrhi::BindingSetItem::Sampler(0, fa.sampler)                                              // s0
+        };
+        fa.uiBindingSet = g_RendererContext->m_Device->createBindingSet(bsd, g_RendererContext->m_UIPass.m_BindingLayout);
+    };
+
+    // Default font
+    createFontUIBinding(g_RendererContext->m_FontAtlas);
+    // Additional fonts
+    for (auto& fa : g_RendererContext->m_Fonts)
+        createFontUIBinding(fa);
+
+    // Default UI binding set is font 0
+    g_RendererContext->m_UIPass.m_BindingSet = g_RendererContext->m_FontAtlas.uiBindingSet;
 }
 
 static void create_primitives_pass()
@@ -649,7 +684,12 @@ static void create_primitives_pass()
 
 void renderer_init(const int width, const int height, void* handle, BumpAllocator* persistentStorage) {
 
-    g_RendererContext = reinterpret_cast<RendererContext *>(bump_alloc(persistentStorage, sizeof(RendererContext)));
+    void* memBlock = bump_alloc(persistentStorage, sizeof(RendererContext));
+    if (!memBlock) {
+        SM_ERROR("Failed to allocate RendererContext");
+        return;
+    }
+    g_RendererContext = new (memBlock) RendererContext();
     if (!g_RendererContext) {
         SM_ERROR("Failed to allocate RendererContext");
         return;
@@ -918,122 +958,131 @@ bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, p
                 state.pipeline = g_RendererContext->m_UIPass.m_Pipeline.Get();
                 state.framebuffer = frameBuffer;
                 state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
-                state.bindings = { g_RendererContext->m_UIPass.m_BindingSet };
                 state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_UIPass.m_VertexBuffer, 0, 0) };
                 state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_UIPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
 
-                g_RendererContext->m_CommandList->setGraphicsState(state);
-
-                // Build UI instances from game-layer UI command buffers without heap allocations
-                // First pass: count how many instances we need (rects + glyphs)
-                auto rectCount = static_cast<uint32_t>(renderData->uiRects.count);
-                uint32_t glyphCount = 0;
-                if (g_RendererContext->m_FontAtlas.texture && renderData->uiTexts.count > 0)
+                // 1) Rects / lines (solid color, no sampling)
+                const uint32_t rectCount = static_cast<uint32_t>(renderData->uiRects.count);
+                if (rectCount > 0)
                 {
-                    for (int ti = 0; ti < renderData->uiTexts.count; ++ti)
+                    const uint32_t capped = std::min(rectCount, g_RendererContext->m_UIPass.m_MaxInstances);
+                    UIInstanceCPU* rectInstances = reinterpret_cast<UIInstanceCPU*>(bump_alloc(transientStorage, capped * sizeof(UIInstanceCPU)));
+                    SM_ASSERT(rectInstances, "Out of transient memory for UI rect instances");
+                    uint32_t out = 0;
+                    for (uint32_t i = 0; i < capped; ++i)
                     {
-                        const UITextCmd& tc = renderData->uiTexts.elements[ti];
-                        // Safety: ensure text slice is within buffer; if not, skip counting
-                        const uint32_t off = tc.textOffset;
-                        const uint32_t len = tc.textLength;
-                        if (off + len > UI_TEXT_BUFFER_BYTES) continue;
-                        // Use precomputed glyphCount recorded at submission time to avoid re-iterating the string here
-                        glyphCount += tc.glyphCount;
+                        const UIRectCmd& rc = renderData->uiRects.elements[i];
+                        const glm::vec2 pos = rc.pos;
+                        const glm::vec2 size = rc.size;
+                        UIInstanceCPU inst{};
+                        inst.Transform = glm::mat4(1.0f);
+                        inst.Transform[0][0] = size.x;
+                        inst.Transform[1][1] = size.y;
+                        inst.Transform[3][0] = pos.x;
+                        inst.Transform[3][1] = pos.y;
+                        inst.Color = rc.color;
+                        inst.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f);
+                        inst.Flags = 0u;
+                        rectInstances[out++] = inst;
+                    }
+                    if (out > 0)
+                    {
+                        g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, rectInstances, out * sizeof(UIInstanceCPU));
+                        state.bindings = { g_RendererContext->m_FontAtlas.uiBindingSet ? g_RendererContext->m_FontAtlas.uiBindingSet : g_RendererContext->m_UIPass.m_BindingSet };
+                        g_RendererContext->m_CommandList->setGraphicsState(state);
+                        nvrhi::DrawArguments uiDrawArgs;
+                        uiDrawArgs.vertexCount = g_RendererContext->m_UIPass.m_IndexCount;
+                        uiDrawArgs.instanceCount = out;
+                        uiDrawArgs.startIndexLocation = 0;
+                        uiDrawArgs.startVertexLocation = 0;
+                        g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
                     }
                 }
 
-                uint32_t totalInstances = rectCount + glyphCount;
-                if (totalInstances > g_RendererContext->m_UIPass.m_MaxInstances)
+                // 2) Texts (per font)
+                if (renderData->uiTexts.count > 0)
                 {
-                    SM_WARN("UI instances truncated: %u -> %u", totalInstances, g_RendererContext->m_UIPass.m_MaxInstances);
-                    totalInstances = g_RendererContext->m_UIPass.m_MaxInstances;
-                }
-
-                UIInstanceCPU* instances = nullptr;
-                if (totalInstances > 0)
-                {
-                    instances = reinterpret_cast<UIInstanceCPU*>(bump_alloc(transientStorage, totalInstances * sizeof(UIInstanceCPU)));
-                    SM_ASSERT(instances, "Out of transient memory for UI instances");
-                }
-
-                uint32_t outIdx = 0;
-
-                // 1) Rects / lines (solid color, no sampling)
-                for (int i = 0; i < renderData->uiRects.count && outIdx < totalInstances; ++i)
-                {
-                    const UIRectCmd& rc = renderData->uiRects.elements[i];
-                    const glm::vec2 pos = rc.pos;   // current pixels
-                    const glm::vec2 size = rc.size; // current pixels
-
-                    UIInstanceCPU inst{};
-                    inst.Transform = glm::mat4(1.0f);
-                    inst.Transform[0][0] = size.x;
-                    inst.Transform[1][1] = size.y;
-                    inst.Transform[3][0] = pos.x;
-                    inst.Transform[3][1] = pos.y;
-                    inst.Color = rc.color;
-                    inst.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f);
-                    inst.Flags = 0u; // solid color
-                    instances[outIdx++] = inst;
-                }
-
-                // 2) Texts (sample font atlas)
-                if (g_RendererContext->m_FontAtlas.texture && renderData->uiTexts.count > 0 && outIdx < totalInstances)
-                {
-                    const auto aw = static_cast<float>(g_RendererContext->m_FontAtlas.width);
-                    const auto ah = static_cast<float>(g_RendererContext->m_FontAtlas.height);
-
-                    for (int ti = 0; ti < renderData->uiTexts.count && outIdx < totalInstances; ++ti)
+                    // Gather used font indices
+                    uint16_t used[64] = {};
+                    uint32_t usedCount = 0;
+                    for (int ti = 0; ti < renderData->uiTexts.count && usedCount < 64; ++ti)
                     {
-                        const UITextCmd& tc = renderData->uiTexts.elements[ti];
-                        const uint32_t off = tc.textOffset;
-                        const uint32_t len = tc.textLength;
-                        if (off + len > UI_TEXT_BUFFER_BYTES) continue; // safety
-                        const char* str = renderData->uiTextBuffer + off;
+                        const uint16_t fi = renderData->uiTexts.elements[ti].fontIndex;
+                        bool seen = false;
+                        for (uint32_t j = 0; j < usedCount; ++j) if (used[j] == fi) { seen = true; break; }
+                        if (!seen) used[usedCount++] = fi;
+                    }
 
-                        glm::vec2 pen = tc.pos; // baseline origin, top-left convention
-                        for (uint32_t k = 0; k < len && outIdx < totalInstances; ++k)
+                    for (uint32_t ui = 0; ui < usedCount; ++ui)
+                    {
+                        const uint16_t fontIdx = used[ui];
+                        const FontAtlas* fa = nullptr;
+                        if (fontIdx < g_RendererContext->m_Fonts.size())
+                            fa = &g_RendererContext->m_Fonts[fontIdx];
+                        else if (fontIdx == 0)
+                            fa = &g_RendererContext->m_FontAtlas;
+                        if (!fa || !fa->texture) continue;
+
+                        // Count glyphs for this font
+                        uint32_t glyphCount = 0;
+                        for (int ti = 0; ti < renderData->uiTexts.count; ++ti)
+                            if (renderData->uiTexts.elements[ti].fontIndex == fontIdx)
+                                glyphCount += renderData->uiTexts.elements[ti].glyphCount;
+                        if (glyphCount == 0) continue;
+                        glyphCount = std::min(glyphCount, g_RendererContext->m_UIPass.m_MaxInstances);
+
+                        auto* glyphInstances = reinterpret_cast<UIInstanceCPU*>(bump_alloc(transientStorage, glyphCount * sizeof(UIInstanceCPU)));
+                        SM_ASSERT(glyphInstances, "Out of transient memory for UI glyph instances");
+
+                        const auto aw = static_cast<float>(fa->width);
+                        const auto ah = static_cast<float>(fa->height);
+                        uint32_t out = 0;
+                        for (int ti = 0; ti < renderData->uiTexts.count && out < glyphCount; ++ti)
                         {
-                            const auto c = static_cast<unsigned char>(str[k]);
-                            if (c >= 128u) continue;
-                            const Glyph& g = g_RendererContext->m_FontAtlas.glyphs[c];
-
-                            glm::vec2 pos;
-                            pos.x = pen.x + g.offset.x;
-                            pos.y = pen.y - g.offset.y; // top-left convention
-                            const glm::vec2 size = g.size;
-
-                            UIInstanceCPU inst{};
-                            inst.Transform = glm::mat4(1.0f);
-                            inst.Transform[0][0] = size.x;
-                            inst.Transform[1][1] = size.y;
-                            inst.Transform[3][0] = pos.x;
-                            inst.Transform[3][1] = pos.y;
-                            inst.Color = tc.color;
-                            inst.Flags = UI_OPT_SAMPLE_TEXTURE;
-
-                            const auto uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
-                            const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
-                            inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
-
-                            instances[outIdx++] = inst;
-                            pen.x += g.advance.x;
+                            const UITextCmd& tc = renderData->uiTexts.elements[ti];
+                            if (tc.fontIndex != fontIdx) continue;
+                            const uint32_t off = tc.textOffset;
+                            const uint32_t len = tc.textLength;
+                            if (off + len > UI_TEXT_BUFFER_BYTES) continue;
+                            const char* str = renderData->uiTextBuffer + off;
+                            glm::vec2 pen = tc.pos;
+                            for (uint32_t k = 0; k < len && out < glyphCount; ++k)
+                            {
+                                const auto c = static_cast<unsigned char>(str[k]);
+                                if (c >= 128u) continue;
+                                const Glyph& g = fa->glyphs[c];
+                                glm::vec2 pos;
+                                pos.x = pen.x + g.offset.x;
+                                pos.y = pen.y - g.offset.y;
+                                const glm::vec2 size = g.size;
+                                UIInstanceCPU inst{};
+                                inst.Transform = glm::mat4(1.0f);
+                                inst.Transform[0][0] = size.x;
+                                inst.Transform[1][1] = size.y;
+                                inst.Transform[3][0] = pos.x;
+                                inst.Transform[3][1] = pos.y;
+                                inst.Color = tc.color;
+                                inst.Flags = UI_OPT_SAMPLE_TEXTURE;
+                                const auto uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
+                                const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
+                                inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
+                                glyphInstances[out++] = inst;
+                                pen.x += g.advance.x;
+                            }
+                        }
+                        if (out > 0)
+                        {
+                            g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, glyphInstances, out * sizeof(UIInstanceCPU));
+                            state.bindings = { fa->uiBindingSet ? fa->uiBindingSet : g_RendererContext->m_UIPass.m_BindingSet };
+                            g_RendererContext->m_CommandList->setGraphicsState(state);
+                            nvrhi::DrawArguments uiDrawArgs;
+                            uiDrawArgs.vertexCount = g_RendererContext->m_UIPass.m_IndexCount;
+                            uiDrawArgs.instanceCount = out;
+                            uiDrawArgs.startIndexLocation = 0;
+                            uiDrawArgs.startVertexLocation = 0;
+                            g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
                         }
                     }
-                }
-
-                // Upload instances to GPU
-                if (outIdx > 0)
-                {
-                    const size_t bytes = static_cast<size_t>(outIdx) * sizeof(UIInstanceCPU);
-                    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, instances, bytes);
-
-                    nvrhi::DrawArguments uiDrawArgs;
-                    uiDrawArgs.vertexCount = g_RendererContext->m_UIPass.m_IndexCount; // indexed draw uses index count here
-                    uiDrawArgs.instanceCount = outIdx;
-                    uiDrawArgs.startIndexLocation = 0;
-                    uiDrawArgs.startVertexLocation = 0;
-                    g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
                 }
             }
 
@@ -1090,4 +1139,58 @@ void renderer_toggle_vsync() {
 
 void* renderer_get_device_context() {
     return g_RendererContext->m_Backend;
+}
+
+int renderer_font_load(const char* filePath, int fontSize)
+{
+    if (!g_RendererContext || !g_RendererContext->m_Device) return -1;
+    FontAtlas atlas{};
+    load_font(filePath, fontSize, atlas, g_RendererContext->m_Device);
+    if (!atlas.texture)
+        return -1;
+
+    // Register in list
+    int index = 0;
+    if (g_RendererContext->m_Fonts.empty())
+    {
+        // ensure default at 0
+        g_RendererContext->m_Fonts.push_back(g_RendererContext->m_FontAtlas);
+        index = static_cast<int>(g_RendererContext->m_Fonts.size());
+        g_RendererContext->m_Fonts.push_back(atlas);
+        create_ui_binding_for_font(g_RendererContext->m_Fonts[1]);
+        return 1;
+    }
+    else
+    {
+        index = static_cast<int>(g_RendererContext->m_Fonts.size());
+        g_RendererContext->m_Fonts.push_back(atlas);
+        create_ui_binding_for_font(g_RendererContext->m_Fonts.back());
+        return index;
+    }
+}
+
+glm::vec2 renderer_measure_text(uint16_t fontIndex, const char* text)
+{
+    if (!g_RendererContext || !text) return {0,0};
+    const FontAtlas* fa = nullptr;
+    if (fontIndex < g_RendererContext->m_Fonts.size()) fa = &g_RendererContext->m_Fonts[fontIndex];
+    else if (fontIndex == 0) fa = &g_RendererContext->m_FontAtlas;
+    if (!fa) return {0,0};
+
+    float width = 0.0f;
+    float maxAscent = 0.0f;
+    float maxDescent = 0.0f;
+    const size_t len = strlen(text);
+    for (size_t i = 0; i < len; ++i)
+    {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        if (c >= 128u) continue;
+        const Glyph& g = fa->glyphs[c];
+        width += g.advance.x;
+        // Estimate ascent/descent from offset and size
+        maxAscent = std::max(maxAscent, g.offset.y);
+        maxDescent = std::max(maxDescent, g.size.y - g.offset.y);
+    }
+    float height = std::max({ fa->pixelHeight * 1.0f, maxAscent + maxDescent, 0.0f });
+    return { width, height };
 }

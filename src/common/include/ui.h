@@ -368,21 +368,21 @@ inline void ui_end_panel(UIState* ui)
 // #############################################################################
 //                    Widgets
 // #############################################################################
-inline void ui_label(UIState* ui, RenderData* rd, const char* text, glm::vec2 offsetPx, glm::vec4 color)
+inline void ui_label(UIState* ui, RenderData* rd, const char* text, const glm::vec2 offsetPx, const glm::vec4 color, const uint16_t fontIndex = 0)
 {
   if (!ui || !rd || !text) return;
   UIRect content = ui->availStack.empty() ? UIRect{{0,0},{0,0}} : ui->availStack.back();
   // Position is baseline origin relative to content top-left
   const glm::vec2 pos = { content.pos.x + offsetPx.x, content.pos.y + offsetPx.y };
-  ui_draw_text(rd, text, pos, color);
+  ui_draw_text_ex(rd, text, pos, color, fontIndex);
 
   // Advance panel layout cursor vertically so subsequent auto-laid-out widgets (e.g., buttons)
   // appear below this label, preserving the manual offset positioning of the label itself.
   if (!ui->cursorStack.empty())
   {
-    const float lineH  = UI_DEFAULT_FONT_SIZE_PX;
-    const float ascent = UI_DEFAULT_FONT_ASCENT_PX;
-    const float itemSpacing = 4.0f; // consistent with button spacing
+    constexpr float lineH  = UI_DEFAULT_FONT_SIZE_PX;
+    constexpr float ascent = UI_DEFAULT_FONT_ASCENT_PX;
+    constexpr float itemSpacing = 4.0f; // consistent with button spacing
 
     const float top    = pos.y - ascent;        // approximate top of the text line box
     const float bottom = top + lineH;           // bottom of the text line box

@@ -15,129 +15,35 @@ constexpr double UPDATE_DELAY = 1.0 / UPDATES_PER_SECOND;
 // #############################################################################
 //                           Game Structs
 // #############################################################################
-enum GameInputType
-{
-  INPUT_MOVE_LEFT,
-  INPUT_MOVE_RIGHT,
-  INPUT_JUMP,
-  INPUT_WALL_GRAB,
-  INPUT_MOVE_UP,
-  INPUT_MOVE_DOWN,
-  INPUT_DASH,
-
-  GAME_INPUT_COUNT
-};
-
-struct GameInput
-{
-  bool isDown;
-  bool justPressed;
-  float bufferingTime;
-};
-
-enum TileType
-{
-  TILE_TYPE_NONE,
-  TILE_TYPE_SOLID,
-  TILE_TYPE_SPIKE
-};
-
-struct Tile
-{
-  TileType type;
-  int neighbourMask;
-};
-
-enum AnimationState
-{
-  ANIMATION_STATE_IDLE,
-  ANIMATION_STATE_JUMP,
-  ANIMATION_STATE_RUN,
-
-  ANIMATION_STATE_COUNT
-};
-
-struct Player
-{
-  glm::ivec2 pos;
-  glm::ivec2 prevPos;
-  glm::vec2 solidSpeed;
-  int renderOptions;
-  float deathAnimTimer;
-  float runAnimTimer;
-  AnimationState animationState;
-  // SpriteID animationSprites[ANIMATION_STATE_COUNT]; 
-};
-
-struct Tileset
-{
-  Array<glm::ivec2, 21> tileCoords;
-};
-
-struct Keyframe
-{
-  glm::ivec2 pos;
-  float time; // how long to get there
-};
-
-struct Solid
-{
-  // SpriteID spriteID;
-
-  // Pixel Movement
-  glm::vec2 prevRemainder;
-  glm::vec2 remainder;
-
-  // Used by "interpolated rendering"
-  glm::ivec2 prevPos;
-  glm::ivec2 pos;
-
-  int keyframeIdx;
-  Array<Keyframe, 10> keyframes;
-
-  // Animation
-  float time;
-  float waitingTime;
-  float waitingDuration;
-};
-
-struct Level
-{
-  int version = 1;
-  glm::ivec2 playerStartPos;
-  Array<Solid, 50> solids;
-};
-
-enum GameStateID
+enum class GameStateId : uint8_t
 {
   GAME_STATE_MAIN_MENU,
-  GAME_STATE_IN_LEVEL
+  GAME_STATE_IN_LEVEL,
+  GAME_STATE_EDITOR,
 };
 
 struct GameState
 {
-  GameStateID state;
+  GameStateId m_State = GameStateId::GAME_STATE_MAIN_MENU;
+  bool m_Initialized = false;
 
-  double updateTimer;
-  bool initialized = false;
-  float cameraTimer;
-  GameInput gameInput[GAME_INPUT_COUNT];
+  double m_UpdateTimer = 0.0;
 
-  Player player;
-  Level level;
+  Sound m_JumpSound{};
+  Sound m_DeathSound{};
+  bool m_QuitRequested = false;
 
-  Sound jumpSound;
-  Sound deathSound;
-  bool quitRequested;
-
-  float fps;
-  float frameTime;
+  float m_Fps = 0.0f;
+  float m_FrameTime = 0.0f;
 };
 
 // #############################################################################
-//                           Game Globals
+//                           Game Functions (Not Exposed)
 // #############################################################################
-static GameState* g_GameState;
+void game_update_main_menu(GameState* gameState, UIState* uiState, RenderData* renderData, Input* input, float dt);
+void game_update_in_level(GameState* gameState, UIState* uiState, SoundState* soundState, RenderData* renderData, Input* input,
+  BumpAllocator* frameAllocator, size_t persistentStorageAllocated, size_t frameStorageAllocated, float dt);
+void game_update_editor(GameState* gameState, UIState* uiState, RenderData* renderData, Input* input, float dt);
 
 // #############################################################################
 //                           Game Functions (Exposed)
