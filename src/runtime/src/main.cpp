@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    g_GameState = reinterpret_cast<GameState *>(bump_alloc(&g_PersistentStorage, sizeof(GameState)));
+    const auto g_GameState = reinterpret_cast<GameState *>(bump_alloc(&g_PersistentStorage, sizeof(GameState)));
     if(!g_GameState)
     {
         SM_ERROR("Failed to allocate GameState");
@@ -148,7 +148,7 @@ int main(int argc, char** argv) {
 
     size_t frameAllocationBytes = 0;
 
-    while (g_PlatformContext->m_Running && !g_GameState->quitRequested) {
+    while (g_PlatformContext->m_Running && !g_GameState->m_QuitRequested) {
         const float dt = get_delta_time();
 
         {
@@ -160,11 +160,11 @@ int main(int argc, char** argv) {
             if (g_OverlayDllWatch && platform_file_changed(g_OverlayDllWatch)) {
                 g_OverlayDllReloadRequested.store(true);
             }
-            reload_ui_dll(&g_TransientStorage);
+            // reload_ui_dll(&g_TransientStorage);
         }
 
-        g_GameState->fps = g_PlatformContext->m_FrameStats.fpsInstant;
-        g_GameState->frameTime = g_PlatformContext->m_FrameStats.frameTimeMs;
+        g_GameState->m_Fps = g_PlatformContext->m_FrameStats.fpsInstant;
+        g_GameState->m_FrameTime = g_PlatformContext->m_FrameStats.frameTimeMs;
 
         platform_update_window(g_PlatformContext);
 

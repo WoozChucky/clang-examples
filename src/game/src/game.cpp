@@ -10,6 +10,7 @@ static Input* g_Input;
 static RenderData* g_RenderData;
 static UIState* g_UIState;
 static SoundState* g_SoundState;
+static GameState* g_GameState;
 static size_t g_LastFrameAllocationBytes = 0;
 
 // #############################################################################
@@ -59,10 +60,10 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
     persistentStorage = persistentStorageIn;
 
     // Sounds
-    const char* jumpSound = "assets/jump_01.wav";
-    const char* deathSound = "assets/died_01.wav";
-    memcpy(g_GameState->jumpSound.path, jumpSound, strlen(jumpSound));
-    memcpy(g_GameState->deathSound.path, deathSound, strlen(deathSound));
+    const auto jumpSound = "assets/jump_01.wav";
+    const auto deathSound = "assets/died_01.wav";
+    memcpy(g_GameState->m_JumpSound.path, jumpSound, strlen(jumpSound));
+    memcpy(g_GameState->m_DeathSound.path, deathSound, strlen(deathSound));
     // Game Camera
     g_RenderData->gameCamera.aspectRatio = g_Input->screenSize.x / g_Input->screenSize.y;
     // UI Camera
@@ -73,17 +74,8 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
     g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
   }
 
-  if(!g_GameState->initialized)
+  if(!g_GameState->m_Initialized)
   {
-    // Player
-    g_GameState->player.deathAnimTimer = 0.0f;
-    g_GameState->level.playerStartPos = {0, -4 * 8};
-    g_GameState->player.pos = g_GameState->level.playerStartPos;
-    g_GameState->player.prevPos = g_GameState->player.pos;
-
-    // Level
-    g_GameState->level.solids = {};
-
     // Game Camera
     g_RenderData->gameCamera.position = {0.0, 2.5f, +5.0f};
     g_RenderData->gameCamera.rotation = {0.0f, 0.0f, 0.0f};
@@ -92,8 +84,6 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
     g_RenderData->gameCamera.nearClip = 0.1f;
     g_RenderData->gameCamera.farClip = 1000.0f;
     g_RenderData->gameCamera.invalidate();
-
-    g_GameState->cameraTimer = 1.0f;
 
     // 3D model transform default (identity)
     g_RenderData->modelMatrix3D = glm::mat4(1.0f);
@@ -106,30 +96,37 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
     g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
     g_RenderData->uiCamera.zoom = 1.0f;
 
-    g_GameState->initialized = true;
+    g_GameState->m_Initialized = true;
   }
 
   g_RenderData->clearColor = {0.1f, 0.1f, 0.1f, 1.0f};
 
-  g_GameState->updateTimer += frameTime;
+  g_GameState->m_UpdateTimer += frameTime;
 
-  update_game_input(frameTime);
-  // Begin immediate-mode UI frame (collect input + clear UI command buffers)
-  ui_im_begin_frame(g_UIState, g_RenderData, g_Input);
-  update(frameTime);
-  // End UI frame (renderer will consume command buffers)
-  ui_im_end_frame(g_UIState);
+  switch (g_GameState->m_State) {
+    case GameStateId::GAME_STATE_MAIN_MENU:
+      game_update_main_menu(gameStateIn, uiStateIn, renderDataIn, inputIn, frameTime);
+      break;
+    case GameStateId::GAME_STATE_IN_LEVEL:
+      game_update_in_level(gameStateIn, uiStateIn, soundStateIn, renderDataIn, inputIn, transientStorageIn, persistentStorageIn->used, lastFrameAllocationBytes, frameTime);
+      break;
+    case GameStateId::GAME_STATE_EDITOR:
+      game_update_editor(gameStateIn, uiStateIn, renderDataIn, inputIn, frameTime);
+      break;
+    default:
+      SM_ASSERT(false, "Unknown Game State!");
+      break;
+  }
 
   // Reset Input
-  // input->wheelDelta = 0;
   g_Input->relMouse = {};
-  for(int keyIdx = 0; keyIdx < MAX_KEYCODES; keyIdx++)
+  for(auto & key : g_Input->keys)
   {
-    g_Input->keys[keyIdx].justReleased = false;
-    g_Input->keys[keyIdx].justPressed = false;
-    g_Input->keys[keyIdx].halfTransitionCount = 0;
+    key.justReleased = false;
+    key.justPressed = false;
+    key.halfTransitionCount = 0;
   }
-  float interpolatedDT = (float)(g_GameState->updateTimer / UPDATE_DELAY);
+  // float interpolatedDT = (float)(g_GameState->updateTimer / UPDATE_DELAY);
   // draw(interpolatedDT);
 }
 
@@ -154,13 +151,8 @@ EXPORT_FN void game_resize(const int width, const int height)
 }
 
 void update_game_input(float dt) {
-  if (key_released_this_frame(g_Input, KEY_ESCAPE)) {
-    g_GameState->quitRequested = true;
-    return;
-  }
-
   if (key_released_this_frame(g_Input, KEY_TAB)) {
-    play_sound(g_SoundState, g_GameState->jumpSound);
+    play_sound(g_SoundState, g_GameState->m_JumpSound);
   }
 
   if (key_released_this_frame(g_Input, KEY_1)) {
@@ -171,69 +163,6 @@ void update_game_input(float dt) {
   }
   if (key_released_this_frame(g_Input, KEY_3)) {
     g_UIState->showEditor = !g_UIState->showEditor;
-  }
-
-  const glm::vec3 rot= g_RenderData->gameCamera.rotation; // pitch(x), yaw(y), roll(z)
-  const float cp = cosf(rot.x), sp = sinf(rot.x);
-  const float cy = cosf(rot.y), sy = sinf(rot.y);
-
-  // Camera-to-world forward for RH, y-up, default forward = -Z:
-  // forward = (Rx * Ry * Rz) * (0,0,-1) with roll=0
-  const glm::vec3 forward = glm::normalize(glm::vec3(
-      -sy,            // x
-       sp * cy,       // y
-      -cp * cy        // z
-  ));
-
-  // Right vector consistent with RH system
-  const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0,1,0)));
-
-  float moveSpeed = 7.5f; // units/sec
-  if (key_is_down(g_Input, KEY_W)) { g_RenderData->gameCamera.position += forward * (moveSpeed * dt); g_RenderData->gameCamera.invalidate(); }
-  if (key_is_down(g_Input, KEY_S)) { g_RenderData->gameCamera.position -= forward * (moveSpeed * dt); g_RenderData->gameCamera.invalidate(); }
-  if (key_is_down(g_Input, KEY_A)) { g_RenderData->gameCamera.position -= right   * (moveSpeed * dt); g_RenderData->gameCamera.invalidate(); }
-  if (key_is_down(g_Input, KEY_D)) { g_RenderData->gameCamera.position += right   * (moveSpeed * dt); g_RenderData->gameCamera.invalidate(); }
-
-  // For up/down you can keep world y or derive from a camera up vector
-  if (key_is_down(g_Input, KEY_SPACE)) { g_RenderData->gameCamera.position.y += moveSpeed * dt; g_RenderData->gameCamera.invalidate(); }
-  if (key_is_down(g_Input, KEY_SHIFT)) { g_RenderData->gameCamera.position.y -= moveSpeed * dt; g_RenderData->gameCamera.invalidate(); }
-
-  constexpr float yawSpeed = glm::radians(120.0f);
-  auto& yaw = g_RenderData->gameCamera.rotation.y;
-  if (key_is_down(g_Input, KEY_Q)) { yaw += yawSpeed * dt; g_RenderData->gameCamera.invalidate(); }
-  if (key_is_down(g_Input, KEY_E)) { yaw -= yawSpeed * dt; g_RenderData->gameCamera.invalidate(); }
-
-  // Mouse look when holding right mouse button
-  const float mouseSensitivity = 0.0025f;
-  if (key_is_down(g_Input, KEY_MOUSE_RIGHT)) {
-    // Apply a small deadzone and axis-dominance filter to prevent cross-axis jitter
-    int dx = g_Input->relMouse.x;
-    int dy = g_Input->relMouse.y;
-
-    // Deadzone (ignore tiny sub-pixel jitters)
-    const int deadzonePx = 1; // tweak to 2 if needed
-    if (dx > -deadzonePx && dx < deadzonePx) dx = 0;
-    if (dy > -deadzonePx && dy < deadzonePx) dy = 0;
-
-    // Axis-dominance suppression: if one axis movement is much larger, zero the other
-    const int axisLockRatio = 3; // dominant axis must be >= 3x the minor axis
-    int adx = (dx >= 0) ? dx : -dx;
-    int ady = (dy >= 0) ? dy : -dy;
-    if (adx >= ady * axisLockRatio) {
-      dy = 0; // horizontal look only
-    } else if (ady >= adx * axisLockRatio) {
-      dx = 0; // vertical look only
-    }
-
-    SM_TRACE("Holding Mouse 1 Input (dx: %d, dy: %d)", dx, dy);
-
-    g_RenderData->gameCamera.rotation.y -= dx * mouseSensitivity; // yaw
-    g_RenderData->gameCamera.rotation.x -= dy * mouseSensitivity; // pitch
-    // Clamp pitch to avoid flipping
-    const float pitchLimit = glm::radians(89.0f);
-    if (g_RenderData->gameCamera.rotation.x > pitchLimit) g_RenderData->gameCamera.rotation.x = pitchLimit;
-    if (g_RenderData->gameCamera.rotation.x < -pitchLimit) g_RenderData->gameCamera.rotation.x = -pitchLimit;
-    g_RenderData->gameCamera.invalidate();
   }
 }
 
@@ -247,8 +176,8 @@ void update(float dt) {
   diagnosticsTimer += dt;
   if (diagnosticsTimer >= 0.25f) {
     diagnosticsTimer = 0.0f;
-    fps = g_GameState->fps;
-    frameTimeMs = g_GameState->frameTime;
+    fps = g_GameState->m_Fps;
+    frameTimeMs = g_GameState->m_FrameTime;
     persistentMemoryUsed = persistentStorage->used;
     frameMemoryUsed = g_LastFrameAllocationBytes;
   }
@@ -337,69 +266,7 @@ void update(float dt) {
       ui_pop_id(g_UIState);
     }
 
-    // Diagnostics panel docked to top (uses percentage+px sizing)
-    if (g_UIState->showDiagnostics) {
-      UIPanelOptions opt{};
-      opt.dock = UIDock::None;
-      opt.x = {10, UIUnit::Px};
-      opt.y = {10, UIUnit::Px};
-      opt.h = {160, UIUnit::Px};
-      opt.w = {340, UIUnit::Px};
-      opt.padding = 6.0f;
-      opt.bgColor = {0.1f, 0.1f, 0.1f, 0.1f};
-      PanelContext pc = ui_begin_panel(g_UIState, g_RenderData, opt);
 
-      // Hover effect overlay
-      const bool hovered = (g_UIState->mousePosUI.x >= pc.panelRect.pos.x && g_UIState->mousePosUI.x <= pc.panelRect.pos.x + pc.panelRect.size.x &&
-                            g_UIState->mousePosUI.y >= pc.panelRect.pos.y && g_UIState->mousePosUI.y <= pc.panelRect.pos.y + pc.panelRect.size.y);
-      if (hovered) {
-        ui_draw_rect(g_RenderData, pc.panelRect.pos, pc.panelRect.size, {1.0f, 1.0f, 1.0f, 0.20f});
-      }
-
-      // Text lines inside content area
-      char* fpsText = bump_alloc(transientStorage, 64);
-      snprintf(fpsText, 64, "FPS: %.0f", fps);
-      ui_label(g_UIState, g_RenderData, fpsText, {2.0f, 10.0f}, {0.0f, 1.0f, 0.0f, 1.0f});
-
-      char* frameTimeText = bump_alloc(transientStorage, 64);
-      snprintf(frameTimeText, 64, "Frame: %.3f ms", frameTimeMs);
-      ui_label(g_UIState, g_RenderData, frameTimeText, {2.0f, 25.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
-
-      char* persistentMemText = bump_alloc(transientStorage, 64);
-      const double persistentMB = static_cast<double>(persistentMemoryUsed) / (1024.0 * 1024.0);
-      snprintf(persistentMemText, 64, "Persistent Mem: %.2f MB", persistentMB);
-      ui_label(g_UIState, g_RenderData, persistentMemText, {2.0f, 40.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
-
-      char* transientMemText = bump_alloc(transientStorage, 64);
-      const double frameMB = static_cast<double>(frameMemoryUsed) / (1024.0 * 1024.0);
-      snprintf(transientMemText, 64, "Frame Mem: %.2f MB", frameMB);
-      ui_label(g_UIState, g_RenderData, transientMemText, {2.0f, 55.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
-
-      char* screenSizeText = bump_alloc(transientStorage, 64);
-      snprintf(screenSizeText, 64, "Resolution: %d x %d", static_cast<int>(g_Input->screenSize.x), static_cast<int>(g_Input->screenSize.y));
-      ui_label(g_UIState, g_RenderData, screenSizeText, {2.0f, 70.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
-
-      ui_end_panel(g_UIState);
-    }
-
-    // HUD panel docked to bottom
-    if (g_UIState->showHUD) {
-      UIPanelOptions opt{};
-      opt.dock = UIDock::Bottom;
-      opt.h = {40, UIUnit::Px};
-      opt.padding = 6.0f;
-      ui_begin_panel(g_UIState, g_RenderData, opt);
-
-      char* positionText = bump_alloc(transientStorage, 128);
-      snprintf(positionText, 128, "Camera Pos: (%.2f, %.2f, %.2f)", g_RenderData->gameCamera.position.x, g_RenderData->gameCamera.position.y, g_RenderData->gameCamera.position.z);
-      ui_label(g_UIState, g_RenderData, positionText, {10.0f, 8.0f}, {1.0f, 1.0f, 1.0f, 1.0f});
-
-      char* rotationText = bump_alloc(transientStorage, 128);
-      snprintf(rotationText, 128, "Camera Rot: (%.2f, %.2f, %.2f)", glm::degrees(g_RenderData->gameCamera.rotation.x), glm::degrees(g_RenderData->gameCamera.rotation.y), glm::degrees(g_RenderData->gameCamera.rotation.z));
-      ui_label(g_UIState, g_RenderData, rotationText, {10.0f, 24.0f}, {1.0f, 1.0f, 1.0f, 1.0f});
-
-      ui_end_panel(g_UIState);
-    }
 
     ui_end_panel(g_UIState);
     ui_pop_id(g_UIState);
@@ -411,7 +278,7 @@ void update(float dt) {
 
   char* todoText = bump_alloc(transientStorage, 128);
   snprintf(todoText, 128, "TODO(Nuno): Fix VSync, Press TAB to play sound, WASD+QE+SPACE/SHIFT to fly, RMB+Mouse to look");
-  ui_draw_text(g_RenderData, todoText, {g_Input->screenSize.x / 4.f, g_Input->screenSize.y / 2 - 50.f}, {1.0f, 1.0f, 1.0f, 1.0f});
+  ui_draw_text_ex(g_RenderData, todoText, {g_Input->screenSize.x / 4.f, g_Input->screenSize.y / 2 - 50.f}, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
 }
 
 // Assertion handler entry point used inside the game DLL.

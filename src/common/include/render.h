@@ -102,6 +102,8 @@ struct UITextCmd
   uint32_t textOffset;   // offset into RenderData::uiTextBuffer
   uint32_t textLength;   // number of bytes (without null terminator)
   uint32_t glyphCount;   // precomputed ASCII glyph count (<128) to avoid double iteration in renderer
+  uint16_t fontIndex;    // which font to use (index into renderer font list)
+  uint16_t _pad = 0;
 };
 
 // #############################################################################
@@ -202,7 +204,7 @@ inline void ui_draw_vline(RenderData* renderData, glm::vec2 startTopLeft, float 
   ui_draw_rect(renderData, startTopLeft, {thickness, length}, color);
 }
 
-inline void ui_draw_text(RenderData* renderData, const char* text, glm::vec2 pos, glm::vec4 color)
+inline void ui_draw_text_ex(RenderData* renderData, const char* text, glm::vec2 pos, glm::vec4 color, uint16_t fontIndex)
 {
   if (!renderData || !text) return;
   const size_t len = strlen(text);
@@ -230,7 +232,13 @@ inline void ui_draw_text(RenderData* renderData, const char* text, glm::vec2 pos
   cmd.textOffset = offset;
   cmd.textLength = static_cast<uint32_t>(len);
   cmd.glyphCount = glyphCount;
+  cmd.fontIndex = fontIndex;
   renderData->uiTexts.add(cmd);
+}
+
+inline void ui_draw_text(RenderData* renderData, const char* text, glm::vec2 pos, glm::vec4 color)
+{
+  ui_draw_text_ex(renderData, text, pos, color, 0);
 }
 
 inline void ui_begin_frame(RenderData* renderData)

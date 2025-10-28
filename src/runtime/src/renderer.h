@@ -15,14 +15,22 @@ void renderer_resize(int width, int height);
 void renderer_toggle_vsync();
 void* renderer_get_device_context();
 
+// Font management and utilities
+// Load a font file at a given pixel size. Returns the font index (0-based) or -1 on failure.
+int renderer_font_load(const char* filePath, int fontSize);
+// Measure ASCII text (bytes < 128) in pixels for the given font index.
+glm::vec2 renderer_measure_text(uint16_t fontIndex, const char* text);
+
 struct FontAtlas
 {
     uint32_t width = 512, height = 512, pixelHeight = 0;
     Glyph glyphs[128] = {};
     nvrhi::TextureHandle texture;          // grayscale atlas (R8_UNORM)
     nvrhi::SamplerHandle sampler;          // clamp + linear
-    nvrhi::BindingLayoutHandle layout;     // layout: t0 + s0
-    nvrhi::BindingSetHandle bindingSet;    // binds font texture at t0, sampler at s0
+    nvrhi::BindingLayoutHandle layout;     // layout: t0 + s0 (created in font.cpp, not used by UI)
+    nvrhi::BindingSetHandle bindingSet;    // binds font texture at t0, sampler at s0 (font.cpp)
+    // UI-specific binding set (uses UI pass layout: b0 (per-frame), t0 (font), t1 (instances), s0)
+    nvrhi::BindingSetHandle uiBindingSet;
 };
 
 // HLSL for a textured cube using a texture atlas
