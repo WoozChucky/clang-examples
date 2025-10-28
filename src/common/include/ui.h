@@ -145,11 +145,14 @@ struct UIState
 
   uint64_t hotId = 0;
   uint64_t activeId = 0;
+  uint64_t focusedId = 0;            // widget with keyboard focus (e.g., input text)
 
   glm::vec2 mousePosUI{0,0};
   bool mouseDown = false;
   bool mouseReleased = false;
   glm::vec2 viewportSize{0,0};
+
+  const Input* input = nullptr;      // per-frame pointer used by text input
 
   bool showDiagnostics = true;
   bool showHUD = true;
@@ -216,6 +219,7 @@ inline void ui_im_begin_frame(UIState* ui, RenderData* rd, const Input* input)
   ui->mousePosUI = screen_to_ui(input, rd, input->mousePos);
   ui->mouseDown = key_is_down(input, KEY_MOUSE_LEFT);
   ui->mouseReleased = key_released_this_frame(input, KEY_MOUSE_LEFT);
+  ui->input = input;
 
   ui->hotId = 0; // will be set by widgets
 
@@ -455,4 +459,210 @@ inline bool ui_button(UIState* ui, RenderData* rd, const char* label, glm::vec2 
   ui_draw_text(rd, label, textPos, {1,1,1,1});
 
   return pressed;
+}
+
+// #############################################################################
+//                    Text input widget
+// #############################################################################
+inline bool ui_input_text(UIState* ui, RenderData* rd, char* buffer, int bufferSize, glm::vec2 sizePx, const char* placeholder = nullptr)
+{
+  if (!ui || !rd || !buffer || bufferSize <= 1) return false;
+
+  // Ensure we have a panel/cursor context (like button)
+  if (ui->cursorStack.empty())
+  {
+    UIPanelOptions opt; opt.dock = UIDock::Fill; opt.bgColor = {0,0,0,0}; opt.padding = 0;
+    ui_begin_panel(ui, rd, opt);
+  }
+
+  glm::vec2 cursor = ui->cursorStack.back();
+  UIRect content = ui->availStack.back();
+
+  // Clamp size to content
+  glm::vec2 size = { glm::min(sizePx.x, content.size.x), glm::min(sizePx.y, content.size.y) };
+  UIRect rect{ cursor, size };
+
+  // Advance cursor vertically (simple column layout)
+  cursor.y += size.y + 4.0f; // spacing
+  ui->cursorStack.back() = cursor;
+
+  // Build a stable id from the buffer pointer and current id seed
+  uint64_t seed = ui->idStack.empty() ? 0ull : ui->idStack.back();
+  void* ptrKey = (void*)buffer;
+  const uint64_t id = ui_fnv1a64(seed, &ptrKey, sizeof(ptrKey));
+
+  // Mouse interaction
+  const bool hovered = (ui->mousePosUI.x >= rect.pos.x && ui->mousePosUI.x <= rect.pos.x + rect.size.x &&
+                        ui->mousePosUI.y >= rect.pos.y && ui->mousePosUI.y <= rect.pos.y + rect.size.y);
+  if (hovered) ui->hotId = id;
+
+  if (hovered && ui->mouseDown && (ui->activeId == 0 || ui->activeId == id))
+  {
+    ui->activeId = id;
+  }
+  if (ui->mouseReleased)
+  {
+    if (ui->activeId == id)
+    {
+      // Click to focus
+      ui->focusedId = id;
+      ui->activeId = 0;
+    }
+    else if (!hovered && ui->focusedId == id)
+    {
+      // Click elsewhere -> lose focus
+      ui->focusedId = 0;
+    }
+  }
+
+  bool edited = false;
+  const bool focused = (ui->focusedId == id);
+
+  // Keyboard input when focused
+  if (focused && ui->input)
+  {
+    const Input* in = ui->input;
+    const bool shift = key_is_down(in, KEY_SHIFT);
+
+    auto append_char = [&](char c)
+    {
+      int len = (int)strlen(buffer);
+      if (len < bufferSize - 1)
+      {
+        buffer[len] = c;
+        buffer[len+1] = '\0';
+        edited = true;
+      }
+    };
+
+    auto pop_char = [&]()
+    {
+      int len = (int)strlen(buffer);
+      if (len > 0)
+      {
+        buffer[len-1] = '\0';
+        edited = true;
+      }
+    };
+
+    if (key_pressed_this_frame(in, KEY_BACKSPACE)) { pop_char(); }
+
+    // Enter to commit + defocus
+    if (key_pressed_this_frame(in, KEY_RETURN)) { ui->focusedId = 0; }
+
+    // Letters
+    for (int k = (int)KEY_A; k <= (int)KEY_Z; ++k)
+    {
+      if (key_pressed_this_frame(in, (KeyCodeID)k))
+      {
+        char c = (char)('a' + (k - (int)KEY_A));
+        if (shift) c = (char)('A' + (k - (int)KEY_A));
+        append_char(c);
+      }
+    }
+    // Numbers with shift variants
+    static const char shiftedDigits[10] = { ')','!','@','#','$','%','^','&','*','(' };
+    for (int k = (int)KEY_0; k <= (int)KEY_9; ++k)
+    {
+      if (key_pressed_this_frame(in, (KeyCodeID)k))
+      {
+        int d = k - (int)KEY_0;
+        char c = shift ? shiftedDigits[d] : (char)('0' + d);
+        append_char(c);
+      }
+    }
+
+    if (key_pressed_this_frame(in, KEY_SPACE)) append_char(' ');
+
+    // Punctuation and their shift variants
+    if (key_pressed_this_frame(in, KEY_MINUS))          append_char(shift ? '_' : '-');
+    if (key_pressed_this_frame(in, KEY_EQUAL))          append_char(shift ? '+' : '=');
+    if (key_pressed_this_frame(in, KEY_COMMA))          append_char(shift ? '<' : ',');
+    if (key_pressed_this_frame(in, KEY_PERIOD))         append_char(shift ? '>' : '.');
+    if (key_pressed_this_frame(in, KEY_FORWARD_SLASH))  append_char(shift ? '?' : '/');
+    if (key_pressed_this_frame(in, KEY_BACKWARD_SLASH)) append_char(shift ? '|' : '\\');
+    if (key_pressed_this_frame(in, KEY_SEMICOLON))      append_char(shift ? ':' : ';');
+    if (key_pressed_this_frame(in, KEY_QUOTE))          append_char(shift ? '"' : '\'');
+    if (key_pressed_this_frame(in, KEY_LEFT_BRACKET))   append_char(shift ? '{' : '[');
+    if (key_pressed_this_frame(in, KEY_RIGHT_BRACKET))  append_char(shift ? '}' : ']');
+    if (key_pressed_this_frame(in, KEY_TICK))           append_char(shift ? '~' : '`');
+  }
+
+  // Visuals
+  const glm::vec4 base = {0.10f, 0.10f, 0.10f, 1.0f};
+  const glm::vec4 hov  = {0.20f, 0.20f, 0.20f, 1.0f};
+  const glm::vec4 foc  = {0.12f, 0.12f, 0.20f, 1.0f};
+  const glm::vec4 col = focused ? foc : (hovered ? hov : base);
+  ui_draw_rect(rd, rect.pos, rect.size, col);
+
+  // Text layout within box
+  const float leftPad = 8.0f;
+  const float rightPad = 8.0f;
+  const float ascent = UI_DEFAULT_FONT_ASCENT_PX;
+  const float lineH = UI_DEFAULT_FONT_SIZE_PX;
+  const float top = rect.pos.y;
+  const float h = rect.size.y;
+  float baselineY = top + glm::max(0.0f, (h - lineH) * 0.5f) + ascent;
+  const float minBaseline = top + ascent;
+  const float maxBaseline = top + h - UI_DEFAULT_FONT_DESCENT_PX;
+  baselineY = glm::clamp(baselineY, minBaseline, maxBaseline);
+  const glm::vec2 textBasePos = { rect.pos.x + leftPad, baselineY };
+
+  // Determine visible substring to keep the end visible if too long
+  const float avgAdvance = UI_DEFAULT_FONT_SIZE_PX * 0.60f;
+  float availTextW = rect.size.x - (leftPad + rightPad);
+  const int len = (int)strlen(buffer);
+
+  const bool drawPlaceholder = (len == 0 && placeholder != nullptr && placeholder[0] != '\0');
+
+  if (availTextW > 0.0f)
+  {
+    int maxChars = (avgAdvance > 0.f) ? static_cast<int>(glm::floor(availTextW / avgAdvance)) : len;
+    if (maxChars < 0) maxChars = 0;
+
+    if (drawPlaceholder)
+    {
+      // Truncate placeholder if needed
+      int phLen = (int)strlen(placeholder);
+      int start = 0;
+      int visCount = glm::min(phLen, maxChars);
+      if (visCount > 0)
+      {
+        char buf[256];
+        int copy = glm::min(visCount, (int)sizeof(buf) - 1);
+        memcpy(buf, placeholder + start, copy);
+        buf[copy] = '\0';
+        ui_draw_text(rd, buf, textBasePos, {0.7f, 0.7f, 0.7f, 1.0f});
+      }
+    }
+    else
+    {
+      int start = 0;
+      int visCount = len;
+      if (len > maxChars)
+      {
+        start = len - maxChars;
+        visCount = maxChars;
+      }
+      if (visCount > 0)
+      {
+        char buf[512];
+        int copy = glm::min(visCount, (int)sizeof(buf) - 1);
+        memcpy(buf, buffer + start, copy);
+        buf[copy] = '\0';
+        ui_draw_text(rd, buf, textBasePos, {1,1,1,1});
+      }
+
+      // Caret at end of visible text when focused
+      if (focused)
+      {
+        float caretX = textBasePos.x + glm::min((float)visCount * avgAdvance, glm::max(0.0f, availTextW));
+        float caretTop = baselineY - ascent;
+        float caretH = lineH;
+        ui_draw_rect(rd, {caretX, caretTop}, {1.0f, caretH}, {1,1,1,1});
+      }
+    }
+  }
+
+  return edited;
 }
