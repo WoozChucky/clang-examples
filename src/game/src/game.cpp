@@ -9,6 +9,7 @@ static BumpAllocator* persistentStorage;
 static Input* g_Input;
 static RenderData* g_RenderData;
 static UIState* g_UIState;
+static SoundState* g_SoundState;
 static size_t g_LastFrameAllocationBytes = 0;
 
 // #############################################################################
@@ -58,10 +59,10 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
     persistentStorage = persistentStorageIn;
 
     // Sounds
-    const char* jumpSound = "assets/sounds/jump_01.wav";
-    const char* deathSound = "assets/sounds/died_02.wav";
-    // memcpy(g_GameState->jumpSound.path, jumpSound, strlen(jumpSound));
-    // memcpy(g_GameState->deathSound.path, deathSound, strlen(deathSound));
+    const char* jumpSound = "assets/jump_01.wav";
+    const char* deathSound = "assets/died_01.wav";
+    memcpy(g_GameState->jumpSound.path, jumpSound, strlen(jumpSound));
+    memcpy(g_GameState->deathSound.path, deathSound, strlen(deathSound));
     // Game Camera
     g_RenderData->gameCamera.aspectRatio = g_Input->screenSize.x / g_Input->screenSize.y;
     // UI Camera
@@ -153,9 +154,23 @@ EXPORT_FN void game_resize(const int width, const int height)
 }
 
 void update_game_input(float dt) {
-  if (key_is_down(g_Input, KEY_ESCAPE)) {
+  if (key_released_this_frame(g_Input, KEY_ESCAPE)) {
     g_GameState->quitRequested = true;
     return;
+  }
+
+  if (key_released_this_frame(g_Input, KEY_TAB)) {
+    play_sound(g_SoundState, g_GameState->jumpSound);
+  }
+
+  if (key_released_this_frame(g_Input, KEY_1)) {
+    g_UIState->showDiagnostics = !g_UIState->showDiagnostics;
+  }
+  if (key_released_this_frame(g_Input, KEY_2)) {
+    g_UIState->showHUD = !g_UIState->showHUD;
+  }
+  if (key_released_this_frame(g_Input, KEY_3)) {
+    g_UIState->showEditor = !g_UIState->showEditor;
   }
 
   const glm::vec3 rot= g_RenderData->gameCamera.rotation; // pitch(x), yaw(y), roll(z)
@@ -187,13 +202,6 @@ void update_game_input(float dt) {
   auto& yaw = g_RenderData->gameCamera.rotation.y;
   if (key_is_down(g_Input, KEY_Q)) { yaw += yawSpeed * dt; g_RenderData->gameCamera.invalidate(); }
   if (key_is_down(g_Input, KEY_E)) { yaw -= yawSpeed * dt; g_RenderData->gameCamera.invalidate(); }
-
-  if (key_released_this_frame(g_Input, KEY_1)) {
-    g_UIState->showDiagnostics = !g_UIState->showDiagnostics;
-  }
-  if (key_released_this_frame(g_Input, KEY_2)) {
-    g_UIState->showHUD = !g_UIState->showHUD;
-  }
 
   // Mouse look when holding right mouse button
   const float mouseSensitivity = 0.0025f;
@@ -316,14 +324,13 @@ void update(float dt) {
 
       // Editor Controls
       {
-        //ui_push_id(g_UIState, "Editor Controls");
-        //opt.padding = 6.f;
-        //ui_begin_panel(g_UIState, g_RenderData, opt);
+        static char editorName[128] = "";
+        //ui_label(g_UIState, g_RenderData, "Name", {2.0f, 10.0f}, {0.9f, 0.9f, 0.9f, 1.0f});
+        ui_input_text(g_UIState, g_RenderData, editorName, (int)sizeof(editorName), {180, 26}, "Type here...");
+
         ui_button(g_UIState, g_RenderData, "Add Panel", {180, 26});
         ui_button(g_UIState, g_RenderData, "Add Label", {180, 26});
         ui_button(g_UIState, g_RenderData, "Add Button", {180, 26});
-        //ui_end_panel(g_UIState);
-        //ui_pop_id(g_UIState);
       }
 
       ui_end_panel(g_UIState);
@@ -403,7 +410,7 @@ void update(float dt) {
   ui_draw_vline(g_RenderData, {g_Input->screenSize.x / 2, g_Input->screenSize.y / 2 - 5.f}, 12.5f, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
 
   char* todoText = bump_alloc(transientStorage, 128);
-  snprintf(todoText, 128, "TODO(Nuno): Fix VSync");
+  snprintf(todoText, 128, "TODO(Nuno): Fix VSync, Press TAB to play sound, WASD+QE+SPACE/SHIFT to fly, RMB+Mouse to look");
   ui_draw_text(g_RenderData, todoText, {g_Input->screenSize.x / 4.f, g_Input->screenSize.y / 2 - 50.f}, {1.0f, 1.0f, 1.0f, 1.0f});
 }
 

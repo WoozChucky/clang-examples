@@ -708,7 +708,7 @@ bool platform_init_audio(PlatformContext* ctx) {
   if(FAILED(hr)) { return false; }
 
   IXAudio2* xaudio2 = nullptr;
-  hr = XAudio2Create(&xaudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+  hr = XAudio2Create(&xaudio2, 0, XAUDIO2_USE_DEFAULT_PROCESSOR);
   if(FAILED(hr)) { return false; }
 
   IXAudio2MasteringVoice* master_voice = nullptr;
@@ -735,9 +735,9 @@ bool platform_init_audio(PlatformContext* ctx) {
 }
 
 void platform_update_audio(PlatformContext* ctx, float dt) {
-  for(int soundIdx = 0; soundIdx < g_SoundState->playingSounds.count; soundIdx++)
+  for(int soundIdx = 0; soundIdx < ctx->m_SoundState->playingSounds.count; soundIdx++)
   {
-    Sound* sound = &g_SoundState->playingSounds[soundIdx];
+    Sound* sound = &ctx->m_SoundState->playingSounds[soundIdx];
 
     // Playing Sounds
     if(sound->options & SOUND_OPTION_START ||
@@ -835,7 +835,7 @@ void platform_update_audio(PlatformContext* ctx, float dt) {
     }
   }
 
-  g_SoundState->playingSounds.count = 0;
+  ctx->m_SoundState->playingSounds.count = 0;
 }
 
 void platform_sleep(const unsigned int ms) {

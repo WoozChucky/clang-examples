@@ -48,14 +48,9 @@ struct SoundState
 };
 
 // #############################################################################
-//                           Sound Globals
-// #############################################################################
-static SoundState* g_SoundState;
-
-// #############################################################################
 //                           Sound Functions
 // #############################################################################
-void play_sound(Sound sound)
+inline void play_sound(SoundState* soundState, Sound sound)
 {
 	// We can stop sounds using this function but if no
 	// options are supplied, at least SOUND_OPTION_START
@@ -63,41 +58,41 @@ void play_sound(Sound sound)
 	sound.options = sound.options? sound.options : SOUND_OPTION_START;
 
 	// Look for existing Sound to play
-	for(int soundIdx = 0; soundIdx < g_SoundState->allocatedSounds.count; soundIdx++)
+	for(int soundIdx = 0; soundIdx < soundState->allocatedSounds.count; soundIdx++)
 	{
-		Sound allocatedSound = g_SoundState->allocatedSounds[soundIdx];
+		Sound allocatedSound = soundState->allocatedSounds[soundIdx];
 
 		if(strcmp(allocatedSound.path, sound.path) == 0)
 		{
 			// Use allocated Sound
 			allocatedSound.options = sound.options;
-			g_SoundState->playingSounds.add(allocatedSound);
+			soundState->playingSounds.add(allocatedSound);
 			return;
 		}
 	}
 
-	// Couldn't find a Sound, Load WAV file if presend and allocate
-	WAVFile* wavFile = load_wav(sound.path, g_SoundState->transientStorage);
+	// Couldn't find a Sound, Load WAV file if present and allocate
+	WAVFile* wavFile = load_wav(sound.path, soundState->transientStorage);
 	if(wavFile)
 	{
-		if(wavFile->header.dataChunkSize > SOUNDS_BUFFER_SIZE - g_SoundState->bytesUsed)
+		if(wavFile->header.dataChunkSize > SOUNDS_BUFFER_SIZE - soundState->bytesUsed)
 		{
 			SM_ASSERT(0, "Exausted Sounds Buffer!\nCapacity:\t%d\nBytes Used:\t%d\nSound Path:\t%s\nSound Size:\t%d",
-									 SOUNDS_BUFFER_SIZE, g_SoundState->bytesUsed, sound.path, wavFile->header.dataChunkSize);
+									 SOUNDS_BUFFER_SIZE, soundState->bytesUsed, sound.path, wavFile->header.dataChunkSize);
 			return;
 		}
 		sound.size = wavFile->header.dataChunkSize;
-		sound.data = &g_SoundState->allocatedsoundsBuffer[g_SoundState->bytesUsed];
-		g_SoundState->bytesUsed += sound.size;
+		sound.data = &soundState->allocatedsoundsBuffer[soundState->bytesUsed];
+		soundState->bytesUsed += sound.size;
 		memcpy(sound.data, &wavFile->dataBegin, sound.size);
 
-		g_SoundState->allocatedSounds.add(sound);
-		g_SoundState->playingSounds.add(sound);
+		soundState->allocatedSounds.add(sound);
+		soundState->playingSounds.add(sound);
 	}
 }
 
-void stop_sound(Sound sound)
+inline void stop_sound(SoundState* soundState, Sound sound)
 {
 	sound.options = SOUND_OPTION_FADE_OUT;
-	play_sound(sound);
+	play_sound(soundState, sound);
 }

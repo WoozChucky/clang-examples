@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    g_SoundState = reinterpret_cast<SoundState *>(bump_alloc(&g_PersistentStorage, sizeof(SoundState)));
+    const auto g_SoundState = reinterpret_cast<SoundState *>(bump_alloc(&g_PersistentStorage, sizeof(SoundState)));
     if(!g_SoundState)
     {
         SM_ERROR("Failed to allocate SoundState");
@@ -111,6 +111,7 @@ int main(int argc, char** argv) {
     }
     g_PlatformContext->m_Input = g_Input;
     g_PlatformContext->m_RenderData = g_RenderData;
+    g_PlatformContext->m_SoundState = g_SoundState;
     if (!platform_create_window(g_PlatformContext, 1920, 1080, "My Window", nullptr)) {
         SM_ERROR("Failed to create window");
         return -1;

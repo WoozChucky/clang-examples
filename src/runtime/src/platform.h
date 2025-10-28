@@ -45,6 +45,7 @@ typedef struct PlatformContext {
     FrameStats m_FrameStats; // Per-frame timing statistics
     Input* m_Input;
     RenderData* m_RenderData;
+    SoundState* m_SoundState;
 } PlatformContext;
 
 PlatformContext* platform_init(BumpAllocator* persistentStorage, BumpAllocator* transientStorage);
