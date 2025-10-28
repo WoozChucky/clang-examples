@@ -306,16 +306,25 @@ void update(float dt) {
       // Editor panel docked to left
       UIPanelOptions opt{};
       opt.dock = UIDock::Left;
-      opt.w = {300, UIUnit::Px};
+      opt.w = {260, UIUnit::Px};
       opt.padding = 6.0f;
       opt.bgColor = {0.2f, 0.2f, 0.2f, 0.1f};
-      ui_push_id(g_UIState, "Editor Controls");
+      ui_push_id(g_UIState, "Editor");
       ui_begin_panel(g_UIState, g_RenderData, opt);
 
       ui_label(g_UIState, g_RenderData, "Editor Panel", {2.0f, 10.0f}, {1.0f, 1.0f, 1.0f, 1.0f});
-      ui_button(g_UIState, g_RenderData, "Add Panel", {180, 26});
-      ui_button(g_UIState, g_RenderData, "Add Label", {180, 26});
-      ui_button(g_UIState, g_RenderData, "Add Button", {180, 26});
+
+      // Editor Controls
+      {
+        //ui_push_id(g_UIState, "Editor Controls");
+        //opt.padding = 6.f;
+        //ui_begin_panel(g_UIState, g_RenderData, opt);
+        ui_button(g_UIState, g_RenderData, "Add Panel", {180, 26});
+        ui_button(g_UIState, g_RenderData, "Add Label", {180, 26});
+        ui_button(g_UIState, g_RenderData, "Add Button", {180, 26});
+        //ui_end_panel(g_UIState);
+        //ui_pop_id(g_UIState);
+      }
 
       ui_end_panel(g_UIState);
       ui_pop_id(g_UIState);

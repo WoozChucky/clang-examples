@@ -368,8 +368,29 @@ inline void ui_label(UIState* ui, RenderData* rd, const char* text, glm::vec2 of
 {
   if (!ui || !rd || !text) return;
   UIRect content = ui->availStack.empty() ? UIRect{{0,0},{0,0}} : ui->availStack.back();
+  // Position is baseline origin relative to content top-left
   const glm::vec2 pos = { content.pos.x + offsetPx.x, content.pos.y + offsetPx.y };
   ui_draw_text(rd, text, pos, color);
+
+  // Advance panel layout cursor vertically so subsequent auto-laid-out widgets (e.g., buttons)
+  // appear below this label, preserving the manual offset positioning of the label itself.
+  if (!ui->cursorStack.empty())
+  {
+    const float lineH  = UI_DEFAULT_FONT_SIZE_PX;
+    const float ascent = UI_DEFAULT_FONT_ASCENT_PX;
+    const float itemSpacing = 4.0f; // consistent with button spacing
+
+    const float top    = pos.y - ascent;        // approximate top of the text line box
+    const float bottom = top + lineH;           // bottom of the text line box
+
+    glm::vec2 cursor = ui->cursorStack.back();
+    const float newY = bottom + itemSpacing;
+    if (newY > cursor.y)
+    {
+      cursor.y = newY; // only move forward
+      ui->cursorStack.back() = cursor;
+    }
+  }
 }
 
 inline bool ui_button(UIState* ui, RenderData* rd, const char* label, glm::vec2 sizePx)

@@ -55,35 +55,11 @@ static std::atomic<bool> g_GameDllReloadRequested{false};
 static FileWatchHandle* g_OverlayDllWatch = nullptr; // currently unused (overlay reload call is disabled)
 static std::atomic<bool> g_OverlayDllReloadRequested{false};
 
-template<typename T0>
-void visit(T0& variantData) {
-    using T = std::decay_t<T0>;
-    if constexpr (std::is_same_v<T, UIPanel>) {
-        SM_TRACE("Visiting UIPanel");
-    } else if constexpr (std::is_same_v<T, UIButton>) {
-        SM_TRACE("Visiting UIButton");
-    } else {
-        SM_TRACE("Visiting unknown UI element");
-    }
-}
-
 // int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
 int main(int argc, char** argv) {
 
     BumpAllocator g_TransientStorage = make_bump_allocator(MB(50));
     BumpAllocator g_PersistentStorage = make_bump_allocator(MB(256));
-
-    UIElement rootNode;
-    UIElement panelNode;
-    panelNode.type = UIElementType::PANEL;
-    panelNode.parent = &rootNode;
-    panelNode.data.emplace<UIPanel>();
-
-    rootNode.children.push_back(&panelNode);
-
-    panelNode.VisitData([]<typename T0>(T0& data) {
-        visit(data);
-    });
 
     const auto g_Input = reinterpret_cast<Input *>(bump_alloc(&g_PersistentStorage, sizeof(Input)));
     if(!g_Input)
