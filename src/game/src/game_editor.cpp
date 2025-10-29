@@ -1,6 +1,10 @@
 #include <game.h>
 
+void update_input(GameState* gameState, UIState* uiState, RenderData* renderData, const Input* input, float dt);
+
 void game_update_editor(GameState* gameState, UIState* uiState, RenderData* renderData, Input* input, float dt) {
+
+    update_input(gameState, uiState, renderData, input, dt);
 
     ui_im_begin_frame(uiState, renderData, input);
 
@@ -37,7 +41,7 @@ void game_update_editor(GameState* gameState, UIState* uiState, RenderData* rend
         ui_push_id(uiState, "Editor");
         ui_begin_panel(uiState, renderData, opt);
 
-        ui_label(uiState, renderData, "Editor Panel", {2.0f, 10.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, 0);
+        ui_label_flow(uiState, renderData, "Editor Panel", {2.0f, 10.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, 0);
 
         // Editor Controls
         {
@@ -64,4 +68,11 @@ void game_update_editor(GameState* gameState, UIState* uiState, RenderData* rend
     ui_pop_id(uiState);
 
     ui_im_end_frame(uiState);
+}
+
+void update_input(GameState* gameState, UIState* uiState, RenderData* renderData, const Input* input, float dt) {
+    if (key_released_this_frame(input, KEY_ESCAPE)) {
+        uiState->showEditor = false;
+        gameState->m_State = GameStateId::GAME_STATE_IN_LEVEL;
+    }
 }

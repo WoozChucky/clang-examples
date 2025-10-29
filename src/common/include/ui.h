@@ -368,24 +368,97 @@ inline void ui_end_panel(UIState* ui)
 // #############################################################################
 //                    Widgets
 // #############################################################################
+
+// Horizontal progress bar: draws a background bar and a filled portion based on `value` in [0,1].
+// It uses the current panel's layout cursor (like ui_button) and advances it vertically.
+inline void ui_progress_bar(UIState* ui, RenderData* rd, float value, glm::vec2 sizePx)
+{
+  if (!ui || !rd) return;
+  value = glm::clamp(value, 0.0f, 1.0f);
+
+  // Ensure we have a panel/cursor context
+  if (ui->cursorStack.empty())
+  {
+    UIPanelOptions opt; opt.dock = UIDock::Fill; opt.bgColor = {0,0,0,0}; opt.padding = 0;
+    ui_begin_panel(ui, rd, opt);
+  }
+
+  glm::vec2 cursor = ui->cursorStack.back();
+  UIRect content = ui->availStack.back();
+
+  // Clamp size to content bounds
+  glm::vec2 size = { glm::min(sizePx.x, content.size.x), glm::min(sizePx.y, content.size.y) };
+  UIRect rect{ cursor, size };
+
+  // Advance cursor vertically (simple column layout)
+  cursor.y += size.y + 4.0f;
+  ui->cursorStack.back() = cursor;
+
+  // Colors
+  const glm::vec4 bg   = {0.12f, 0.12f, 0.12f, 1.0f};
+  const glm::vec4 fill = {0.20f, 0.65f, 0.25f, 1.0f};
+  const glm::vec4 border = {0.05f, 0.05f, 0.05f, 1.0f};
+
+  // Draw background and border
+  ui_draw_rect(rd, rect.pos, rect.size, bg);
+  // Simple 1px border (top and left only to keep rect budget minimal)
+  ui_draw_hline(rd, rect.pos, rect.size.x, 1.0f, border);
+  ui_draw_vline(rd, rect.pos, rect.size.y, 1.0f, border);
+
+  // Filled amount with 2px inner padding so it looks nicer
+  const float pad = 2.0f;
+  const glm::vec2 innerPos  = { rect.pos.x + pad, rect.pos.y + pad };
+  const glm::vec2 innerSize = { glm::max(0.0f, rect.size.x - 2*pad), glm::max(0.0f, rect.size.y - 2*pad) };
+  const glm::vec2 fillSize  = { innerSize.x * value, innerSize.y };
+  ui_draw_rect(rd, innerPos, fillSize, fill);
+}
+
 inline void ui_label(UIState* ui, RenderData* rd, const char* text, const glm::vec2 offsetPx, const glm::vec4 color, const uint16_t fontIndex = 0)
 {
   if (!ui || !rd || !text) return;
+
+  // Ensure we have a panel/cursor context; do NOT participate in flow to preserve legacy behavior
+  if (ui->cursorStack.empty())
+  {
+    UIPanelOptions opt; opt.dock = UIDock::Fill; opt.bgColor = {0,0,0,0}; opt.padding = 0;
+    ui_begin_panel(ui, rd, opt);
+  }
+
+  // Place relative to the panel's content origin (top-left), ignoring the layout cursor
   UIRect content = ui->availStack.empty() ? UIRect{{0,0},{0,0}} : ui->availStack.back();
-  // Position is baseline origin relative to content top-left
-  const glm::vec2 pos = { content.pos.x + offsetPx.x, content.pos.y + offsetPx.y };
+  constexpr float ascent = UI_DEFAULT_FONT_ASCENT_PX;
+  const glm::vec2 pos = { content.pos.x + offsetPx.x, content.pos.y + offsetPx.y + ascent };
+  ui_draw_text_ex(rd, text, pos, color, fontIndex);
+  // Note: does not advance the layout cursor (legacy absolute label)
+}
+
+// Flowing label: participates in vertical layout using the current panel cursor and advances it.
+inline void ui_label_flow(UIState* ui, RenderData* rd, const char* text, const glm::vec2 offsetPx, const glm::vec4 color, const uint16_t fontIndex = 0)
+{
+  if (!ui || !rd || !text) return;
+
+  // Ensure we have a panel/cursor context (match behavior of other widgets)
+  if (ui->cursorStack.empty())
+  {
+    UIPanelOptions opt; opt.dock = UIDock::Fill; opt.bgColor = {0,0,0,0}; opt.padding = 0;
+    ui_begin_panel(ui, rd, opt);
+  }
+
+  UIRect content = ui->availStack.empty() ? UIRect{{0,0},{0,0}} : ui->availStack.back();
+  glm::vec2 cursorBase = ui->cursorStack.empty() ? content.pos : ui->cursorStack.back();
+
+  // Position is baseline origin relative to current cursor position within the panel
+  constexpr float ascent = UI_DEFAULT_FONT_ASCENT_PX;
+  constexpr float lineH  = UI_DEFAULT_FONT_SIZE_PX;
+  constexpr float itemSpacing = 4.0f; // consistent with button spacing
+
+  const glm::vec2 pos = { cursorBase.x + offsetPx.x, cursorBase.y + offsetPx.y + ascent };
   ui_draw_text_ex(rd, text, pos, color, fontIndex);
 
-  // Advance panel layout cursor vertically so subsequent auto-laid-out widgets (e.g., buttons)
-  // appear below this label, preserving the manual offset positioning of the label itself.
-  if (!ui->cursorStack.empty())
+  // Advance panel layout cursor vertically so subsequent widgets appear below this label
   {
-    constexpr float lineH  = UI_DEFAULT_FONT_SIZE_PX;
-    constexpr float ascent = UI_DEFAULT_FONT_ASCENT_PX;
-    constexpr float itemSpacing = 4.0f; // consistent with button spacing
-
-    const float top    = pos.y - ascent;        // approximate top of the text line box
-    const float bottom = top + lineH;           // bottom of the text line box
+    const float top    = pos.y - ascent; // approximate top of the text line box
+    const float bottom = top + lineH;    // bottom of the text line box
 
     glm::vec2 cursor = ui->cursorStack.back();
     const float newY = bottom + itemSpacing;
