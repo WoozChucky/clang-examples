@@ -252,7 +252,6 @@ bool platform_create_window(PlatformContext* ctx, int width, int height, const c
   }
 
   int exStyle = WS_EX_APPWINDOW;
-
   int dwStyle = WS_OVERLAPPEDWINDOW;
 
 
@@ -290,7 +289,6 @@ bool platform_create_window(PlatformContext* ctx, int width, int height, const c
   ShowWindow(static_cast<HWND>(ctx->m_PlatformHandle), SW_SHOW);
 
   ctx->m_Running = true;
-
 
   return true;
 }
