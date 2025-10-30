@@ -75,20 +75,21 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    const auto g_GameState = reinterpret_cast<GameState *>(bump_alloc(&g_PersistentStorage, sizeof(GameState)));
-    if(!g_GameState)
+    const auto gameState = reinterpret_cast<GameState *>(bump_alloc(&g_PersistentStorage, sizeof(GameState)));
+    if(!gameState)
     {
         SM_ERROR("Failed to allocate GameState");
         return -1;
     }
 
     void* block = bump_alloc(&g_PersistentStorage, sizeof(UIState));
-    const auto g_UIState = new (block) UIState();
-    if(!g_UIState)
+    if(!block)
     {
         SM_ERROR("Failed to allocate UIState")
         return -1;
     }
+    const auto uiState = new (block) UIState();
+
 
     const auto g_SoundState = reinterpret_cast<SoundState *>(bump_alloc(&g_PersistentStorage, sizeof(SoundState)));
     if(!g_SoundState)
@@ -148,7 +149,8 @@ int main(int argc, char** argv) {
 
     size_t frameAllocationBytes = 0;
 
-    while (g_PlatformContext->m_Running && !g_GameState->m_QuitRequested) {
+    while (g_PlatformContext->m_Running && !gameState->m_QuitRequested) {
+        BEGIN_TIMED_BLOCK(frameCycles)
         const float dt = get_delta_time();
 
         {
@@ -163,8 +165,8 @@ int main(int argc, char** argv) {
             // reload_ui_dll(&g_TransientStorage);
         }
 
-        g_GameState->m_Fps = g_PlatformContext->m_FrameStats.fpsInstant;
-        g_GameState->m_FrameTime = g_PlatformContext->m_FrameStats.frameTimeMs;
+        gameState->m_Fps = g_PlatformContext->m_FrameStats.fpsInstant;
+        gameState->m_FrameTime = g_PlatformContext->m_FrameStats.frameTimeMs;
 
         platform_update_window(g_PlatformContext);
 
@@ -178,26 +180,16 @@ int main(int argc, char** argv) {
             renderer_toggle_vsync();
         }
 
-        /*
-         SIMD (Single Instruction, Multiple Data)
-         SSE -> 4 wide
-         AVX -> 8 wide
-         AVX512 -> 16 wide
-         */
-        __m128 value = _mm_set_ps1(1.0f); // Set all four floats to 1.0f
-        value = _mm_add_ps(value, _mm_set_ps1(2.0f)); // Add 2.0f to each float
-        float result[4];
-        _mm_storeu_ps(result, value); // Store the result back to an array
-
-        BEGIN_TIMED_BLOCK(gameUpdate)
-        game_update(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, &g_PersistentStorage, frameAllocationBytes, dt);
-        uint64_t cyclesCount;
-        END_TIMED_BLOCK(gameUpdate, cyclesCount)
+        BEGIN_TIMED_BLOCK(gameUpdateCycles)
+        game_update(gameState, g_Input, g_RenderData, g_SoundState, uiState, &g_TransientStorage, &g_PersistentStorage, frameAllocationBytes, dt);
+        END_TIMED_BLOCK(gameUpdateCycles, gameState->m_UpdateGameCycles)
 
         // Skip rendering when the window is minimized to avoid unnecessary work
         if (!platform_is_minimized(g_PlatformContext))
         {
-            render(dt, g_RenderData, &g_TransientStorage, render_overlay_ptr);
+            BEGIN_TIMED_BLOCK(renderCycles)
+            gameState->m_GpuTime = render(dt, g_RenderData, &g_TransientStorage, render_overlay_ptr);
+            END_TIMED_BLOCK(renderCycles, gameState->m_RenderCycles)
         }
         else
         {
@@ -208,6 +200,8 @@ int main(int argc, char** argv) {
 
         frameAllocationBytes = g_TransientStorage.used;
         g_TransientStorage.used = 0; // Reset transient storage each frame
+
+        END_TIMED_BLOCK(frameCycles, gameState->m_FrameCycles)
     }
 
     renderer_shutdown();

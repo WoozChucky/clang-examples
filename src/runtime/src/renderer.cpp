@@ -22,6 +22,51 @@
 
 class DebugMessageCallback;
 
+struct GpuTimer
+{
+    std::vector<nvrhi::TimerQueryHandle> queries; // size = FramesInFlight (or >)
+    uint32_t index = 0;                           // rotating index
+
+    void init(nvrhi::IDevice* device, uint32_t capacity)
+    {
+        queries.resize(capacity);
+        for (auto& q : queries) q = device->createTimerQuery();
+    }
+
+    void begin(nvrhi::ICommandList* cmd)
+    {
+        cmd->beginTimerQuery(queries[index].Get());
+    }
+
+    void end(nvrhi::ICommandList* cmd)
+    {
+        cmd->endTimerQuery(queries[index].Get());
+    }
+
+    // Call once per frame after submission; try to read a result from a previous frame
+    // Returns true if a result was available and written to outSeconds
+    bool tryRead(nvrhi::IDevice* device, float& outSeconds)
+    {
+        // Probe an older query (e.g., previous frame index)
+        uint32_t readIdx = (index + 1) % (uint32_t)queries.size();
+        auto* q = queries[readIdx].Get();
+
+        if (device->pollTimerQuery(q))
+        {
+            outSeconds = device->getTimerQueryTime(q); // non‑blocking now
+            device->resetTimerQuery(q);
+            return true;
+        }
+        return false;
+    }
+
+    void advance()
+    {
+        // Reset the just‑used query so it’s ready next time we come back around
+        index = (index + 1) % (uint32_t)queries.size();
+    }
+};
+
 struct DummyRenderPass {
     nvrhi::BufferHandle m_VertexBuffer;
     nvrhi::BufferHandle m_IndexBuffer;
@@ -83,6 +128,7 @@ typedef struct RendererContext {
     uint32_t                 m_RefUIHeight = 0;  // reference UI resolution (height)
     int                      m_Width;
     int                      m_Height;
+    GpuTimer                 m_GpuTimer;
 } RendererContext;
 
 static RendererContext* g_RendererContext = nullptr;
@@ -726,6 +772,8 @@ void renderer_init(const int width, const int height, void* handle, BumpAllocato
 
     g_RendererContext->m_CommandList = RENDER_API::create_command_list(g_RendererContext->m_Backend);
 
+    g_RendererContext->m_GpuTimer.init(g_RendererContext->m_Device, 256);
+
     create_cube();
     load_font_atlas();
     create_ui_pass();
@@ -745,11 +793,17 @@ void renderer_shutdown() {
     SM_TRACE("Renderer context destroyed");
 }
 
-bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, pfnRenderUIOverlay uiOverlay) {
+float render(float dt, RenderData* renderData, BumpAllocator* transientStorage, pfnRenderUIOverlay uiOverlay) {
 
     if (!g_RendererContext || !g_RendererContext->m_Backend) {
         SM_ASSERT(false, "RendererContext or RendererBackend is null");
         return false;
+    }
+
+    // Read GPU timer from last frame
+    float secs = 0;
+    if (g_RendererContext->m_GpuTimer.tryRead(g_RendererContext->m_Device, secs)) {
+        secs = secs * 1000.0f;
     }
 
     std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
@@ -764,6 +818,7 @@ bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, p
             const auto frameBuffer = RENDER_API::renderer_get_framebuffer(g_RendererContext->m_Backend);
 
             g_RendererContext->m_CommandList->open();
+            g_RendererContext->m_GpuTimer.begin(g_RendererContext->m_CommandList);
 
             nvrhi::utils::ClearColorAttachment(g_RendererContext->m_CommandList, frameBuffer, 0,
                                                nvrhi::Color(renderData->clearColor.r, renderData->clearColor.g,
@@ -1096,13 +1151,16 @@ bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, p
             renderData->uiTexts.clear();
             renderData->uiTextBufferCount = 0;
 
+            g_RendererContext->m_GpuTimer.end(g_RendererContext->m_CommandList);
             g_RendererContext->m_CommandList->close();
             g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);
+
+            g_RendererContext->m_GpuTimer.advance();
 
             const bool presentSuccess = RENDER_API::renderer_present(g_RendererContext->m_Backend);
             if (!presentSuccess) {
                 SM_ERROR("renderer_present failed");
-                return false;
+                return 0;
             }
         }
     }
@@ -1113,7 +1171,8 @@ bool render(float dt, RenderData* renderData, BumpAllocator* transientStorage, p
     g_RendererContext->m_PreviousFrameTimestamp = curTime;
 
     ++*backendFrameIndex;
-    return true;
+
+    return secs;
 }
 
 void renderer_resize(int width, int height) {

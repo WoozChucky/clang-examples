@@ -47,9 +47,28 @@ static constexpr int SAMPLE_RATE = 44100;
 #define EXPORT_FN
 #endif
 
-#define BEGIN_TIMED_BLOCK(ID) uint64_t StartCycleCount##Id = __rdtsc();
+#define BEGIN_TIMED_BLOCK(ID) uint64_t StartCycleCount##ID = __rdtsc();
 #define END_TIMED_BLOCK(ID, OUT_VAR) \
-  OUT_VAR = __rdtsc() - StartCycleCount##Id;
+  OUT_VAR = __rdtsc() - StartCycleCount##ID;
+
+#if 0
+struct DebugCycleCounter
+{
+  uint64_t startCycleCount = 0;
+  uint64_t& outCycleCount;
+
+  DebugCycleCounter(uint64_t& outCycleCountRef)
+    : outCycleCount(outCycleCountRef)
+  {
+    startCycleCount = __rdtsc();
+  }
+
+  ~DebugCycleCounter()
+  {
+    outCycleCount = __rdtsc() - startCycleCount;
+  }
+};
+#endif
 
 // #############################################################################
 //                           Logging

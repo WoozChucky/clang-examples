@@ -35,6 +35,11 @@ struct GameState
 
   float m_Fps = 0.0f;
   float m_FrameTime = 0.0f;
+  float m_GpuTime = 0.0f;
+
+  uint64_t m_FrameCycles = 0;
+  uint64_t m_UpdateGameCycles = 0;
+  uint64_t m_RenderCycles = 0;
 };
 
 // #############################################################################
