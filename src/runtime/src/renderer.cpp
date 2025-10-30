@@ -747,6 +747,8 @@ void renderer_init(const int width, const int height, void* handle, BumpAllocato
     g_RendererContext->m_RefUIHeight = static_cast<uint32_t>(std::max(1, height));
     g_RendererContext->m_Width = width;
     g_RendererContext->m_Height = height;
+    g_RendererContext->m_PreviousFrameTimestamp =
+        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 
     void* backendMem = bump_alloc(persistentStorage, sizeof(RENDER_API_NAME));
     if (!backendMem) {

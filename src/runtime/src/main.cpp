@@ -1,3 +1,5 @@
+#include <thread>
+
 #include "lib.h"
 
 #include "input.h"
@@ -54,6 +56,37 @@ static FileWatchHandle* g_GameDllWatch = nullptr;
 static std::atomic<bool> g_GameDllReloadRequested{false};
 static FileWatchHandle* g_OverlayDllWatch = nullptr; // currently unused (overlay reload call is disabled)
 static std::atomic<bool> g_OverlayDllReloadRequested{false};
+
+// Simple pacer: targetHz ~ 162–163 for a 165 Hz monitor
+struct FramePacer {
+    using clock = std::chrono::steady_clock;
+    clock::time_point next{};
+    clock::duration period{}; // use clock::duration, not duration<double>
+    bool initialized = false;
+
+    void init(double targetHz) {
+        // Convert from double seconds to the clock's native duration
+        const auto per = std::chrono::duration<double>(1.0 / targetHz);
+        period = std::chrono::duration_cast<clock::duration>(per);
+        next = clock::now() + period; // types now match
+        initialized = true;
+    }
+    void wait() {
+        if (!initialized) return;
+
+        auto now = clock::now();
+        if (now + std::chrono::milliseconds(1) < next) {
+            // Coarse sleep
+            std::this_thread::sleep_until(next - std::chrono::milliseconds(1));
+        }
+        // Fine spin (optional)
+        while (clock::now() < next) { /* spin */ }
+
+        next += period; // OK: same duration type
+    }
+};
+
+static FramePacer g_Pacer;
 
 // int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
 int main(int argc, char** argv) {
@@ -165,7 +198,7 @@ int main(int argc, char** argv) {
             // reload_ui_dll(&g_TransientStorage);
         }
 
-        gameState->m_Fps = g_PlatformContext->m_FrameStats.fpsInstant;
+        gameState->m_Fps = g_PlatformContext->m_FrameStats.fpsSmoothed;
         gameState->m_FrameTime = g_PlatformContext->m_FrameStats.frameTimeMs;
 
         platform_update_window(g_PlatformContext);
