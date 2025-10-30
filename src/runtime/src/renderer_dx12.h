@@ -56,7 +56,7 @@ typedef struct RendererBackendDX12 {
 
 namespace directx12 {
     void create_internal_instance(RendererBackend* backend);
-    nvrhi::DeviceHandle create_device(RendererBackend* backend);
+    nvrhi::DeviceHandle create_device(RendererBackend* backend, void* platform);
     void create_swapchain(RendererBackend* backend, HWND hWnd, int width, int height);
     nvrhi::CommandListHandle create_command_list(RendererBackend* backend);
     void renderer_resize_swapchain(RendererBackend* backend, int width, int height);

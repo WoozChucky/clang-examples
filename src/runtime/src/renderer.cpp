@@ -9,6 +9,7 @@
 #include <render.h>
 #include "renderer_dx12.h"
 #include "renderer_dx11.h"
+#include "renderer_vulkan.h"
 
 #include <nvrhi/utils.h>
 
@@ -16,8 +17,8 @@
 #include "image.h"
 #include "VertexPacked.h"
 
-#define RENDER_API directx11
-#define RENDER_API_NAME RendererBackendDX11
+#define RENDER_API directx12
+#define RENDER_API_NAME RendererBackendDX12
 
 class DebugMessageCallback;
 
@@ -715,7 +716,7 @@ void renderer_init(const int width, const int height, void* handle, BumpAllocato
 
     RENDER_API::create_internal_instance(g_RendererContext->m_Backend);
 
-    g_RendererContext->m_Device = RENDER_API::create_device(g_RendererContext->m_Backend);
+    g_RendererContext->m_Device = RENDER_API::create_device(g_RendererContext->m_Backend, handle);
     if (!g_RendererContext->m_Device) {
         SM_ERROR("Failed to create graphics device");
         return;

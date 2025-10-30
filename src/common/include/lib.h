@@ -47,6 +47,10 @@ static constexpr int SAMPLE_RATE = 44100;
 #define EXPORT_FN
 #endif
 
+#define BEGIN_TIMED_BLOCK(ID) uint64_t StartCycleCount##Id = __rdtsc();
+#define END_TIMED_BLOCK(ID, OUT_VAR) \
+  OUT_VAR = __rdtsc() - StartCycleCount##Id;
+
 // #############################################################################
 //                           Logging
 // #############################################################################
