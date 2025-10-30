@@ -9,14 +9,22 @@ void game_update_in_level(GameState* gameState, UIState* uiState, SoundState* so
 
     static float diagnosticsTimer = 0.0f;
     static float fps = 0.0f;
-    static float frameTimeMs = 0.0f;
+    static float cpuFrameTimeMs = 0.0f;
+    static float gpuFrameTimeMs = 0.0f;
+    static uint64_t frameCycles = 0;
+    static uint64_t gameUpdateCycles = 0;
+    static uint64_t renderCycles = 0;
     static size_t persistentMemoryUsed = 0;
     static size_t frameMemoryUsed = 0;
     diagnosticsTimer += dt;
     if (diagnosticsTimer >= 0.25f) {
         diagnosticsTimer = 0.0f;
         fps = gameState->m_Fps;
-        frameTimeMs = gameState->m_FrameTime;
+        cpuFrameTimeMs = gameState->m_FrameTime;
+        gpuFrameTimeMs = gameState->m_GpuTime;
+        frameCycles = gameState->m_FrameCycles;
+        gameUpdateCycles = gameState->m_UpdateGameCycles;
+        renderCycles = gameState->m_RenderCycles;
         persistentMemoryUsed = persistentStorageAllocated;
         frameMemoryUsed = frameStorageAllocated;
     }
@@ -73,47 +81,63 @@ void game_update_in_level(GameState* gameState, UIState* uiState, SoundState* so
     {
         // Diagnostics panel docked to top (uses percentage+px sizing)
         if (uiState->showDiagnostics) {
-          UIPanelOptions opt{};
-          opt.dock = UIDock::None;
-          opt.x = {10, UIUnit::Px};
-          opt.y = {10, UIUnit::Px};
-          opt.h = {160, UIUnit::Px};
-          opt.w = {340, UIUnit::Px};
-          opt.padding = 6.0f;
-          opt.bgColor = {0.1f, 0.1f, 0.1f, 0.1f};
-          PanelContext pc = ui_begin_panel(uiState, renderData, opt);
+            UIPanelOptions opt{};
+            opt.dock = UIDock::None;
+            opt.x = {10, UIUnit::Px};
+            opt.y = {10, UIUnit::Px};
+            opt.h = {260, UIUnit::Px};
+            opt.w = {340, UIUnit::Px};
+            opt.padding = 6.0f;
+            opt.bgColor = {0.1f, 0.1f, 0.1f, 0.1f};
+            PanelContext pc = ui_begin_panel(uiState, renderData, opt);
 
-          // Hover effect overlay
-          const bool hovered = (uiState->mousePosUI.x >= pc.panelRect.pos.x && uiState->mousePosUI.x <= pc.panelRect.pos.x + pc.panelRect.size.x &&
-                                uiState->mousePosUI.y >= pc.panelRect.pos.y && uiState->mousePosUI.y <= pc.panelRect.pos.y + pc.panelRect.size.y);
-          if (hovered) {
-            ui_draw_rect(renderData, pc.panelRect.pos, pc.panelRect.size, {1.0f, 1.0f, 1.0f, 0.20f});
-          }
+            // Hover effect overlay
+            const bool hovered = (uiState->mousePosUI.x >= pc.panelRect.pos.x && uiState->mousePosUI.x <= pc.panelRect.pos.x + pc.panelRect.size.x &&
+                uiState->mousePosUI.y >= pc.panelRect.pos.y && uiState->mousePosUI.y <= pc.panelRect.pos.y + pc.panelRect.size.y);
+            if (hovered) {
+                ui_draw_rect(renderData, pc.panelRect.pos, pc.panelRect.size, {1.0f, 1.0f, 1.0f, 0.20f});
+            }
 
-          // Text lines inside content area
-          char* fpsText = bump_alloc(frameAllocator, 64);
-          snprintf(fpsText, 64, "FPS: %.0f", fps);
-          ui_label(uiState, renderData, fpsText, {2.0f, 10.0f}, {0.0f, 1.0f, 0.0f, 1.0f});
+            // Text lines inside content area
+            char* fpsText = bump_alloc(frameAllocator, 64);
+            snprintf(fpsText, 64, "FPS: %.0f", fps);
+            ui_label(uiState, renderData, fpsText, {2.0f, 10.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, 1);
 
-          char* frameTimeText = bump_alloc(frameAllocator, 64);
-          snprintf(frameTimeText, 64, "Frame: %.3f ms", frameTimeMs);
-          ui_label(uiState, renderData, frameTimeText, {2.0f, 25.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+            char* cpuFrameText = bump_alloc(frameAllocator, 64);
+            snprintf(cpuFrameText, 64, "CPU Frame: %.3f ms", cpuFrameTimeMs);
+            ui_label(uiState, renderData, cpuFrameText, {2.0f, 40.0f}, {1.0f, 1.0f, 0.0f, 1.0f}, 1);
 
-          char* persistentMemText = bump_alloc(frameAllocator, 64);
-          const double persistentMB = static_cast<double>(persistentMemoryUsed) / (1024.0 * 1024.0);
-          snprintf(persistentMemText, 64, "Persistent Mem: %.2f MB", persistentMB);
-          ui_label(uiState, renderData, persistentMemText, {2.0f, 40.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+            char* gpuFrameText = bump_alloc(frameAllocator, 64);
+            snprintf(gpuFrameText, 64, "GPU Frame: %.3f ms", gpuFrameTimeMs);
+            ui_label(uiState, renderData, gpuFrameText, {2.0f, 55.0f}, {1.0f, 1.0f, 0.0f, 1.0f}, 1);
 
-          char* transientMemText = bump_alloc(frameAllocator, 64);
-          const double frameMB = static_cast<double>(frameMemoryUsed) / (1024.0 * 1024.0);
-          snprintf(transientMemText, 64, "Frame Mem: %.2f MB", frameMB);
-          ui_label(uiState, renderData, transientMemText, {2.0f, 55.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+            char* frameCyclesText = bump_alloc(frameAllocator, 64);
+            snprintf(frameCyclesText, 64, "Frame Cycles: %llu", frameCycles);
+            ui_label(uiState, renderData, frameCyclesText, {2.0f, 85.0f}, {1.0f, 1.0f, 0.0f, 1.0f}, 1);
 
-          char* screenSizeText = bump_alloc(frameAllocator, 64);
-          snprintf(screenSizeText, 64, "Resolution: %d x %d", static_cast<int>(input->screenSize.x), static_cast<int>(input->screenSize.y));
-          ui_label(uiState, renderData, screenSizeText, {2.0f, 70.0f}, {1.0f, 1.0f, 0.0f, 1.0f});
+            char* gameUpdateCyclesText = bump_alloc(frameAllocator, 64);
+            snprintf(gameUpdateCyclesText, 64, "Game Update Cycles: %llu", gameUpdateCycles);
+            ui_label(uiState, renderData, gameUpdateCyclesText, {8.0f, 100.0f}, {1.0f, 1.0f, 0.0f, 1.0f}, 1);
 
-          ui_end_panel(uiState);
+            char* renderCyclesText = bump_alloc(frameAllocator, 64);
+            snprintf(renderCyclesText, 64, "Render Cycles: %llu", renderCycles);
+            ui_label(uiState, renderData, renderCyclesText, {8.0f, 115.0f}, {1.0f, 1.0f, 0.0f, 1.0f}, 1);
+
+            char* persistentMemText = bump_alloc(frameAllocator, 64);
+            const double persistentMB = static_cast<double>(persistentMemoryUsed) / (1024.0 * 1024.0);
+            snprintf(persistentMemText, 64, "Persistent Mem: %.2f MB", persistentMB);
+            ui_label(uiState, renderData, persistentMemText, {2.0f, 145.0f}, {1.0f, 1.0f, 0.0f, 1.0f}, 1);
+
+            char* transientMemText = bump_alloc(frameAllocator, 64);
+            const double frameMB = static_cast<double>(frameMemoryUsed) / (1024.0 * 1024.0);
+            snprintf(transientMemText, 64, "Frame Mem: %.2f MB", frameMB);
+            ui_label(uiState, renderData, transientMemText, {2.0f, 160.0f}, {1.0f, 1.0f, 0.0f, 1.0f}, 1);
+
+            char* screenSizeText = bump_alloc(frameAllocator, 64);
+            snprintf(screenSizeText, 64, "Resolution: %d x %d", static_cast<int>(input->screenSize.x), static_cast<int>(input->screenSize.y));
+            ui_label(uiState, renderData, screenSizeText, {2.0f, 175.0f}, {1.0f, 1.0f, 0.0f, 1.0f}, 1);
+
+            ui_end_panel(uiState);
         }
     }
 
