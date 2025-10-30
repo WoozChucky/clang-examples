@@ -178,7 +178,21 @@ int main(int argc, char** argv) {
             renderer_toggle_vsync();
         }
 
+        /*
+         SIMD (Single Instruction, Multiple Data)
+         SSE -> 4 wide
+         AVX -> 8 wide
+         AVX512 -> 16 wide
+         */
+        __m128 value = _mm_set_ps1(1.0f); // Set all four floats to 1.0f
+        value = _mm_add_ps(value, _mm_set_ps1(2.0f)); // Add 2.0f to each float
+        float result[4];
+        _mm_storeu_ps(result, value); // Store the result back to an array
+
+        BEGIN_TIMED_BLOCK(gameUpdate)
         game_update(g_GameState, g_Input, g_RenderData, g_SoundState, g_UIState, &g_TransientStorage, &g_PersistentStorage, frameAllocationBytes, dt);
+        uint64_t cyclesCount;
+        END_TIMED_BLOCK(gameUpdate, cyclesCount)
 
         // Skip rendering when the window is minimized to avoid unnecessary work
         if (!platform_is_minimized(g_PlatformContext))

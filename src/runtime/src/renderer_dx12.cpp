@@ -8,7 +8,7 @@
 
 #include <dxgidebug.h>
 
-#include "nvrhi/utils.h"
+#include <nvrhi/utils.h>
 
 #define HR_ASSERT(x, msg) SM_ASSERT(SUCCEEDED(x), msg)
 #undef _DEBUG
@@ -208,7 +208,7 @@ void directx12::create_internal_instance(RendererBackend* backend) {
     }
 }
 
-nvrhi::DeviceHandle directx12::create_device(RendererBackend* backend) {
+nvrhi::DeviceHandle directx12::create_device(RendererBackend* backend, void* platform) {
 
     const auto dx12 = reinterpret_cast<RendererBackendDX12 *>(backend);
     if (!dx12) {

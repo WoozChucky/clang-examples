@@ -123,7 +123,7 @@ void directx11::create_internal_instance(RendererBackend* backend) {
     }
 }
 
-nvrhi::DeviceHandle directx11::create_device(RendererBackend* backend) {
+nvrhi::DeviceHandle directx11::create_device(RendererBackend* backend, void* platform) {
 
     const auto dx11 = reinterpret_cast<RendererBackendDX11 *>(backend);
     if (!dx11) {
