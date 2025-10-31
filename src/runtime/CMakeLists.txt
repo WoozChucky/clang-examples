@@ -7,6 +7,7 @@ add_executable(runtime
         # src/renderer_vulkan.cpp
         src/image.cpp
         src/font.cpp
+        ../../third_party/tracy/public/TracyClient.cpp
 )
 
 target_include_directories(runtime PRIVATE ../common/include)
@@ -15,7 +16,7 @@ target_include_directories(runtime PRIVATE ../overlay/include)
 
 target_compile_definitions(runtime PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 VK_USE_PLATFORM_WIN32_KHR)
 
-target_link_libraries(runtime PRIVATE ${WINDOWS_LIBS} glm::glm nvrhi nvrhi_d3d12 nvrhi_d3d11 nvrhi_vk freetype Vulkan::Headers)
+target_link_libraries(runtime PRIVATE ${WINDOWS_LIBS} Tracy::TracyClient glm::glm nvrhi nvrhi_d3d12 nvrhi_d3d11 nvrhi_vk freetype Vulkan::Headers)
 
 set_target_properties(runtime PROPERTIES
     OUTPUT_NAME main

@@ -36,6 +36,8 @@ typedef struct PlatformContext {
     int m_Height;
     bool m_ResizeRequested;
     bool m_Running;
+    bool m_Minimized;
+    bool m_Focused;
     BumpAllocator* m_PersistentStorage;
     BumpAllocator* m_TransientStorage;
     KeyCodeID m_KeyCodeLookupTable[MAX_KEYCODES];

@@ -595,6 +595,10 @@ bool directx12::renderer_present(RendererBackend* backend)
         presentFlags |= DXGI_PRESENT_ALLOW_TEARING;
 
     HRESULT result = dx12->m_SwapChain->Present(dx12->m_Settings.vsyncEnabled ? 1 : 0, presentFlags);
+    if (result == DXGI_STATUS_OCCLUDED)
+    {
+        SM_TRACE("DXGI_STATUS_OCCLUDED");
+    }
 
     dx12->m_FrameFence->SetEventOnCompletion(dx12->m_FrameCount, dx12->m_FrameFenceEvents[bufferIndex]);
     dx12->m_GraphicsQueue->Signal(dx12->m_FrameFence, dx12->m_FrameCount);
