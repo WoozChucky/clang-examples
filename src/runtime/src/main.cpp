@@ -1,5 +1,7 @@
 #include <thread>
 
+#include <tracy/Tracy.hpp>
+
 #include "lib.h"
 
 #include "input.h"
@@ -88,6 +90,18 @@ struct FramePacer {
 
 static FramePacer g_Pacer;
 
+void * operator new ( std :: size_t count )
+{
+    auto ptr = malloc ( count );
+    TracyAlloc (ptr , count );
+    return ptr ;
+}
+void operator delete ( void * ptr ) noexcept
+{
+    TracyFree ( ptr );
+    free ( ptr );
+}
+
 // int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
 int main(int argc, char** argv) {
 
@@ -108,12 +122,13 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    const auto gameState = reinterpret_cast<GameState *>(bump_alloc(&g_PersistentStorage, sizeof(GameState)));
-    if(!gameState)
+    const auto gameBlock = bump_alloc(&g_PersistentStorage, sizeof(GameState));
+    if(!gameBlock)
     {
         SM_ERROR("Failed to allocate GameState");
         return -1;
     }
+    const auto gameState = new (gameBlock) GameState();
 
     void* block = bump_alloc(&g_PersistentStorage, sizeof(UIState));
     if(!block)
@@ -184,9 +199,14 @@ int main(int argc, char** argv) {
 
     while (g_PlatformContext->m_Running && !gameState->m_QuitRequested) {
         BEGIN_TIMED_BLOCK(frameCycles)
+        ZoneScopedN("Frame");          // CPU scope for the whole frame
+        ZoneColor(0x44AAFF);
         const float dt = get_delta_time();
 
         {
+            ZoneScopedN("HotReload");
+            ZoneColor(0xFF4444);
+
             // Drive hot-reload via platform file watcher
             if (g_GameDllWatch && platform_file_changed(g_GameDllWatch)) {
                 g_GameDllReloadRequested.store(true);
@@ -201,10 +221,16 @@ int main(int argc, char** argv) {
         gameState->m_Fps = g_PlatformContext->m_FrameStats.fpsSmoothed;
         gameState->m_FrameTime = g_PlatformContext->m_FrameStats.frameTimeMs;
 
-        platform_update_window(g_PlatformContext);
+        {
+            ZoneScopedN("PlatformUpdate");
+            ZoneColor(0x44FF44);
+            platform_update_window(g_PlatformContext);
+        }
+
 
         if (g_PlatformContext->m_ResizeRequested) {
             g_PlatformContext->m_ResizeRequested = false;
+            ZoneScopedN("Resize");
             game_resize(g_PlatformContext->m_Width, g_PlatformContext->m_Height);
             renderer_resize(g_PlatformContext->m_Width, g_PlatformContext->m_Height);
         }
@@ -213,28 +239,40 @@ int main(int argc, char** argv) {
             renderer_toggle_vsync();
         }
 
-        BEGIN_TIMED_BLOCK(gameUpdateCycles)
-        game_update(gameState, g_Input, g_RenderData, g_SoundState, uiState, &g_TransientStorage, &g_PersistentStorage, frameAllocationBytes, dt);
-        END_TIMED_BLOCK(gameUpdateCycles, gameState->m_UpdateGameCycles)
+        {
+            ZoneScopedN("GameUpdate");
+            BEGIN_TIMED_BLOCK(gameUpdateCycles)
+            game_update(gameState, g_Input, g_RenderData, g_SoundState, uiState, &g_TransientStorage, &g_PersistentStorage, frameAllocationBytes, dt);
+            END_TIMED_BLOCK(gameUpdateCycles, gameState->m_UpdateGameCycles)
+        }
+
 
         // Skip rendering when the window is minimized to avoid unnecessary work
         if (!platform_is_minimized(g_PlatformContext))
         {
+            ZoneScopedN("Render");
             BEGIN_TIMED_BLOCK(renderCycles)
             gameState->m_GpuTime = render(dt, g_RenderData, &g_TransientStorage, render_overlay_ptr);
             END_TIMED_BLOCK(renderCycles, gameState->m_RenderCycles)
         }
-        else
-        {
-            platform_sleep(16);
+
+        if (!g_PlatformContext->m_Focused) {
+            ZoneScopedN("Sleep");
+            //platform_sleep(17);
+            std::this_thread::sleep_for(std::chrono::milliseconds(17));
         }
 
-        platform_update_audio(g_PlatformContext, dt);
+        {
+            ZoneScopedN("UpdateAudio");
+            platform_update_audio(g_PlatformContext, dt);
+        }
 
         frameAllocationBytes = g_TransientStorage.used;
         g_TransientStorage.used = 0; // Reset transient storage each frame
 
+
         END_TIMED_BLOCK(frameCycles, gameState->m_FrameCycles)
+        FrameMark;
     }
 
     renderer_shutdown();

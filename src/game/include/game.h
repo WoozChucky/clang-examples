@@ -24,7 +24,7 @@ enum class GameStateId : uint8_t
 
 struct GameState
 {
-  GameStateId m_State = GameStateId::GAME_STATE_MAIN_MENU;
+  GameStateId m_State = GameStateId::GAME_STATE_IN_LEVEL;
   bool m_Initialized = false;
 
   double m_UpdateTimer = 0.0;

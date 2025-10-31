@@ -6,6 +6,8 @@
 #include <atomic>
 #include <string.h>
 
+#include <tracy/Tracy.hpp>
+
 // #############################################################################
 //                           Windows Structs
 // #############################################################################
@@ -106,6 +108,27 @@ LRESULT CALLBACK windows_window_callback(HWND window, UINT msg,
 
       break;
     }
+
+    case WM_ACTIVATE:
+      SM_TRACE("WM_ACTIVATE");
+      break;
+
+    case WM_ACTIVATEAPP:
+      if (wParam) {
+        ctx->m_Focused = true;
+      } else {
+        ctx->m_Focused = false;
+      }
+      SM_TRACE("WM_ACTIVATEAPP, Focused: %d", wParam);
+      break;
+
+    case WM_SETFOCUS:
+      SM_TRACE("WM_SETFOCUS");
+      break;
+
+    case WM_KILLFOCUS:
+      SM_TRACE("WM_KILLFOCUS");
+      break;
 
     case WM_ENTERSIZEMOVE: {
       ctx->m_DraggingWindow = true;
@@ -534,10 +557,12 @@ static bool get_file_last_write_timeA(const char* path, FILETIME* out)
 // ReSharper disable once CppDFAConstantFunctionResult
 static DWORD WINAPI file_watch_thread_proc(LPVOID param)
 {
+  tracy::SetThreadName("FileWatcherThread");
   auto* h = reinterpret_cast<FileWatchHandle*>(param);
   HANDLE waitHandles[2] = { h->stopEvent, h->changeHandle };
 
   for (;;) {
+    ZoneScopedN("File Watcher Wait");
     DWORD w = WaitForMultipleObjects(2, waitHandles, FALSE, INFINITE);
     if (w == WAIT_OBJECT_0) {
       // stopEvent signaled
@@ -629,6 +654,7 @@ static DWORD WINAPI file_watch_thread_proc(LPVOID param)
 
       // Already re-armed inside the loop; ready for next notifications
     }
+    FrameMark;
   }
 
   return 0;

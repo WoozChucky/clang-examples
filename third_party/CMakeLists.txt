@@ -6,6 +6,9 @@ set(NVRHI_WITH_DX11 ON)
 set(NVRHI_WITH_VULKAN ON)
 add_subdirectory(NVRHI)
 
+set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
+add_subdirectory(tracy)
+
 add_library(imgui STATIC
         imgui/imgui.cpp
         imgui/imgui_draw.cpp

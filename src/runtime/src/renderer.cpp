@@ -16,6 +16,7 @@
 #include "font.h"
 #include "image.h"
 #include "VertexPacked.h"
+#include "tracy/Tracy.hpp"
 
 #define RENDER_API directx12
 #define RENDER_API_NAME RendererBackendDX12
@@ -802,336 +803,267 @@ float render(float dt, RenderData* renderData, BumpAllocator* transientStorage, 
         return false;
     }
 
-    // Read GPU timer from last frame
     float secs = 0;
-    if (g_RendererContext->m_GpuTimer.tryRead(g_RendererContext->m_Device, secs)) {
-        secs = secs * 1000.0f;
+    {
+        ZoneScopedN("GpuTimer.TryRead");
+        // Read GPU timer from last frame
+        if (g_RendererContext->m_GpuTimer.tryRead(g_RendererContext->m_Device, secs)) {
+            secs = secs * 1000.0f;
+        }
     }
+
 
     std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
     double curTime = std::chrono::duration<double>(currentTime.time_since_epoch()).count();
     double elapsedTime = curTime - g_RendererContext->m_PreviousFrameTimestamp;
 
-    uint32_t* backendFrameIndex = RENDER_API::renderer_get_frame_index(g_RendererContext->m_Backend);
+    uint32_t* backendFrameIndex = RENDER_API::renderer_get_frame_index(g_RendererContext->m_Backend);;
 
     if (*backendFrameIndex > 0) {
         if (RENDER_API::renderer_begin_frame(g_RendererContext->m_Backend)) {
 
             const auto frameBuffer = RENDER_API::renderer_get_framebuffer(g_RendererContext->m_Backend);
 
-            g_RendererContext->m_CommandList->open();
-            g_RendererContext->m_GpuTimer.begin(g_RendererContext->m_CommandList);
-
-            nvrhi::utils::ClearColorAttachment(g_RendererContext->m_CommandList, frameBuffer, 0,
-                                               nvrhi::Color(renderData->clearColor.r, renderData->clearColor.g,
-                                                            renderData->clearColor.b, renderData->clearColor.a));
-
-            // --- Primitives (Grid Plane) Pipeline ---
-            if (!g_RendererContext->m_PrimPass.m_Pipeline)
             {
-                const auto fbi = frameBuffer->getFramebufferInfo();
-                nvrhi::GraphicsPipelineDesc pso;
-                pso.VS = g_RendererContext->m_PrimPass.m_VS;
-                pso.PS = g_RendererContext->m_PrimPass.m_PS;
-                pso.inputLayout = g_RendererContext->m_PrimPass.m_InputLayout;
-                pso.bindingLayouts = { g_RendererContext->m_PrimPass.m_BindingLayout };
-                pso.primType = nvrhi::PrimitiveType::TriangleList;
-                pso.renderState.depthStencilState.depthTestEnable = false; // no depth buffer yet
-                pso.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
-                g_RendererContext->m_PrimPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(pso, fbi);
+                ZoneScopedN("BeginRecord");
+                g_RendererContext->m_CommandList->open();
+                g_RendererContext->m_GpuTimer.begin(g_RendererContext->m_CommandList);
+
+                nvrhi::utils::ClearColorAttachment(g_RendererContext->m_CommandList, frameBuffer, 0,
+                                                   nvrhi::Color(renderData->clearColor.r, renderData->clearColor.g,
+                                                                renderData->clearColor.b, renderData->clearColor.a));
             }
 
-            // --- Cube Pipeline ---
-            if (!g_RendererContext->m_RenderPass.m_Pipeline) {
-                const auto fbi = frameBuffer->getFramebufferInfo();
-
-                nvrhi::GraphicsPipelineDesc psoDesc;
-                psoDesc.VS = g_RendererContext->m_RenderPass.m_VertexShader;
-                psoDesc.PS = g_RendererContext->m_RenderPass.m_PixelShader;
-                psoDesc.inputLayout = g_RendererContext->m_RenderPass.m_InputLayout;
-                psoDesc.bindingLayouts = { g_RendererContext->m_RenderPass.m_BindingLayout };
-                psoDesc.primType = nvrhi::PrimitiveType::TriangleList;
-                psoDesc.renderState.depthStencilState.depthTestEnable = false;
-                psoDesc.renderState.rasterState.setFrontCounterClockwise(true);
-                g_RendererContext->m_RenderPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(psoDesc, fbi);
-            }
-
-            // --- UI Pipeline ---
-            if (!g_RendererContext->m_UIPass.m_Pipeline)
             {
-                const auto fbi2 = frameBuffer->getFramebufferInfo();
-                nvrhi::GraphicsPipelineDesc uiDesc;
-                uiDesc.VS = g_RendererContext->m_UIPass.m_VS;
-                uiDesc.PS = g_RendererContext->m_UIPass.m_PS;
-                uiDesc.inputLayout = g_RendererContext->m_UIPass.m_InputLayout;
-                uiDesc.bindingLayouts = { g_RendererContext->m_UIPass.m_BindingLayout };
-                uiDesc.primType = nvrhi::PrimitiveType::TriangleList;
-                // UI states
-                uiDesc.renderState.depthStencilState.depthTestEnable = false;
-                uiDesc.renderState.depthStencilState.stencilEnable = false;
-                // Enable straight alpha blending for UI/text using setter API
-                nvrhi::BlendState::RenderTarget rt;
-                rt.setBlendEnable(true)
-                  .setSrcBlend(nvrhi::BlendFactor::SrcAlpha)
-                  .setDestBlend(nvrhi::BlendFactor::InvSrcAlpha)
-                  .setBlendOp(nvrhi::BlendOp::Add)
-                  .setSrcBlendAlpha(nvrhi::BlendFactor::One)
-                  .setDestBlendAlpha(nvrhi::BlendFactor::InvSrcAlpha)
-                  .setBlendOpAlpha(nvrhi::BlendOp::Add)
-                  .setColorWriteMask(nvrhi::ColorMask::All);
-                uiDesc.renderState.blendState.setRenderTarget(0, rt);
-
-                g_RendererContext->m_UIPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(uiDesc, fbi2);
-            }
-
-            // Primitive Pass
-            {
-                if (renderData && renderData->primitives.count > 0)
+                ZoneScopedN("Pipeline Creation");
+                // --- Primitives (Grid Plane) Pipeline ---
+                if (!g_RendererContext->m_PrimPass.m_Pipeline)
                 {
-                    // Common VP for this frame
-                    glm::mat4 V = renderData->gameCamera.get_view_matrix();
-                    glm::mat4 P = renderData->gameCamera.get_projection_matrix();
+                    const auto fbi = frameBuffer->getFramebufferInfo();
+                    nvrhi::GraphicsPipelineDesc pso;
+                    pso.VS = g_RendererContext->m_PrimPass.m_VS;
+                    pso.PS = g_RendererContext->m_PrimPass.m_PS;
+                    pso.inputLayout = g_RendererContext->m_PrimPass.m_InputLayout;
+                    pso.bindingLayouts = { g_RendererContext->m_PrimPass.m_BindingLayout };
+                    pso.primType = nvrhi::PrimitiveType::TriangleList;
+                    pso.renderState.depthStencilState.depthTestEnable = false; // no depth buffer yet
+                    pso.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+                    g_RendererContext->m_PrimPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(pso, fbi);
+                }
 
-                    // Defaults for the grid
-                    PrimPerDrawCB prim{};
-                    prim.GridColor  = {0.35f, 0.35f, 0.35f, 1.0f};
-                    prim.AxisXColor = {1.0f, 0.2f, 0.2f, 1.0f};
-                    prim.AxisZColor = {0.2f, 0.6f, 1.0f, 1.0f};
-                    prim.GridParams = {0.5f, 2.0f};   // 1 unit per cell, 1px thickness
-                    prim.FadeParams = {500.0f, 1000.0f};
-                    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_PrimPass.m_PerDrawCB, &prim, sizeof(prim));
+                // --- Cube Pipeline ---
+                if (!g_RendererContext->m_RenderPass.m_Pipeline) {
+                    const auto fbi = frameBuffer->getFramebufferInfo();
 
-                    // State
-                    nvrhi::GraphicsState primState;
-                    primState.pipeline = g_RendererContext->m_PrimPass.m_Pipeline.Get();
-                    primState.framebuffer = frameBuffer;
-                    primState.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
-                    primState.bindings = { g_RendererContext->m_PrimPass.m_BindingSet };
-                    primState.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_PrimPass.m_VertexBuffer, 0, 0) };
-                    primState.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_PrimPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+                    nvrhi::GraphicsPipelineDesc psoDesc;
+                    psoDesc.VS = g_RendererContext->m_RenderPass.m_VertexShader;
+                    psoDesc.PS = g_RendererContext->m_RenderPass.m_PixelShader;
+                    psoDesc.inputLayout = g_RendererContext->m_RenderPass.m_InputLayout;
+                    psoDesc.bindingLayouts = { g_RendererContext->m_RenderPass.m_BindingLayout };
+                    psoDesc.primType = nvrhi::PrimitiveType::TriangleList;
+                    psoDesc.renderState.depthStencilState.depthTestEnable = false;
+                    psoDesc.renderState.rasterState.setFrontCounterClockwise(true);
+                    g_RendererContext->m_RenderPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(psoDesc, fbi);
+                }
 
-                    for (int i = 0; i < renderData->primitives.count; ++i)
-                    {
-                        const auto& inst = renderData->primitives[i];
-                        if (inst.type != PrimitiveType::Plane) continue;
+                // --- UI Pipeline ---
+                if (!g_RendererContext->m_UIPass.m_Pipeline)
+                {
+                    const auto fbi2 = frameBuffer->getFramebufferInfo();
+                    nvrhi::GraphicsPipelineDesc uiDesc;
+                    uiDesc.VS = g_RendererContext->m_UIPass.m_VS;
+                    uiDesc.PS = g_RendererContext->m_UIPass.m_PS;
+                    uiDesc.inputLayout = g_RendererContext->m_UIPass.m_InputLayout;
+                    uiDesc.bindingLayouts = { g_RendererContext->m_UIPass.m_BindingLayout };
+                    uiDesc.primType = nvrhi::PrimitiveType::TriangleList;
+                    // UI states
+                    uiDesc.renderState.depthStencilState.depthTestEnable = false;
+                    uiDesc.renderState.depthStencilState.stencilEnable = false;
+                    // Enable straight alpha blending for UI/text using setter API
+                    nvrhi::BlendState::RenderTarget rt;
+                    rt.setBlendEnable(true)
+                      .setSrcBlend(nvrhi::BlendFactor::SrcAlpha)
+                      .setDestBlend(nvrhi::BlendFactor::InvSrcAlpha)
+                      .setBlendOp(nvrhi::BlendOp::Add)
+                      .setSrcBlendAlpha(nvrhi::BlendFactor::One)
+                      .setDestBlendAlpha(nvrhi::BlendFactor::InvSrcAlpha)
+                      .setBlendOpAlpha(nvrhi::BlendOp::Add)
+                      .setColorWriteMask(nvrhi::ColorMask::All);
+                    uiDesc.renderState.blendState.setRenderTarget(0, rt);
 
-                        PerFrameCBData pf{};
-                        pf.Model = inst.transform;
-                        pf.VP = P * V;
-                        pf.CameraPos = renderData->gameCamera.position;
-                        pf.SunColor = glm::vec3(1.0f);
-                        pf.Ambient = 0.08f;
-                        g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, &pf, sizeof(pf));
-
-                        g_RendererContext->m_CommandList->setGraphicsState(primState);
-
-                        nvrhi::DrawArguments args{};
-                        args.vertexCount = g_RendererContext->m_PrimPass.m_IndexCount; // index count for indexed draw
-                        args.instanceCount = 1;
-                        args.startIndexLocation = 0;
-                        args.startVertexLocation = 0;
-                        g_RendererContext->m_CommandList->drawIndexed(args);
-                    }
-
-                    renderData->primitives.clear();
+                    g_RendererContext->m_UIPass.m_Pipeline = g_RendererContext->m_Device->createGraphicsPipeline(uiDesc, fbi2);
                 }
             }
 
-            // Cube Packed Pass
             {
-                // Update constant buffers
-                if (g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer)
+                ZoneScopedN("Render Passes");
+
+                // Primitive Pass
                 {
-                    PerFrameCBData perFrame = {};
-                    perFrame.Model = renderData->modelMatrix3D;
+                    ZoneScopedN("Primitive Pass");
+                    if (renderData && renderData->primitives.count > 0)
                     {
+                        // Common VP for this frame
                         glm::mat4 V = renderData->gameCamera.get_view_matrix();
                         glm::mat4 P = renderData->gameCamera.get_projection_matrix();
-                        perFrame.VP = P * V;
-                    }
-                    perFrame.CameraPos = renderData->gameCamera.position;
-                    perFrame.SunColor = glm::vec3(1.0f);
-                    perFrame.Ambient = 0.8f;
 
-                    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, &perFrame, sizeof(perFrame));
-                }
+                        // Defaults for the grid
+                        PrimPerDrawCB prim{};
+                        prim.GridColor  = {0.35f, 0.35f, 0.35f, 1.0f};
+                        prim.AxisXColor = {1.0f, 0.2f, 0.2f, 1.0f};
+                        prim.AxisZColor = {0.2f, 0.6f, 1.0f, 1.0f};
+                        prim.GridParams = {0.5f, 2.0f};   // 1 unit per cell, 1px thickness
+                        prim.FadeParams = {500.0f, 1000.0f};
+                        g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_PrimPass.m_PerDrawCB, &prim, sizeof(prim));
 
-                if (g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer)
-                {
-                    PerDrawCBData perDraw = {};
-                    constexpr float tilePixelW = 16.0f;
-                    constexpr float tilePixelH = 16.0f;
-                    perDraw.chunkOffset = glm::vec3(0.0f);
-                    perDraw.tileSizeUV = glm::vec2(tilePixelW / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth)),
-                                                   tilePixelH / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight)));
-                    perDraw.tileTexelOffset = glm::vec2(0.5f / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth)),
-                                                        0.5f / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight)));
-                    perDraw.materialTint = glm::vec4(1.0f);
+                        // State
+                        nvrhi::GraphicsState primState;
+                        primState.pipeline = g_RendererContext->m_PrimPass.m_Pipeline.Get();
+                        primState.framebuffer = frameBuffer;
+                        primState.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+                        primState.bindings = { g_RendererContext->m_PrimPass.m_BindingSet };
+                        primState.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_PrimPass.m_VertexBuffer, 0, 0) };
+                        primState.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_PrimPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
 
-                    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer, &perDraw, sizeof(perDraw));
-                }
-
-                // Set graphics state and bindings
-                nvrhi::GraphicsState state;
-                state.pipeline = g_RendererContext->m_RenderPass.m_Pipeline.Get();
-                state.framebuffer = frameBuffer;
-                state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
-                state.bindings = { g_RendererContext->m_RenderPass.m_BindingSet };
-                state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_RenderPass.m_VertexBuffer, 0, 0) };
-                state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_RenderPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
-
-                g_RendererContext->m_CommandList->setGraphicsState(state);
-
-                // Draw indexed cube
-                nvrhi::DrawArguments drawArgs;
-                drawArgs.vertexCount = g_RendererContext->m_RenderPass.m_IndexCount; // for indexed: this is the index count
-                drawArgs.instanceCount = 1;
-                drawArgs.startIndexLocation = 0;
-                drawArgs.startVertexLocation = 0;
-                g_RendererContext->m_CommandList->drawIndexed(drawArgs);
-            }
-
-            // UI Pass
-            {
-                // Update UI frame CB with orthographic matrix (pixels -> clip space)
-                if (g_RendererContext->m_UIPass.m_PerFrameCB)
-                {
-                    const auto vp = frameBuffer->getFramebufferInfo().getViewport();
-                    const float w = vp.width();
-                    const float h = vp.height();
-                    // Map (0,0) top-left to (-1,+1), (w,h) to (+1,-1)
-                    // Matrix that does: x' = 2/w*x - 1, y' = 1 - 2/h*y
-                    glm::mat4 ortho(1.0f);
-                    ortho[0][0] = 2.0f / w;  ortho[1][0] = 0.0f;       ortho[2][0] = 0.0f; ortho[3][0] = -1.0f; // column 0..3
-                    ortho[0][1] = 0.0f;       ortho[1][1] = -2.0f / h; ortho[2][1] = 0.0f; ortho[3][1] =  1.0f;
-                    ortho[0][2] = 0.0f;       ortho[1][2] = 0.0f;       ortho[2][2] = 1.0f; ortho[3][2] =  0.0f;
-                    ortho[0][3] = 0.0f;       ortho[1][3] = 0.0f;       ortho[2][3] = 0.0f; ortho[3][3] =  1.0f;
-
-                    UIFrameCBData uiFrame{};
-                    uiFrame.Ortho = ortho;
-                    g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_PerFrameCB, &uiFrame, sizeof(uiFrame));
-                }
-
-                nvrhi::GraphicsState state;
-                state.pipeline = g_RendererContext->m_UIPass.m_Pipeline.Get();
-                state.framebuffer = frameBuffer;
-                state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
-                state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_UIPass.m_VertexBuffer, 0, 0) };
-                state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_UIPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
-
-                // 1) Rects / lines (solid color, no sampling)
-                const uint32_t rectCount = static_cast<uint32_t>(renderData->uiRects.count);
-                if (rectCount > 0)
-                {
-                    const uint32_t capped = std::min(rectCount, g_RendererContext->m_UIPass.m_MaxInstances);
-                    UIInstanceCPU* rectInstances = reinterpret_cast<UIInstanceCPU*>(bump_alloc(transientStorage, capped * sizeof(UIInstanceCPU)));
-                    SM_ASSERT(rectInstances, "Out of transient memory for UI rect instances");
-                    uint32_t out = 0;
-                    for (uint32_t i = 0; i < capped; ++i)
-                    {
-                        const UIRectCmd& rc = renderData->uiRects.elements[i];
-                        const glm::vec2 pos = rc.pos;
-                        const glm::vec2 size = rc.size;
-                        UIInstanceCPU inst{};
-                        inst.Transform = glm::mat4(1.0f);
-                        inst.Transform[0][0] = size.x;
-                        inst.Transform[1][1] = size.y;
-                        inst.Transform[3][0] = pos.x;
-                        inst.Transform[3][1] = pos.y;
-                        inst.Color = rc.color;
-                        inst.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f);
-                        inst.Flags = 0u;
-                        rectInstances[out++] = inst;
-                    }
-                    if (out > 0)
-                    {
-                        g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, rectInstances, out * sizeof(UIInstanceCPU));
-                        state.bindings = { g_RendererContext->m_FontAtlas.uiBindingSet ? g_RendererContext->m_FontAtlas.uiBindingSet : g_RendererContext->m_UIPass.m_BindingSet };
-                        g_RendererContext->m_CommandList->setGraphicsState(state);
-                        nvrhi::DrawArguments uiDrawArgs;
-                        uiDrawArgs.vertexCount = g_RendererContext->m_UIPass.m_IndexCount;
-                        uiDrawArgs.instanceCount = out;
-                        uiDrawArgs.startIndexLocation = 0;
-                        uiDrawArgs.startVertexLocation = 0;
-                        g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
-                    }
-                }
-
-                // 2) Texts (per font)
-                if (renderData->uiTexts.count > 0)
-                {
-                    // Gather used font indices
-                    uint16_t used[64] = {};
-                    uint32_t usedCount = 0;
-                    for (int ti = 0; ti < renderData->uiTexts.count && usedCount < 64; ++ti)
-                    {
-                        const uint16_t fi = renderData->uiTexts.elements[ti].fontIndex;
-                        bool seen = false;
-                        for (uint32_t j = 0; j < usedCount; ++j) if (used[j] == fi) { seen = true; break; }
-                        if (!seen) used[usedCount++] = fi;
-                    }
-
-                    for (uint32_t ui = 0; ui < usedCount; ++ui)
-                    {
-                        const uint16_t fontIdx = used[ui];
-                        const FontAtlas* fa = nullptr;
-                        if (fontIdx < g_RendererContext->m_Fonts.size())
-                            fa = &g_RendererContext->m_Fonts[fontIdx];
-                        else if (fontIdx == 0)
-                            fa = &g_RendererContext->m_FontAtlas;
-                        if (!fa || !fa->texture) continue;
-
-                        // Count glyphs for this font
-                        uint32_t glyphCount = 0;
-                        for (int ti = 0; ti < renderData->uiTexts.count; ++ti)
-                            if (renderData->uiTexts.elements[ti].fontIndex == fontIdx)
-                                glyphCount += renderData->uiTexts.elements[ti].glyphCount;
-                        if (glyphCount == 0) continue;
-                        glyphCount = std::min(glyphCount, g_RendererContext->m_UIPass.m_MaxInstances);
-
-                        auto* glyphInstances = reinterpret_cast<UIInstanceCPU*>(bump_alloc(transientStorage, glyphCount * sizeof(UIInstanceCPU)));
-                        SM_ASSERT(glyphInstances, "Out of transient memory for UI glyph instances");
-
-                        const auto aw = static_cast<float>(fa->width);
-                        const auto ah = static_cast<float>(fa->height);
-                        uint32_t out = 0;
-                        for (int ti = 0; ti < renderData->uiTexts.count && out < glyphCount; ++ti)
+                        for (int i = 0; i < renderData->primitives.count; ++i)
                         {
-                            const UITextCmd& tc = renderData->uiTexts.elements[ti];
-                            if (tc.fontIndex != fontIdx) continue;
-                            const uint32_t off = tc.textOffset;
-                            const uint32_t len = tc.textLength;
-                            if (off + len > UI_TEXT_BUFFER_BYTES) continue;
-                            const char* str = renderData->uiTextBuffer + off;
-                            glm::vec2 pen = tc.pos;
-                            for (uint32_t k = 0; k < len && out < glyphCount; ++k)
-                            {
-                                const auto c = static_cast<unsigned char>(str[k]);
-                                if (c >= 128u) continue;
-                                const Glyph& g = fa->glyphs[c];
-                                glm::vec2 pos;
-                                pos.x = pen.x + g.offset.x;
-                                pos.y = pen.y - g.offset.y;
-                                const glm::vec2 size = g.size;
-                                UIInstanceCPU inst{};
-                                inst.Transform = glm::mat4(1.0f);
-                                inst.Transform[0][0] = size.x;
-                                inst.Transform[1][1] = size.y;
-                                inst.Transform[3][0] = pos.x;
-                                inst.Transform[3][1] = pos.y;
-                                inst.Color = tc.color;
-                                inst.Flags = UI_OPT_SAMPLE_TEXTURE;
-                                const auto uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
-                                const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
-                                inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
-                                glyphInstances[out++] = inst;
-                                pen.x += g.advance.x;
-                            }
+                            const auto& inst = renderData->primitives[i];
+                            if (inst.type != PrimitiveType::Plane) continue;
+
+                            PerFrameCBData pf{};
+                            pf.Model = inst.transform;
+                            pf.VP = P * V;
+                            pf.CameraPos = renderData->gameCamera.position;
+                            pf.SunColor = glm::vec3(1.0f);
+                            pf.Ambient = 0.08f;
+                            g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, &pf, sizeof(pf));
+
+                            g_RendererContext->m_CommandList->setGraphicsState(primState);
+
+                            nvrhi::DrawArguments args{};
+                            args.vertexCount = g_RendererContext->m_PrimPass.m_IndexCount; // index count for indexed draw
+                            args.instanceCount = 1;
+                            args.startIndexLocation = 0;
+                            args.startVertexLocation = 0;
+                            g_RendererContext->m_CommandList->drawIndexed(args);
+                        }
+
+                        renderData->primitives.clear();
+                    }
+                }
+
+                // Cube Packed Pass
+                {
+                    ZoneScopedN("Cube Pass");
+                    // Update constant buffers
+                    if (g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer)
+                    {
+                        PerFrameCBData perFrame = {};
+                        perFrame.Model = renderData->modelMatrix3D;
+                        {
+                            glm::mat4 V = renderData->gameCamera.get_view_matrix();
+                            glm::mat4 P = renderData->gameCamera.get_projection_matrix();
+                            perFrame.VP = P * V;
+                        }
+                        perFrame.CameraPos = renderData->gameCamera.position;
+                        perFrame.SunColor = glm::vec3(1.0f);
+                        perFrame.Ambient = 0.8f;
+
+                        g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer, &perFrame, sizeof(perFrame));
+                    }
+
+                    if (g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer)
+                    {
+                        PerDrawCBData perDraw = {};
+                        constexpr float tilePixelW = 16.0f;
+                        constexpr float tilePixelH = 16.0f;
+                        perDraw.chunkOffset = glm::vec3(0.0f);
+                        perDraw.tileSizeUV = glm::vec2(tilePixelW / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth)),
+                                                       tilePixelH / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight)));
+                        perDraw.tileTexelOffset = glm::vec2(0.5f / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasWidth)),
+                                                            0.5f / static_cast<float>(std::max(1u, g_RendererContext->m_RenderPass.m_AtlasHeight)));
+                        perDraw.materialTint = glm::vec4(1.0f);
+
+                        g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_RenderPass.m_PerDrawConstantBuffer, &perDraw, sizeof(perDraw));
+                    }
+
+                    // Set graphics state and bindings
+                    nvrhi::GraphicsState state;
+                    state.pipeline = g_RendererContext->m_RenderPass.m_Pipeline.Get();
+                    state.framebuffer = frameBuffer;
+                    state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+                    state.bindings = { g_RendererContext->m_RenderPass.m_BindingSet };
+                    state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_RenderPass.m_VertexBuffer, 0, 0) };
+                    state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_RenderPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+
+                    g_RendererContext->m_CommandList->setGraphicsState(state);
+
+                    // Draw indexed cube
+                    nvrhi::DrawArguments drawArgs;
+                    drawArgs.vertexCount = g_RendererContext->m_RenderPass.m_IndexCount; // for indexed: this is the index count
+                    drawArgs.instanceCount = 1;
+                    drawArgs.startIndexLocation = 0;
+                    drawArgs.startVertexLocation = 0;
+                    g_RendererContext->m_CommandList->drawIndexed(drawArgs);
+                }
+
+                // UI Pass
+                {
+                    ZoneScopedN("UI Pass");
+                    // Update UI frame CB with orthographic matrix (pixels -> clip space)
+                    if (g_RendererContext->m_UIPass.m_PerFrameCB)
+                    {
+                        const auto vp = frameBuffer->getFramebufferInfo().getViewport();
+                        const float w = vp.width();
+                        const float h = vp.height();
+                        // Map (0,0) top-left to (-1,+1), (w,h) to (+1,-1)
+                        // Matrix that does: x' = 2/w*x - 1, y' = 1 - 2/h*y
+                        glm::mat4 ortho(1.0f);
+                        ortho[0][0] = 2.0f / w;  ortho[1][0] = 0.0f;       ortho[2][0] = 0.0f; ortho[3][0] = -1.0f; // column 0..3
+                        ortho[0][1] = 0.0f;       ortho[1][1] = -2.0f / h; ortho[2][1] = 0.0f; ortho[3][1] =  1.0f;
+                        ortho[0][2] = 0.0f;       ortho[1][2] = 0.0f;       ortho[2][2] = 1.0f; ortho[3][2] =  0.0f;
+                        ortho[0][3] = 0.0f;       ortho[1][3] = 0.0f;       ortho[2][3] = 0.0f; ortho[3][3] =  1.0f;
+
+                        UIFrameCBData uiFrame{};
+                        uiFrame.Ortho = ortho;
+                        g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_PerFrameCB, &uiFrame, sizeof(uiFrame));
+                    }
+
+                    nvrhi::GraphicsState state;
+                    state.pipeline = g_RendererContext->m_UIPass.m_Pipeline.Get();
+                    state.framebuffer = frameBuffer;
+                    state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+                    state.vertexBuffers = { nvrhi::VertexBufferBinding(g_RendererContext->m_UIPass.m_VertexBuffer, 0, 0) };
+                    state.indexBuffer = nvrhi::IndexBufferBinding(g_RendererContext->m_UIPass.m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+
+                    // 1) Rects / lines (solid color, no sampling)
+                    const uint32_t rectCount = static_cast<uint32_t>(renderData->uiRects.count);
+                    if (rectCount > 0)
+                    {
+                        const uint32_t capped = std::min(rectCount, g_RendererContext->m_UIPass.m_MaxInstances);
+                        UIInstanceCPU* rectInstances = reinterpret_cast<UIInstanceCPU*>(bump_alloc(transientStorage, capped * sizeof(UIInstanceCPU)));
+                        SM_ASSERT(rectInstances, "Out of transient memory for UI rect instances");
+                        uint32_t out = 0;
+                        for (uint32_t i = 0; i < capped; ++i)
+                        {
+                            const UIRectCmd& rc = renderData->uiRects.elements[i];
+                            const glm::vec2 pos = rc.pos;
+                            const glm::vec2 size = rc.size;
+                            UIInstanceCPU inst{};
+                            inst.Transform = glm::mat4(1.0f);
+                            inst.Transform[0][0] = size.x;
+                            inst.Transform[1][1] = size.y;
+                            inst.Transform[3][0] = pos.x;
+                            inst.Transform[3][1] = pos.y;
+                            inst.Color = rc.color;
+                            inst.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f);
+                            inst.Flags = 0u;
+                            rectInstances[out++] = inst;
                         }
                         if (out > 0)
                         {
-                            g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, glyphInstances, out * sizeof(UIInstanceCPU));
-                            state.bindings = { fa->uiBindingSet ? fa->uiBindingSet : g_RendererContext->m_UIPass.m_BindingSet };
+                            g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, rectInstances, out * sizeof(UIInstanceCPU));
+                            state.bindings = { g_RendererContext->m_FontAtlas.uiBindingSet ? g_RendererContext->m_FontAtlas.uiBindingSet : g_RendererContext->m_UIPass.m_BindingSet };
                             g_RendererContext->m_CommandList->setGraphicsState(state);
                             nvrhi::DrawArguments uiDrawArgs;
                             uiDrawArgs.vertexCount = g_RendererContext->m_UIPass.m_IndexCount;
@@ -1141,33 +1073,130 @@ float render(float dt, RenderData* renderData, BumpAllocator* transientStorage, 
                             g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
                         }
                     }
+
+                    // 2) Texts (per font)
+                    if (renderData->uiTexts.count > 0)
+                    {
+                        // Gather used font indices
+                        uint16_t used[64] = {};
+                        uint32_t usedCount = 0;
+                        for (int ti = 0; ti < renderData->uiTexts.count && usedCount < 64; ++ti)
+                        {
+                            const uint16_t fi = renderData->uiTexts.elements[ti].fontIndex;
+                            bool seen = false;
+                            for (uint32_t j = 0; j < usedCount; ++j) if (used[j] == fi) { seen = true; break; }
+                            if (!seen) used[usedCount++] = fi;
+                        }
+
+                        for (uint32_t ui = 0; ui < usedCount; ++ui)
+                        {
+                            const uint16_t fontIdx = used[ui];
+                            const FontAtlas* fa = nullptr;
+                            if (fontIdx < g_RendererContext->m_Fonts.size())
+                                fa = &g_RendererContext->m_Fonts[fontIdx];
+                            else if (fontIdx == 0)
+                                fa = &g_RendererContext->m_FontAtlas;
+                            if (!fa || !fa->texture) continue;
+
+                            // Count glyphs for this font
+                            uint32_t glyphCount = 0;
+                            for (int ti = 0; ti < renderData->uiTexts.count; ++ti)
+                                if (renderData->uiTexts.elements[ti].fontIndex == fontIdx)
+                                    glyphCount += renderData->uiTexts.elements[ti].glyphCount;
+                            if (glyphCount == 0) continue;
+                            glyphCount = std::min(glyphCount, g_RendererContext->m_UIPass.m_MaxInstances);
+
+                            auto* glyphInstances = reinterpret_cast<UIInstanceCPU*>(bump_alloc(transientStorage, glyphCount * sizeof(UIInstanceCPU)));
+                            SM_ASSERT(glyphInstances, "Out of transient memory for UI glyph instances");
+
+                            const auto aw = static_cast<float>(fa->width);
+                            const auto ah = static_cast<float>(fa->height);
+                            uint32_t out = 0;
+                            for (int ti = 0; ti < renderData->uiTexts.count && out < glyphCount; ++ti)
+                            {
+                                const UITextCmd& tc = renderData->uiTexts.elements[ti];
+                                if (tc.fontIndex != fontIdx) continue;
+                                const uint32_t off = tc.textOffset;
+                                const uint32_t len = tc.textLength;
+                                if (off + len > UI_TEXT_BUFFER_BYTES) continue;
+                                const char* str = renderData->uiTextBuffer + off;
+                                glm::vec2 pen = tc.pos;
+                                for (uint32_t k = 0; k < len && out < glyphCount; ++k)
+                                {
+                                    const auto c = static_cast<unsigned char>(str[k]);
+                                    if (c >= 128u) continue;
+                                    const Glyph& g = fa->glyphs[c];
+                                    glm::vec2 pos;
+                                    pos.x = pen.x + g.offset.x;
+                                    pos.y = pen.y - g.offset.y;
+                                    const glm::vec2 size = g.size;
+                                    UIInstanceCPU inst{};
+                                    inst.Transform = glm::mat4(1.0f);
+                                    inst.Transform[0][0] = size.x;
+                                    inst.Transform[1][1] = size.y;
+                                    inst.Transform[3][0] = pos.x;
+                                    inst.Transform[3][1] = pos.y;
+                                    inst.Color = tc.color;
+                                    inst.Flags = UI_OPT_SAMPLE_TEXTURE;
+                                    const auto uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
+                                    const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
+                                    inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
+                                    glyphInstances[out++] = inst;
+                                    pen.x += g.advance.x;
+                                }
+                            }
+                            if (out > 0)
+                            {
+                                g_RendererContext->m_CommandList->writeBuffer(g_RendererContext->m_UIPass.m_InstanceBuffer, glyphInstances, out * sizeof(UIInstanceCPU));
+                                state.bindings = { fa->uiBindingSet ? fa->uiBindingSet : g_RendererContext->m_UIPass.m_BindingSet };
+                                g_RendererContext->m_CommandList->setGraphicsState(state);
+                                nvrhi::DrawArguments uiDrawArgs;
+                                uiDrawArgs.vertexCount = g_RendererContext->m_UIPass.m_IndexCount;
+                                uiDrawArgs.instanceCount = out;
+                                uiDrawArgs.startIndexLocation = 0;
+                                uiDrawArgs.startVertexLocation = 0;
+                                g_RendererContext->m_CommandList->drawIndexed(uiDrawArgs);
+                            }
+                        }
+                    }
                 }
             }
 
             if (uiOverlay) {
+                ZoneScopedN("Overlay");
                 uiOverlay(renderData);
             }
 
             // Clear per-frame UI command buffers (defensive; game can also call ui_begin_frame)
-            renderData->uiRects.clear();
-            renderData->uiTexts.clear();
-            renderData->uiTextBufferCount = 0;
 
-            g_RendererContext->m_GpuTimer.end(g_RendererContext->m_CommandList);
-            g_RendererContext->m_CommandList->close();
-            g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);
+            {
+                ZoneScopedN("Submit");
+                renderData->uiRects.clear();
+                renderData->uiTexts.clear();
+                renderData->uiTextBufferCount = 0;
 
-            g_RendererContext->m_GpuTimer.advance();
+                g_RendererContext->m_GpuTimer.end(g_RendererContext->m_CommandList);
+                g_RendererContext->m_CommandList->close();
+                g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);
 
-            const bool presentSuccess = RENDER_API::renderer_present(g_RendererContext->m_Backend);
-            if (!presentSuccess) {
-                SM_ERROR("renderer_present failed");
-                return 0;
+                g_RendererContext->m_GpuTimer.advance();
+            }
+
+            {
+                ZoneScopedN("Present");
+                const bool presentSuccess = RENDER_API::renderer_present(g_RendererContext->m_Backend);
+                if (!presentSuccess) {
+                    SM_ERROR("renderer_present failed");
+                    return 0;
+                }
             }
         }
     }
 
-    g_RendererContext->m_Device->runGarbageCollection();
+    {
+        ZoneScopedN("GC");
+        g_RendererContext->m_Device->runGarbageCollection();
+    }
 
     RENDER_API::renderer_update_avg_frame_time(g_RendererContext->m_Backend, elapsedTime);
     g_RendererContext->m_PreviousFrameTimestamp = curTime;
