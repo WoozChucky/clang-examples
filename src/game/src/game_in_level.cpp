@@ -174,6 +174,37 @@ void game_update_in_level(GameState* gameState, UIState* uiState, SoundState* so
     char* todoText = bump_alloc(frameAllocator, 128);
     snprintf(todoText, 128, "TODO(Nuno): Fix VSync, Press TAB to play sound, WASD+QE+SPACE/SHIFT to fly, RMB+Mouse to look");
     ui_draw_text_ex(renderData, todoText, {input->screenSize.x / 4.f, input->screenSize.y / 2 - 50.f}, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
+
+    {
+        // Block that will continously move the model position over time
+        // The general idea with first it will move the model to an X target position, then to a Y position, then back to X, and so on
+        static float animationTimer = 0.0f;
+        static bool moveToX = true;
+        static bool moveToPositive = true;
+        constexpr float animationDuration = 2.0f; // seconds to move to target
+        animationTimer += dt;
+        if (animationTimer >= animationDuration) {
+            animationTimer = 0.0f;
+            if (moveToX) {
+                // Switch to move to Y next
+                moveToX = false;
+            } else {
+                // Switch to move to X next
+                moveToX = true;
+                // Also flip direction
+                moveToPositive = !moveToPositive;
+            }
+        }
+        float t = animationTimer / animationDuration;
+        t = ease_in_out_qubic(t);
+        if (moveToX) {
+            float targetX = moveToPositive ? 5.0f : -5.0f;
+            renderData->modelPosition.x = lerp(renderData->modelPosition.x, targetX, t);
+        } else {
+            float targetY = moveToPositive ? 5.0f : -5.0f;
+            renderData->modelPosition.y = lerp(renderData->modelPosition.y, targetY, t);
+        }
+    }
 }
 
 void update_input(const GameState* gameState, SoundState* soundState, RenderData* renderData, const Input* input, const float dt) {

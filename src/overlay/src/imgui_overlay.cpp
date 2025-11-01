@@ -15,6 +15,7 @@
 #include <renderer_dx11.h>
 #include <renderer_dx12.h>
 
+#include "imgui_internal.h"
 #include "imgui_nvrhi.h"
 #include "registered_font.h"
 
@@ -82,6 +83,7 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device_context) {
     {
         style.WindowRounding = 0.0f;
         style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+        style.Colors[ImGuiCol_DockingEmptyBg].w = 0.0f;
     }
 
     ImGui_ImplWin32_Init(platform_handle);
@@ -149,6 +151,33 @@ EXPORT_FN void overlay_render(RenderData* renderData, nvrhi::IFramebuffer* frame
     ImGui::NewFrame();
 
     ImGui::PushFont(m_fonts[0]->GetScaledFont(), 12.f);
+
+    // Ensure a DockSpace
+    ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+
+    // Build layout once
+    static bool s_dockBuilt = false;
+    if (!s_dockBuilt)
+    {
+        ImGuiID dockspace_id = ImGui::GetMainViewport()->ID; // Dock node for main viewport
+
+        // Rebuild the dockspace to a known layout
+        ImGui::DockBuilderRemoveNode(dockspace_id);                      // clear any previous layout
+        ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+
+        ImGuiID dock_id_right = 0;
+        ImGuiID dock_id_main  = dockspace_id;
+
+        // Split main dockspace: create a right dock at 28% width; remainder stays as main
+        ImGui::DockBuilderSplitNode(dock_id_main, ImGuiDir_Right, 0.28f, &dock_id_right, &dock_id_main);
+
+        // Dock your windows by exact title text
+        ImGui::DockBuilderDockWindow("3D Engine Overlay", dock_id_right);
+        ImGui::DockBuilderDockWindow("Hello, world!",      dock_id_main);
+
+        ImGui::DockBuilderFinish(dockspace_id);
+        s_dockBuilt = true;
+    }
 
     const auto textElementCount = renderData->uiTexts.count;
     const auto uiRectsCount = renderData->uiRects.count;
