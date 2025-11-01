@@ -306,8 +306,9 @@ void update_input(const GameState* gameState, SoundState* soundState, UIState* u
         const glm::vec3 rayOrigin = glm::vec3(nearWorld4);
         const glm::vec3 rayDir    = glm::normalize(glm::vec3(farWorld4 - nearWorld4));
 
-        const glm::vec3 boxMin = renderData->modelPosition - glm::vec3(0.5f);
-        const glm::vec3 boxMax = renderData->modelPosition + glm::vec3(0.5f);
+        const glm::vec3 halfExtents = 0.5f * glm::abs(renderData->modelScale);
+        const glm::vec3 boxMin = renderData->modelPosition - halfExtents;
+        const glm::vec3 boxMax = renderData->modelPosition + halfExtents;
 
         float tMin = 0.0f;
         float tMax = 1000.0f; // some large value
@@ -327,7 +328,8 @@ void update_input(const GameState* gameState, SoundState* soundState, UIState* u
             }
         }
         if (hit && tMax >= 0.0f) {
-            play_sound(soundState, gameState->m_DeathSound);
+            play_sound(soundState, gameState->m_JumpSound);
+            SM_TRACE("Playing sound")
         }
     }
 }
