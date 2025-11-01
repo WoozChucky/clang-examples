@@ -1,5 +1,6 @@
 #include "imgui_overlay.h"
 
+#include <d3dcompiler.h>
 #include <unordered_map>
 #include <nvrhi/nvrhi.h>
 
@@ -13,48 +14,14 @@
 #include <renderer_dx11.h>
 #include <renderer_dx12.h>
 
+#include "imgui_nvrhi.h"
+
 enum class RenderAPI : uint8_t { None, DirectX11, DirectX12 };
 
 static RenderAPI g_RenderAPI = RenderAPI::None;
 static ID3D12GraphicsCommandList* g_D3D12CommandList = nullptr;
 
-struct ImGui_NVRHI
-{
-    nvrhi::DeviceHandle m_device;
-    nvrhi::CommandListHandle m_commandList;
-
-    nvrhi::ShaderHandle vertexShader;
-    nvrhi::ShaderHandle pixelShader;
-    nvrhi::InputLayoutHandle shaderAttribLayout;
-
-    nvrhi::TextureHandle fontTexture;
-    nvrhi::SamplerHandle fontSampler;
-
-    nvrhi::BufferHandle vertexBuffer;
-    nvrhi::BufferHandle indexBuffer;
-
-    nvrhi::BindingLayoutHandle bindingLayout;
-    nvrhi::GraphicsPipelineDesc basePSODesc;
-
-    nvrhi::GraphicsPipelineHandle pso;
-    std::unordered_map<nvrhi::ITexture*, nvrhi::BindingSetHandle> bindingsCache;
-
-    std::vector<ImDrawVert> vtxBuffer;
-    std::vector<ImDrawIdx> idxBuffer;
-
-    bool init(nvrhi::IDevice* device);
-    bool updateFontTexture();
-    bool render(nvrhi::IFramebuffer* framebuffer);
-    void backbufferResizing();
-
-private:
-    bool reallocateBuffer(nvrhi::BufferHandle& buffer, size_t requiredSize, size_t reallocateSize, bool isIndexBuffer);
-
-
-    nvrhi::IGraphicsPipeline* getPSO(nvrhi::FramebufferInfo const& framebufferInfo);
-    nvrhi::IBindingSet* getBindingSet(nvrhi::ITexture* texture);
-    bool updateGeometry(nvrhi::ICommandList* commandList);
-};
+static ImGui_NVRHI* imgui_nvrhi = nullptr;
 
 EXPORT_FN void overlay_setup(void* platform_handle, void* device_context) {
     IMGUI_CHECKVERSION();
@@ -89,6 +56,7 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device_context) {
     ImGui_ImplWin32_Init(platform_handle);
 
     // Now we need cast the device_context to determine which backend to use
+    /*
     const auto deviceCtxDX11 = static_cast<RendererBackendDX11*>(device_context);
     if (deviceCtxDX11 && deviceCtxDX11->m_Api == RendererBackendAPI::Direct3D11) {
         g_RenderAPI = RenderAPI::DirectX11;
@@ -119,18 +87,26 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device_context) {
             ImGui_ImplDX12_Init(&init_info);
         }
     }
+    */
+    imgui_nvrhi = new ImGui_NVRHI();
+    imgui_nvrhi->init(static_cast<nvrhi::IDevice*>(device_context));
 }
 
-EXPORT_FN void overlay_render(RenderData* renderData) {
-    if (g_RenderAPI == RenderAPI::DirectX11)
-        ImGui_ImplDX11_NewFrame();
-    else if (g_RenderAPI == RenderAPI::DirectX12)
-        ImGui_ImplDX12_NewFrame();
-    else return;
+EXPORT_FN void overlay_render(RenderData* renderData, nvrhi::IFramebuffer* framebuffer) {
+    //if (g_RenderAPI == RenderAPI::DirectX11)
+    //    ImGui_ImplDX11_NewFrame();
+    //else if (g_RenderAPI == RenderAPI::DirectX12)
+    //    ImGui_ImplDX12_NewFrame();
+    //else return;
 
-    ImGui_ImplWin32_NewFrame();
+    //ImGui_ImplWin32_NewFrame();
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(static_cast<float>(renderData->uiCamera.dimensions.x), static_cast<float>(renderData->uiCamera.dimensions.y));
+    io.DeltaTime = 1 / 60.0f; // TODO: get actual delta time
+    io.MouseDrawCursor = false;
     ImGui::NewFrame();
-    const auto io = ImGui::GetIO();
+
 
     const auto textElementCount = renderData->uiTexts.count;
     const auto uiRectsCount = renderData->uiRects.count;
@@ -146,10 +122,12 @@ EXPORT_FN void overlay_render(RenderData* renderData) {
 
     ImGui::Render();
 
-    if (g_RenderAPI == RenderAPI::DirectX11)
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-    else if (g_RenderAPI == RenderAPI::DirectX12)
-        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), nullptr);
+    imgui_nvrhi->render(framebuffer);
+
+    //if (g_RenderAPI == RenderAPI::DirectX11)
+    //    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+    //else if (g_RenderAPI == RenderAPI::DirectX12)
+    //    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), nullptr);
 
     // Update and Render additional Platform Windows
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
@@ -160,11 +138,15 @@ EXPORT_FN void overlay_render(RenderData* renderData) {
 }
 
 EXPORT_FN void overlay_shutdown() {
-    if (g_RenderAPI == RenderAPI::DirectX11)
-        ImGui_ImplDX11_Shutdown();
-    else if (g_RenderAPI == RenderAPI::DirectX12)
-        ImGui_ImplDX12_Shutdown();
-    else return;
+    //if (g_RenderAPI == RenderAPI::DirectX11)
+    //    ImGui_ImplDX11_Shutdown();
+    //else if (g_RenderAPI == RenderAPI::DirectX12)
+    //    ImGui_ImplDX12_Shutdown();
+    //else return;
+    if (imgui_nvrhi) {
+        delete imgui_nvrhi;
+        imgui_nvrhi = nullptr;
+    }
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
 }

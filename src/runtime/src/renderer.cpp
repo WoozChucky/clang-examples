@@ -1164,7 +1164,7 @@ float render(float dt, RenderData* renderData, BumpAllocator* transientStorage, 
 
             if (uiOverlay) {
                 ZoneScopedN("Overlay");
-                uiOverlay(renderData);
+                uiOverlay(renderData, frameBuffer);
             }
 
             // Clear per-frame UI command buffers (defensive; game can also call ui_begin_frame)
@@ -1229,7 +1229,7 @@ void renderer_toggle_vsync() {
 }
 
 void* renderer_get_device_context() {
-    return g_RendererContext->m_Backend;
+    return g_RendererContext->m_Device;
 }
 
 int renderer_font_load(const char* filePath, int fontSize)
