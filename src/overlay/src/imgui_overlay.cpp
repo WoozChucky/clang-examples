@@ -1,29 +1,15 @@
 #include "imgui_overlay.h"
 
-#include <d3dcompiler.h>
-#include <unordered_map>
-#include <nvrhi/nvrhi.h>
-
-#include <WinString.h>
 #include <fstream>
 
 #include <imgui.h>
 #include <imgui_impl_win32.h>
-#include <imgui_impl_dx11.h>
-#include <imgui_impl_dx12.h>
-
-#include <renderer_dx11.h>
-#include <renderer_dx12.h>
 
 #include "imgui_internal.h"
 #include "imgui_nvrhi.h"
 #include "registered_font.h"
 
-enum class RenderAPI : uint8_t { None, DirectX11, DirectX12 };
 
-
-static RenderAPI g_RenderAPI = RenderAPI::None;
-static ID3D12GraphicsCommandList* g_D3D12CommandList = nullptr;
 static ImGui_NVRHI* imgui_nvrhi = nullptr;
 static std::vector<std::shared_ptr<RegisteredFont>> m_fonts;
 
@@ -88,53 +74,13 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device_context) {
 
     ImGui_ImplWin32_Init(platform_handle);
 
-    // Now we need cast the device_context to determine which backend to use
-    /*
-    const auto deviceCtxDX11 = static_cast<RendererBackendDX11*>(device_context);
-    if (deviceCtxDX11 && deviceCtxDX11->m_Api == RendererBackendAPI::Direct3D11) {
-        g_RenderAPI = RenderAPI::DirectX11;
-        ImGui_ImplDX11_Init(deviceCtxDX11->m_Device11, deviceCtxDX11->m_ImmediateContext);
-    }
-    else {
-        const auto deviceCtxDX12 = static_cast<RendererBackendDX12*>(device_context);
-        if (deviceCtxDX12 && deviceCtxDX12->m_Api == RendererBackendAPI::Direct3D12) {
-            g_RenderAPI = RenderAPI::DirectX12;
-
-            // const auto descriptorHeap = deviceCtxDX12->m_Device->getNativeObject(nvrhi::ObjectTypes::D3D12_RenderTargetViewDescriptor);
-
-            const auto d3d12_cmd_list = static_cast<ID3D12GraphicsCommandList *>(deviceCtxDX12->m_CommandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList).pointer);
-            const auto test = static_cast<ID3D12GraphicsCommandList *>(deviceCtxDX12->m_Device->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList).pointer);
-            g_D3D12CommandList = d3d12_cmd_list;
-
-            ImGui_ImplDX12_InitInfo init_info = {};
-            init_info.Device = deviceCtxDX12->m_Device12;
-            init_info.CommandQueue = deviceCtxDX12->m_GraphicsQueue;
-            init_info.NumFramesInFlight = deviceCtxDX12->m_Settings.maxFramesInFlight;
-            init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-            init_info.DSVFormat = DXGI_FORMAT_UNKNOWN;
-            // Allocating SRV descriptors (for textures) is up to the application, so we provide callbacks.
-            // (current version of the backend will only allocate one descriptor, future versions will need to allocate more)
-            //init_info.SrvDescriptorHeap = static_cast<ID3D12DescriptorHeap*>(descriptorHeap.pointer);
-            //init_info.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_handle) { return g_pd3dSrvDescHeapAlloc.Alloc(out_cpu_handle, out_gpu_handle); };
-            //init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle)            { return g_pd3dSrvDescHeapAlloc.Free(cpu_handle, gpu_handle); };
-            ImGui_ImplDX12_Init(&init_info);
-        }
-    }
-    */
     imgui_nvrhi = new ImGui_NVRHI();
     imgui_nvrhi->init(static_cast<nvrhi::IDevice*>(device_context));
-    std::shared_ptr<RegisteredFont> m_FontOpenSans = CreateFontFromFile("assets/LiberationSans-Regular.ttf", 12.f);
-
+    std::shared_ptr<RegisteredFont> m_FontOpenSans = CreateFontFromFile("assets/LiberationSans-Regular.ttf", 14.f);
 }
 
 EXPORT_FN void overlay_render(RenderData* renderData, nvrhi::IFramebuffer* framebuffer) {
-    //if (g_RenderAPI == RenderAPI::DirectX11)
-    //    ImGui_ImplDX11_NewFrame();
-    //else if (g_RenderAPI == RenderAPI::DirectX12)
-    //    ImGui_ImplDX12_NewFrame();
-    //else return;
-
-    //ImGui_ImplWin32_NewFrame();
+    ImGui_ImplWin32_NewFrame();
 
     for (auto& font : m_fonts)
     {
@@ -145,12 +91,9 @@ EXPORT_FN void overlay_render(RenderData* renderData, nvrhi::IFramebuffer* frame
     imgui_nvrhi->updateFontTexture();
 
     ImGuiIO& io = ImGui::GetIO();
-    io.DisplaySize = ImVec2(static_cast<float>(renderData->uiCamera.dimensions.x), static_cast<float>(renderData->uiCamera.dimensions.y));
-    io.DeltaTime = 1 / 60.0f; // TODO: get actual delta time
-    io.MouseDrawCursor = false;
     ImGui::NewFrame();
 
-    ImGui::PushFont(m_fonts[0]->GetScaledFont(), 12.f);
+    ImGui::PushFont(m_fonts[0]->GetScaledFont(), 14.f);
 
     // Ensure a DockSpace
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
@@ -212,11 +155,6 @@ EXPORT_FN void overlay_render(RenderData* renderData, nvrhi::IFramebuffer* frame
 
     imgui_nvrhi->render(framebuffer);
 
-    //if (g_RenderAPI == RenderAPI::DirectX11)
-    //    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-    //else if (g_RenderAPI == RenderAPI::DirectX12)
-    //    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), nullptr);
-
     // Update and Render additional Platform Windows
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
     {
@@ -226,11 +164,6 @@ EXPORT_FN void overlay_render(RenderData* renderData, nvrhi::IFramebuffer* frame
 }
 
 EXPORT_FN void overlay_shutdown() {
-    //if (g_RenderAPI == RenderAPI::DirectX11)
-    //    ImGui_ImplDX11_Shutdown();
-    //else if (g_RenderAPI == RenderAPI::DirectX12)
-    //    ImGui_ImplDX12_Shutdown();
-    //else return;
     if (imgui_nvrhi) {
         delete imgui_nvrhi;
         imgui_nvrhi = nullptr;

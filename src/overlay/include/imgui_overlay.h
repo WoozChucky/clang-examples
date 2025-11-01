@@ -4,7 +4,7 @@
 #include <render.h>
 #include <Windows.h>
 
-#include "nvrhi/nvrhi.h"
+#include <nvrhi/nvrhi.h>
 
 extern "C"
 {
