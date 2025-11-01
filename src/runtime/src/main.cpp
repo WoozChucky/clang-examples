@@ -275,6 +275,9 @@ int main(int argc, char** argv) {
         FrameMark;
     }
 
+    if (shutdown_overlay_ptr)
+        shutdown_overlay_ptr();
+
     renderer_shutdown();
 
     // Stop file watchers
