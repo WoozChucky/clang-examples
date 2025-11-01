@@ -215,7 +215,7 @@ int main(int argc, char** argv) {
             if (g_OverlayDllWatch && platform_file_changed(g_OverlayDllWatch)) {
                 g_OverlayDllReloadRequested.store(true);
             }
-            // reload_ui_dll(&g_TransientStorage);
+            reload_ui_dll(&g_TransientStorage);
         }
 
         gameState->m_Fps = g_PlatformContext->m_FrameStats.fpsSmoothed;

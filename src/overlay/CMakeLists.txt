@@ -1,6 +1,7 @@
 
 add_library(imgui_overlay SHARED
         src/imgui_overlay.cpp
+        src/imgui_nvrhi.cpp
 )
 
 target_include_directories(imgui_overlay PUBLIC include)
