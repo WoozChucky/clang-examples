@@ -101,7 +101,7 @@ VSOut main_vs(VSIn vin)
     float3 worldPos = vin.Pos + gChunkOffset;
 
     //float4 wpos = float4(worldPos, 1.0f);
-    float4 wpos = mul(float4(vin.Pos + gChunkOffset, 1.0f), uModel);
+    float4 wpos = mul(uModel, float4(vin.Pos + gChunkOffset, 1.0f));
     o.PosH = mul(uVP, wpos);
 
     // decode tile index (we stored 16-bit tile value in low 16 bits)

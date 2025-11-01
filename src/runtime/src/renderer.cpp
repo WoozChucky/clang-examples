@@ -16,6 +16,7 @@
 #include "font.h"
 #include "image.h"
 #include "VertexPacked.h"
+#include "glm/gtx/euler_angles.hpp"
 #include "tracy/Tracy.hpp"
 
 #define RENDER_API directx12
@@ -959,6 +960,13 @@ float render(float dt, RenderData* renderData, BumpAllocator* transientStorage, 
                     if (g_RendererContext->m_RenderPass.m_PerFrameConstantBuffer)
                     {
                         PerFrameCBData perFrame = {};
+                        glm::mat4 translationMat = glm::translate(glm::mat4(1.0f), renderData->modelPosition);
+                        glm::mat4 rotationMat = glm::yawPitchRoll(
+                            glm::radians(renderData->modelRotation.y),
+                            glm::radians(renderData->modelRotation.x),
+                            glm::radians(renderData->modelRotation.z));
+                        glm::mat4 scaleMat = glm::scale(glm::mat4(1.0f), renderData->modelScale);
+                        renderData->modelMatrix3D = translationMat * rotationMat * scaleMat;
                         perFrame.Model = renderData->modelMatrix3D;
                         {
                             glm::mat4 V = renderData->gameCamera.get_view_matrix();
@@ -1162,25 +1170,24 @@ float render(float dt, RenderData* renderData, BumpAllocator* transientStorage, 
                 }
             }
 
-            if (uiOverlay) {
-                ZoneScopedN("Overlay");
-                uiOverlay(renderData, frameBuffer);
-            }
-
-            // Clear per-frame UI command buffers (defensive; game can also call ui_begin_frame)
 
             {
                 ZoneScopedN("Submit");
-                renderData->uiRects.clear();
-                renderData->uiTexts.clear();
-                renderData->uiTextBufferCount = 0;
-
                 g_RendererContext->m_GpuTimer.end(g_RendererContext->m_CommandList);
                 g_RendererContext->m_CommandList->close();
                 g_RendererContext->m_Device->executeCommandList(g_RendererContext->m_CommandList, nvrhi::CommandQueue::Graphics);
 
                 g_RendererContext->m_GpuTimer.advance();
             }
+
+            if (uiOverlay) {
+                ZoneScopedN("Overlay");
+                uiOverlay(renderData, frameBuffer);
+            }
+
+            renderData->uiRects.clear();
+            renderData->uiTexts.clear();
+            renderData->uiTextBufferCount = 0;
 
             {
                 ZoneScopedN("Present");

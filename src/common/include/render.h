@@ -127,7 +127,10 @@ typedef struct RenderData
 
   PerspectiveCamera3D gameCamera;
   // 3D model transform for the cube (or current object)
-  glm::mat4 modelMatrix3D;
+  glm::mat4 modelMatrix3D = glm::mat4(1.0f);
+  glm::vec3 modelPosition {0.f, 0.f, 0.f};
+  glm::vec3 modelRotation {0.f, 0.f, 0.f};
+  glm::vec3 modelScale    {1.f, 1.f, 1.f};
 
   OrthographicCamera2D uiCamera;
   glm::mat4 orthoProjectionUI;

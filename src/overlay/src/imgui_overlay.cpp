@@ -5,6 +5,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include <WinString.h>
+#include <fstream>
 
 #include <imgui.h>
 #include <imgui_impl_win32.h>
@@ -15,13 +16,43 @@
 #include <renderer_dx12.h>
 
 #include "imgui_nvrhi.h"
+#include "registered_font.h"
 
 enum class RenderAPI : uint8_t { None, DirectX11, DirectX12 };
 
+
 static RenderAPI g_RenderAPI = RenderAPI::None;
 static ID3D12GraphicsCommandList* g_D3D12CommandList = nullptr;
-
 static ImGui_NVRHI* imgui_nvrhi = nullptr;
+static std::vector<std::shared_ptr<RegisteredFont>> m_fonts;
+
+std::shared_ptr<RegisteredFont> CreateFontFromFile(const char* fontFile, float fontSize)
+{
+    auto fontData = std::make_shared<Blob>();
+
+    std::ifstream fileStream(fontFile, std::ios::binary | std::ios::ate);
+    if (!fileStream.is_open())
+    {
+        return nullptr;
+    }
+
+    void* fileBuffer = nullptr;
+    std::streamsize fileSize = fileStream.tellg();
+    fileStream.seekg(0, std::ios::beg);
+    fileBuffer = malloc(static_cast<size_t>(fileSize));
+    if (!fileStream.read(static_cast<char*>(fileBuffer), fileSize))
+    {
+        free(fileBuffer);
+        return nullptr;
+    }
+    fontData->size = static_cast<size_t>(fileSize);
+    fontData->data = fileBuffer;
+
+    auto font = std::make_shared<RegisteredFont>(fontData, false, fontSize);
+    m_fonts.push_back(font);
+
+    return std::move(font);
+}
 
 EXPORT_FN void overlay_setup(void* platform_handle, void* device_context) {
     IMGUI_CHECKVERSION();
@@ -30,11 +61,11 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device_context) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable GamePad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
-    //io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
-    //io.ConfigViewportsNoAutoMerge = true;
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
+    io.ConfigViewportsNoAutoMerge = true;
     //io.ConfigViewportsNoTaskBarIcon = true;
-    //io.ConfigDockingAlwaysTabBar = true;
-    //io.ConfigDockingTransparentPayload = true;
+    io.ConfigDockingAlwaysTabBar = true;
+    io.ConfigDockingTransparentPayload = true;
 
     ImGui::StyleColorsDark();
 
@@ -90,6 +121,8 @@ EXPORT_FN void overlay_setup(void* platform_handle, void* device_context) {
     */
     imgui_nvrhi = new ImGui_NVRHI();
     imgui_nvrhi->init(static_cast<nvrhi::IDevice*>(device_context));
+    std::shared_ptr<RegisteredFont> m_FontOpenSans = CreateFontFromFile("assets/LiberationSans-Regular.ttf", 12.f);
+
 }
 
 EXPORT_FN void overlay_render(RenderData* renderData, nvrhi::IFramebuffer* framebuffer) {
@@ -101,12 +134,21 @@ EXPORT_FN void overlay_render(RenderData* renderData, nvrhi::IFramebuffer* frame
 
     //ImGui_ImplWin32_NewFrame();
 
+    for (auto& font : m_fonts)
+    {
+        if (!font->GetScaledFont())
+            font->CreateScaledFont(1.f);
+    }
+
+    imgui_nvrhi->updateFontTexture();
+
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(static_cast<float>(renderData->uiCamera.dimensions.x), static_cast<float>(renderData->uiCamera.dimensions.y));
     io.DeltaTime = 1 / 60.0f; // TODO: get actual delta time
     io.MouseDrawCursor = false;
     ImGui::NewFrame();
 
+    ImGui::PushFont(m_fonts[0]->GetScaledFont(), 12.f);
 
     const auto textElementCount = renderData->uiTexts.count;
     const auto uiRectsCount = renderData->uiRects.count;
@@ -119,6 +161,23 @@ EXPORT_FN void overlay_render(RenderData* renderData, nvrhi::IFramebuffer* frame
     ImGui::Separator();
     ImGui::Text("Rectangles: %d", uiRectsCount);
     ImGui::End();
+
+    ImGui::Begin("3D Engine Overlay");
+    static glm::vec3 Translation(0.0f);
+    static glm::vec3 RotationDeg(0.0f);
+    static glm::vec3 ScaleVec(1.0f);
+
+    ImGui::SliderFloat3("Translation", &Translation.x, -10.0f, 10.0f);
+    ImGui::SliderFloat3("Rotation (deg)", &RotationDeg.x, -180.0f, 180.0f);
+    ImGui::SliderFloat3("Scale", &ScaleVec.x, 0.1f, 10.0f);
+
+    // copy into your renderData (glm::mat4 assignment)
+    renderData->modelPosition = Translation;
+    renderData->modelRotation = RotationDeg;
+    renderData->modelScale = ScaleVec;
+    ImGui::End();
+
+    ImGui::PopFont();
 
     ImGui::Render();
 
