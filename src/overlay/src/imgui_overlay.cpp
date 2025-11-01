@@ -135,16 +135,17 @@ EXPORT_FN void overlay_render(RenderData* renderData, nvrhi::IFramebuffer* frame
     ImGui::End();
 
     ImGui::Begin("3D Engine Overlay");
-    static glm::vec3 Translation(0.0f);
+    //static glm::vec3 Translation(0.0f);
     static glm::vec3 RotationDeg(0.0f);
     static glm::vec3 ScaleVec(1.0f);
 
-    ImGui::SliderFloat3("Translation", &Translation.x, -10.0f, 10.0f);
+    ImGui::Text("Position: (%.2f, %.2f, %.2f)", renderData->modelPosition.x, renderData->modelPosition.y, renderData->modelPosition.z);
+    ImGui::SliderFloat3("Translation", &renderData->modelPosition.x, -10.0f, 10.0f);
     ImGui::SliderFloat3("Rotation (deg)", &RotationDeg.x, -180.0f, 180.0f);
     ImGui::SliderFloat3("Scale", &ScaleVec.x, 0.1f, 10.0f);
 
     // copy into your renderData (glm::mat4 assignment)
-    renderData->modelPosition = Translation;
+    //renderData->modelPosition = Translation;
     renderData->modelRotation = RotationDeg;
     renderData->modelScale = ScaleVec;
     ImGui::End();

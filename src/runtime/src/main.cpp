@@ -258,8 +258,7 @@ int main(int argc, char** argv) {
 
         if (!g_PlatformContext->m_Focused) {
             ZoneScopedN("Sleep");
-            //platform_sleep(17);
-            std::this_thread::sleep_for(std::chrono::milliseconds(17));
+            platform_sleep(17);
         }
 
         {

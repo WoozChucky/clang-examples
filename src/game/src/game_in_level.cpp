@@ -1,11 +1,11 @@
 #include <game.h>
 
-void update_input(const GameState* gameState, SoundState* soundState, RenderData* renderData, const Input* input, float dt);
+void update_input(const GameState* gameState, SoundState* soundState, UIState* uiState, RenderData* renderData, const Input* input, float dt);
 
 void game_update_in_level(GameState* gameState, UIState* uiState, SoundState* soundState, RenderData* renderData, Input* input,
     BumpAllocator* frameAllocator, size_t persistentStorageAllocated, size_t frameStorageAllocated, float dt) {
 
-    update_input(gameState, soundState, renderData, input, dt);
+    update_input(gameState, soundState, uiState, renderData, input, dt);
 
     static float diagnosticsTimer = 0.0f;
     static float fps = 0.0f;
@@ -172,7 +172,7 @@ void game_update_in_level(GameState* gameState, UIState* uiState, SoundState* so
     ui_draw_vline(renderData, {input->screenSize.x / 2, input->screenSize.y / 2 - 5.f}, 12.5f, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
 
     char* todoText = bump_alloc(frameAllocator, 128);
-    snprintf(todoText, 128, "TODO(Nuno): Fix VSync, Press TAB to play sound, WASD+QE+SPACE/SHIFT to fly, RMB+Mouse to look");
+    snprintf(todoText, 128, "Press TAB to play sound, WASD+QE+SPACE/SHIFT to fly, RMB+Mouse to look");
     ui_draw_text_ex(renderData, todoText, {input->screenSize.x / 4.f, input->screenSize.y / 2 - 50.f}, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
 
     {
@@ -181,7 +181,7 @@ void game_update_in_level(GameState* gameState, UIState* uiState, SoundState* so
         static float animationTimer = 0.0f;
         static bool moveToX = true;
         static bool moveToPositive = true;
-        constexpr float animationDuration = 2.0f; // seconds to move to target
+        constexpr float animationDuration = 0.25f; // seconds to move to target
         animationTimer += dt;
         if (animationTimer >= animationDuration) {
             animationTimer = 0.0f;
@@ -207,7 +207,7 @@ void game_update_in_level(GameState* gameState, UIState* uiState, SoundState* so
     }
 }
 
-void update_input(const GameState* gameState, SoundState* soundState, RenderData* renderData, const Input* input, const float dt) {
+void update_input(const GameState* gameState, SoundState* soundState, UIState* uiState, RenderData* renderData, const Input* input, const float dt) {
     if (key_released_this_frame(input, KEY_TAB)) {
         play_sound(soundState, gameState->m_JumpSound);
     }
@@ -271,5 +271,63 @@ void update_input(const GameState* gameState, SoundState* soundState, RenderData
         if (renderData->gameCamera.rotation.x > pitchLimit) renderData->gameCamera.rotation.x = pitchLimit;
         if (renderData->gameCamera.rotation.x < -pitchLimit) renderData->gameCamera.rotation.x = -pitchLimit;
         renderData->gameCamera.invalidate();
+    }
+
+    // Check if M1 clicking on modelPosition
+    if (key_pressed_this_frame(input, KEY_MOUSE_LEFT)) {
+        // Build a picking ray from the mouse position (DirectX clip space: Z in [0,1])
+        const float screenW = input->screenSize.x;
+        const float screenH = input->screenSize.y;
+
+        // If you have absolute mouse pixels in Input, prefer that (e.g., input->mousePos)
+        // Otherwise you can use uiState->mousePosUI (it’s in pixel space too)
+        const glm::vec2 mousePx = uiState->mousePosUI; // or input->mousePos if you have it
+
+        // Convert to NDC in DX (X:[-1,1], Y:[-1,1] with top-left pixel origin)
+        const float xNdc = (mousePx.x / screenW) * 2.0f - 1.0f;
+        const float yNdc = 1.0f - (mousePx.y / screenH) * 2.0f; // flip Y
+
+        // Acquire View and Projection matrices for your game camera
+        // Replace these with your actual accessors:
+        const glm::mat4 view = renderData->gameCamera.get_view_matrix();
+        const glm::mat4 proj = renderData->gameCamera.get_projection_matrix(); // use RH_ZO (e.g., glm::perspectiveRH_ZO)
+        const glm::mat4 invViewProj = glm::inverse(proj * view);
+
+        // Near and Far clip-space points (DX: z=0 near, z=1 far)
+        const glm::vec4 nearClip(xNdc, yNdc, 0.0f, 1.0f);
+        const glm::vec4 farClip (xNdc, yNdc, 1.0f, 1.0f);
+
+        // Unproject to world space
+        glm::vec4 nearWorld4 = invViewProj * nearClip;
+        glm::vec4 farWorld4  = invViewProj * farClip;
+        nearWorld4 /= nearWorld4.w;
+        farWorld4  /= farWorld4.w;
+
+        const glm::vec3 rayOrigin = glm::vec3(nearWorld4);
+        const glm::vec3 rayDir    = glm::normalize(glm::vec3(farWorld4 - nearWorld4));
+
+        const glm::vec3 boxMin = renderData->modelPosition - glm::vec3(0.5f);
+        const glm::vec3 boxMax = renderData->modelPosition + glm::vec3(0.5f);
+
+        float tMin = 0.0f;
+        float tMax = 1000.0f; // some large value
+
+        bool hit = true;
+        for (int i = 0; i < 3; ++i) {
+            if (fabs(rayDir[i]) < 1e-6f) {
+                if (rayOrigin[i] < boxMin[i] || rayOrigin[i] > boxMax[i]) { hit = false; break; }
+            } else {
+                float ood = 1.0f / rayDir[i];
+                float t1 = (boxMin[i] - rayOrigin[i]) * ood;
+                float t2 = (boxMax[i] - rayOrigin[i]) * ood;
+                if (t1 > t2) std::swap(t1, t2);
+                tMin = std::max(tMin, t1);
+                tMax = std::min(tMax, t2);
+                if (tMin > tMax) { hit = false; break; }
+            }
+        }
+        if (hit && tMax >= 0.0f) {
+            play_sound(soundState, gameState->m_DeathSound);
+        }
     }
 }
