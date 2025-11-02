@@ -85,9 +85,6 @@ EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* r
     g_RenderData->gameCamera.farClip = 1000.0f;
     g_RenderData->gameCamera.invalidate();
 
-    // 3D model transform default (identity)
-    g_RenderData->modelMatrix3D = glm::mat4(1.0f);
-
     // UI Camera
     g_RenderData->uiCamera.dimensions.x = g_Input->screenSize.x;
     g_RenderData->uiCamera.dimensions.y = g_Input->screenSize.y;

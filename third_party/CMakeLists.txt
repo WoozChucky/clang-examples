@@ -9,6 +9,8 @@ add_subdirectory(NVRHI)
 set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
 add_subdirectory(tracy)
 
+add_subdirectory(glfw)
+
 add_library(imgui STATIC
         imgui/imgui.cpp
         imgui/imgui_draw.cpp
