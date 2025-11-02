@@ -90,10 +90,10 @@ struct FramePacer {
 
 static FramePacer g_Pacer;
 
-void * operator new ( std :: size_t count )
+void * operator new ( std :: size_t _Size )
 {
-    auto ptr = malloc ( count );
-    TracyAlloc (ptr , count );
+    auto ptr = malloc ( _Size );
+    TracyAlloc (ptr , _Size );
     return ptr ;
 }
 void operator delete ( void * ptr ) noexcept
@@ -274,10 +274,10 @@ int main(int argc, char** argv) {
         FrameMark;
     }
 
+    renderer_shutdown();
+
     if (shutdown_overlay_ptr)
         shutdown_overlay_ptr();
-
-    renderer_shutdown();
 
     // Stop file watchers
     if (g_GameDllWatch) {
