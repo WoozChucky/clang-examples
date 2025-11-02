@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef ALLOC_TRACKER_ENABLED
+extern "C" inline void DumpAllocations() {}
+#else
+
 #include <cstdlib>
 #include <cstddef>
 #include <cstdint>
@@ -346,3 +350,5 @@ void operator delete(void* ptr) noexcept {
 void operator delete(void* ptr, std::align_val_t) noexcept {
     operator delete(ptr);
 }
+
+#endif // ALLOC_TRACKER_ENABLED

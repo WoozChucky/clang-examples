@@ -2,6 +2,16 @@ add_executable(editor
     src/main.cpp
 )
 
+# Allocation tracker flag: ENABLE_ALLOC_TRACKER can be ON, OFF or AUTO (default)
+set(ENABLE_ALLOC_TRACKER "AUTO" CACHE STRING "Enable allocation tracker (ON/OFF/AUTO)")
+set_property(CACHE ENABLE_ALLOC_TRACKER PROPERTY STRINGS "AUTO" "ON" "OFF")
+if(ENABLE_ALLOC_TRACKER STREQUAL "ON")
+    target_compile_definitions(editor PRIVATE ALLOC_TRACKER_ENABLED)
+elseif(ENABLE_ALLOC_TRACKER STREQUAL "AUTO")
+    # Default: enable in Debug builds only
+    target_compile_definitions(editor PRIVATE $<$<CONFIG:Debug>:ALLOC_TRACKER_ENABLED>)
+endif()
+
 target_link_libraries(editor PRIVATE glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11)
 
 set_target_properties(editor PROPERTIES
