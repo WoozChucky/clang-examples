@@ -1,5 +1,8 @@
 add_executable(editor
     src/main.cpp
+    src/PlatformThread.cpp
+    src/GameThread.cpp
+    src/RenderThread.cpp
     src/RendererBackendDX12.cpp
     src/Renderer.cpp
 )
