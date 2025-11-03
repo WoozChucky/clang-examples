@@ -4,10 +4,11 @@ add_executable(editor
     src/GameThread.cpp
     src/RenderThread.cpp
     src/RendererBackendDX12.cpp
+    src/RendererBackendVulkan.cpp
     src/Renderer.cpp
 )
 
-target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL GLFW_INCLUDE_NONE GLFW_EXPOSE_NATIVE_WIN32)
+target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL GLFW_INCLUDE_VULKAN)
 
 # Allocation tracker flag: ENABLE_ALLOC_TRACKER can be ON, OFF or AUTO (default)
 set(ENABLE_ALLOC_TRACKER "AUTO" CACHE STRING "Enable allocation tracker (ON/OFF/AUTO)")
@@ -21,7 +22,14 @@ endif()
 
 target_include_directories(editor PRIVATE ../common/include)
 
-target_link_libraries(editor PRIVATE glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi)
+target_link_libraries(editor PRIVATE glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi nvrhi_vk)
+if (TARGET Vulkan-Headers)
+    target_link_libraries(editor PRIVATE Vulkan-Headers)
+elseif (TARGET Vulkan::Headers)
+    target_link_libraries(editor PRIVATE Vulkan::Headers)
+endif()
+
+#target_compile_definitions(glfw PRIVATE _GLFW_VULKAN_LIBRARY="sl.interposer.dll")
 
 set_target_properties(editor PROPERTIES
     OUTPUT_NAME editor
