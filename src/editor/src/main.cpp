@@ -119,6 +119,8 @@ static std::atomic<InputState*> LatestInputStatePtr{nullptr};
 // We'll allocate a simple pair of InputState objects and swap pointers to avoid large atomics.
 static InputState InputStateA{}, InputStateB{};
 
+static std::atomic<bool> ShutdownRequested{false};
+
 // ---------------------------
 // PlatformThread: GLFW + input
 // ---------------------------
@@ -192,17 +194,19 @@ public:
 
     void RunMainLoop() {
         // Main loop: poll events. We keep this responsive and light — push raw events and return quickly.
-        while (Running && !glfwWindowShouldClose(Window)) {
+        while (Running.load(std::memory_order_relaxed)
+                && !ShutdownRequested.load(std::memory_order_relaxed)
+                && !glfwWindowShouldClose(Window)) {
             glfwPollEvents();
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         // signal stop if window closed
-        Running = false;
+        Running.store(false, std::memory_order_relaxed);
 
     }
 
     void Stop() {
-        Running = false;
+        Running.store(false, std::memory_order_relaxed);
     }
 
     GLFWwindow* GetWindow() const { return Window; }
@@ -241,7 +245,8 @@ public:
         const double TargetDt = 1.0 / 60.0;
         using namespace std::chrono;
         auto next = Clock::now();
-        while (Running) {
+        while (Running.load(std::memory_order_relaxed)
+                && !ShutdownRequested.load(std::memory_order_relaxed)) {
             auto start = Clock::now();
             ProcessInput();         // drain InputRing (S -> G)
             SimulateStep(TargetDt); // advance simulation
@@ -253,7 +258,9 @@ public:
         }
     }
 
-    void Stop() { Running = false; }
+    void Stop() {
+        Running.store(false, std::memory_order_relaxed);
+    }
 
 private:
     void ProcessInput() {
@@ -261,7 +268,8 @@ private:
         while (InputRing.Pop(ev)) {
             // For demo, we don't do much: we could react to keys or mouse
             if (ev.TypeId == InputEvent::Key && ev.Button == GLFW_KEY_ESCAPE) {
-                // For real program we might signal to quit; omitted here
+                ShutdownRequested.store(true, std::memory_order_relaxed);
+                break;
             }
             // else ignore
         }
@@ -291,7 +299,7 @@ private:
         LatestPublishedTick.store(tick, std::memory_order_release);
     }
 
-    bool Running;
+    std::atomic<bool> Running;
     uint64_t TickCounter;
     float simX{0.0f};
     float simVX{0.5f};
@@ -311,7 +319,7 @@ public:
     void RunLoop() {
 
         if (!Initialize()) {
-            std::cerr << "RenderThread: Initialize failed\n";
+            SM_ERROR("RenderThread: Initialize failed");
             return;
         }
 
@@ -320,63 +328,46 @@ public:
         const double maxRenderDelta = 0.1;    // clamp large pauses (100 ms)
         const double maxExtrapolationSec = 0.02; // clamp extrapolation to ~1 frame at 60Hz
 
-        while (m_Running) {
+        while (m_Running.load(std::memory_order_relaxed)
+                && !ShutdownRequested.load(std::memory_order_relaxed)) {
             // Poll latest published tick (acquire)
-            uint64_t published = LatestPublishedTick.load(std::memory_order_acquire);
-            if (published == 0) {
-                // nothing yet
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                continue;
+            SimulationSnapshot prevSnap{}, nextSnap{};
+            uint64_t published{};
+            for (;;) {
+                published = LatestPublishedTick.load(std::memory_order_acquire);
+                if (published == 0) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); continue; }
+
+                uint64_t prevTick = (published > 1) ? (published - 1) : published;
+                SimulationSnapshot prev = SnapshotRing[prevTick % SnapshotRingSize];
+                SimulationSnapshot next = SnapshotRing[published % SnapshotRingSize];
+
+                // Re-read and retry if producer advanced (prevents reading a slot being overwritten)
+                std::atomic_thread_fence(std::memory_order_acquire);
+                uint64_t confirm = LatestPublishedTick.load(std::memory_order_acquire);
+                if (confirm == published) { prevSnap = prev; nextSnap = next; break; }
             }
 
             // Compute render time / delta
-            double now = TimeNowSec();
-            double renderDelta = now - lastRenderTime;
-            if (renderDelta < 0.0) renderDelta = 0.0; // guard vs time skew
-            if (renderDelta > maxRenderDelta) renderDelta = maxRenderDelta; // clamp large pauses
+            const double now = TimeNowSec();
+            const double renderDelta = std::clamp(now - lastRenderTime, 0.0, maxRenderDelta);
             lastRenderTime = now;
 
-            // Compute snapshot interpolation alpha (authoritative)
-            uint64_t nextTick = published;
-            uint64_t prevTick = (published > 1) ? (published - 1) : published;
-
-            SimulationSnapshot prevSnap = SnapshotRing[prevTick % SnapshotRingSize];
-            SimulationSnapshot nextSnap = SnapshotRing[nextTick % SnapshotRingSize];
-
-            // Acquire fence to ensure we saw fully-written snapshots
-            std::atomic_thread_fence(std::memory_order_acquire);
-
-            double t0 = prevSnap.Timestamp;
-            double t1 = nextSnap.Timestamp;
+            const double t0 = prevSnap.Timestamp;
+            const double t1 = nextSnap.Timestamp;
             double alpha = 0.0;
             if (t1 > t0) {
                 alpha = (now - t0) / (t1 - t0);
-                // If Now is after t1, Alpha > 1 -> we are rendering ahead of latest snapshot (no new snapshot yet).
-                // In that case we can extrapolate from NextSnap using velocity, but clamp extrapolation.
                 if (alpha > 1.0) {
-                    double ExtrapSec = (now - t1);
-                    if (ExtrapSec > maxExtrapolationSec) {
-                        // clamp to avoid severe divergence
-                        ExtrapSec = maxExtrapolationSec;
-                    }
-                    // Convert extrapolation to a (capped) alpha over the next frame interval (t1-t0)
-                    double FrameSec = (t1 - t0);
-                    if (FrameSec > 0.0) {
-                        alpha = 1.0 + (ExtrapSec / FrameSec); // >1 means extrapolate
-                    } else {
-                        alpha = 1.0;
-                    }
+                    const double extrap = std::min(now - t1, maxExtrapolationSec);
+                    const double frameSec = (t1 - t0);
+                    alpha = (frameSec > 0.0) ? 1.0 + (extrap / frameSec) : 1.0;
                 }
-            } else {
-                // degenerate timestamps: fall back to not interpolating
-                alpha = 0.0;
             }
-
             // For most interpolation math we clamp alpha to [0,1] and separately handle extrapolation
-            double interpAlpha = std::clamp(alpha, 0.0, 1.0);
+            const double interpAlpha = std::clamp(alpha, 0.0, 1.0);
 
             // Simple linear interpolation of the object position
-            float interpX = float((1.0 - alpha) * prevSnap.ObjectX + alpha * nextSnap.ObjectX);
+            const auto interpX = static_cast<float>((1.0 - interpAlpha) * prevSnap.ObjectX + interpAlpha * nextSnap.ObjectX);
 
             // Late-latch: sample latest atomic input state (if any)
             InputState* s = LatestInputStatePtr.load(std::memory_order_acquire);
@@ -386,7 +377,7 @@ public:
 
             // Render a clear color depending on interpX and mouse X:
             float red = 0.5f + 0.5f * interpX;
-            float green = 0.3f + 0.2f * float(std::fmod(mx / 640.0, 1.0));
+            float green = 0.3f + 0.2f * static_cast<float>(std::fmod(mx / 640.0, 1.0));
             float blue = 0.2f;
 
             m_Renderer->Render(renderDelta, red, green, blue);
@@ -401,12 +392,12 @@ public:
         Cleanup();
     }
 
-    void Stop() { m_Running = false; }
+    void Stop() { m_Running.store(false, std::memory_order_relaxed); }
 
 private:
 
     bool Initialize() {
-        m_Renderer = new Renderer(m_Window);
+        m_Renderer = std::make_unique<Renderer>(m_Window);
         if (!m_Renderer->Init(m_API)) {
             SM_ERROR("RenderThread: Initialize failed");
             return false;
@@ -415,15 +406,12 @@ private:
     }
 
     void Cleanup() {
-        if (m_Renderer) {
-            delete m_Renderer;
-            m_Renderer = nullptr;
-        }
+        SM_WARN("Dont forget to add resource cleanup when more stuff is added")
     }
 
     GLFWwindow* m_Window;
-    bool m_Running;
-    Renderer* m_Renderer = nullptr;
+    std::atomic<bool> m_Running;
+    std::unique_ptr<Renderer> m_Renderer {};
     RendererAPI m_API = RendererAPI::Invalid;
 };
 
