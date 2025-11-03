@@ -2,3 +2,5 @@
 build/
 .vs/
 /out/
+
+third_party/freetype-demos/bin/freetype.dll
