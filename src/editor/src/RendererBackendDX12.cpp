@@ -267,6 +267,7 @@ bool RendererBackendDX12::BeginFrame() {
 
             ResizeSwapChain();
             BackBufferResized();
+            SM_TRACE("Swap chain resized: %ux%u", m_Settings.backBufferWidth, m_Settings.backBufferHeight);
         }
 
     }
