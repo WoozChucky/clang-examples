@@ -1,10 +1,4 @@
-// ThreeThreadGlfwExample.cpp
-// Build (Linux, with glfw installed):
-//   g++ ThreeThreadGlfwExample.cpp -std=c++17 -O2 -pthread -lglfw -lGL -o three_thread_example
-// On Windows adapt linking to glfw3 and opengl32, and ensure GLEW/GL loader if needed.
-// Notes: For macOS, GLFW must be initialized and window created on the main thread (this example does).
-//        Also on macOS you may need to link with -framework OpenGL and adjust includes.
-
+#include <algorithm>
 #include <GLFW/glfw3.h>
 #include <atomic>
 #include <chrono>
@@ -16,9 +10,27 @@
 #include <vector>
 #include <mutex>
 
-#include <nvrhi/nvrhi.h>
-
 #include "alloc.h"
+#include "lib.h"
+
+#include "Renderer.h"
+
+void platform_debug_break(const char* expr, const char* file, int line, const char* message)
+{
+    char buffer[2048] = {};
+    // Compose a detailed message
+    sprintf_s(buffer,
+            "Assertion failed!\n\nExpression: %s\nFile: %s\nLine: %d\n\n%s",
+            (expr ? expr : "<none>"),
+            (file ? file : "<unknown>"),
+            line,
+            (message ? message : "<no message>"));
+
+    MessageBoxA(nullptr, buffer, "Assertion Failed", MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST);
+
+    // Break into the debugger (still platform-defined macro)
+    DEBUG_BREAK();
+}
 
 using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
@@ -50,7 +62,7 @@ template<typename T, size_t N>
 class SpscRing {
 public:
     SpscRing() {
-        static_assert((N & (N - 1)) == 0, "N must be power of two for mask");
+        SM_ASSERT((N & (N - 1)) == 0, "N must be power of two for mask");
         head.store(0);
         tail.store(0);
         data.resize(N);
@@ -84,8 +96,8 @@ public:
 private:
     static constexpr uint64_t mask = N - 1;
     std::vector<T> data;
-    std::atomic<uint64_t> head; // producer index
-    std::atomic<uint64_t> tail; // consumer index
+    std::atomic<uint64_t> head{}; // producer index
+    std::atomic<uint64_t> tail{}; // consumer index
 };
 
 // ---------------------------
@@ -116,16 +128,15 @@ public:
 
     bool Init() {
         if (!glfwInit()) {
-            std::cerr << "glfwInit failed\n";
+            SM_ERROR("glfwInit failed");
             return false;
         }
 
         // Create window on platform thread (main thread).
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        // Create a windowed mode window and its OpenGL context
-        Window = glfwCreateWindow(640, 480, "Three-Thread Demo", nullptr, nullptr);
+        Window = glfwCreateWindow(1920, 1080, "Three-Thread Demo", nullptr, nullptr);
         if (!Window) {
-            std::cerr << "glfwCreateWindow failed\n";
+            SM_ERROR("glfwCreateWindow failed");
             glfwTerminate();
             return false;
         }
@@ -133,8 +144,8 @@ public:
         // Install simple callbacks that push InputEvents into InputRing
         glfwSetWindowUserPointer(Window, this);
         glfwSetCursorPosCallback(Window, [](GLFWwindow* w, double x, double y) {
-            PlatformThread* self = (PlatformThread*)glfwGetWindowUserPointer(w);
-            InputEvent ev;
+            // example usage for reference: PlatformThread* self = (PlatformThread*)glfwGetWindowUserPointer(w);
+            InputEvent ev{};
             ev.TypeId = InputEvent::MouseMove;
             ev.Time = TimeNowSec();
             ev.MouseX = x; ev.MouseY = y;
@@ -154,7 +165,7 @@ public:
         });
 
         glfwSetMouseButtonCallback(Window, [](GLFWwindow* w, int button, int action, int mods) {
-            InputEvent ev;
+            InputEvent ev{};
             ev.TypeId = InputEvent::MouseButton;
             ev.Time = TimeNowSec();
             ev.Button = button;
@@ -166,7 +177,7 @@ public:
         });
 
         glfwSetKeyCallback(Window, [](GLFWwindow* w, int key, int scancode, int action, int mods) {
-            InputEvent ev;
+            InputEvent ev{};
             ev.TypeId = InputEvent::Key;
             ev.Time = TimeNowSec();
             ev.Button = key;
@@ -187,13 +198,14 @@ public:
         }
         // signal stop if window closed
         Running = false;
+
     }
 
     void Stop() {
         Running = false;
     }
 
-    GLFWwindow* GetWindow() { return Window; }
+    GLFWwindow* GetWindow() const { return Window; }
 
     ~PlatformThread() {
         if (Window) {
@@ -204,6 +216,7 @@ public:
     }
 
 private:
+
     GLFWwindow* Window;
     std::atomic<bool> Running;
 };
@@ -244,7 +257,7 @@ public:
 
 private:
     void ProcessInput() {
-        InputEvent ev;
+        InputEvent ev{};
         while (InputRing.Pop(ev)) {
             // For demo, we don't do much: we could react to keys or mouse
             if (ev.TypeId == InputEvent::Key && ev.Button == GLFW_KEY_ESCAPE) {
@@ -265,7 +278,7 @@ private:
     void PublishSnapshot() {
         uint64_t tick = TickCounter++;
         int idx = int(tick % SnapshotRingSize);
-        SimulationSnapshot snap;
+        SimulationSnapshot snap{};
         snap.Tick = tick;
         snap.Timestamp = TimeNowSec();
         snap.ObjectX = simX;
@@ -288,103 +301,26 @@ class RendererFrontend {
 
 };
 
-enum class RendererAPI : uint8_t {
-    Invalid,
-    DirectX12,
-    DirectX11,
-    Vulkan,
-};
-
-class RendererBackend {
-public:
-    RendererBackend() = default;
-    virtual ~RendererBackend() = default;
-
-    virtual bool Init() = 0;
-    virtual void Shutdown(uint32_t timeoutMs) = 0;
-    virtual RendererAPI GetAPI() const = 0;
-private:
-};
-
-class RendererBackendDX12 final : public RendererBackend {
-public:
-    RendererBackendDX12() = default;
-    ~RendererBackendDX12() override = default;
-    bool Init() override {
-        // DX12-specific initialization code
-        return true;
-    }
-    void Shutdown(uint32_t timeoutMs) override {
-        // DX12-specific shutdown code
-    }
-    RendererAPI GetAPI() const override {
-        return RendererAPI::DirectX12;
-    }
-private:
-};
-
-class Renderer {
-public:
-    explicit Renderer(const RendererAPI api) {
-        m_API = api;
-    }
-    ~Renderer() {
-        Shutdown(5000);
-    }
-
-    bool Init() {
-        switch (m_API) {
-            case RendererAPI::DirectX11:
-                break;
-            case RendererAPI::DirectX12:
-                m_Backend = new RendererBackendDX12();
-                break;
-            case RendererAPI::Vulkan:
-                break;
-            default:
-                // TODO(Nuno): log error
-                return false;
-        }
-
-        if (!m_Backend) {
-            // TODO(Nuno): log error
-            return false;
-        }
-
-        if (!m_Backend->Init()) {
-            delete m_Backend;
-            m_Backend = nullptr;
-            return false;
-        }
-        return true;
-    }
-
-    void Shutdown(const uint32_t timeoutMs) {
-        if (m_Backend) {
-            m_Backend->Shutdown(timeoutMs);
-        }
-        delete m_Backend;
-        m_Backend = nullptr;
-    }
-private:
-    RendererAPI         m_API = RendererAPI::Invalid;
-    nvrhi::DeviceHandle m_Device = nullptr;
-    RendererBackend*    m_Backend = nullptr;
-};
-
-
-
 // ---------------------------
 // RenderThread: vsync-driven rendering and interpolation
 // ---------------------------
 class RenderThread {
 public:
-    RenderThread(GLFWwindow* window) : Window(window), Running(true) {}
+    explicit RenderThread(GLFWwindow* window, RendererAPI api) : m_Window(window), m_Running(true), m_API(api) {}
 
     void RunLoop() {
 
+        if (!Initialize()) {
+            std::cerr << "RenderThread: Initialize failed\n";
+            return;
+        }
+
         int frame = 0;
-        while (Running) {
+        double lastRenderTime = TimeNowSec(); // init once before loop
+        const double maxRenderDelta = 0.1;    // clamp large pauses (100 ms)
+        const double maxExtrapolationSec = 0.02; // clamp extrapolation to ~1 frame at 60Hz
+
+        while (m_Running) {
             // Poll latest published tick (acquire)
             uint64_t published = LatestPublishedTick.load(std::memory_order_acquire);
             if (published == 0) {
@@ -393,7 +329,14 @@ public:
                 continue;
             }
 
-            // Choose prev/next ticks to interpolate between
+            // Compute render time / delta
+            double now = TimeNowSec();
+            double renderDelta = now - lastRenderTime;
+            if (renderDelta < 0.0) renderDelta = 0.0; // guard vs time skew
+            if (renderDelta > maxRenderDelta) renderDelta = maxRenderDelta; // clamp large pauses
+            lastRenderTime = now;
+
+            // Compute snapshot interpolation alpha (authoritative)
             uint64_t nextTick = published;
             uint64_t prevTick = (published > 1) ? (published - 1) : published;
 
@@ -403,15 +346,34 @@ public:
             // Acquire fence to ensure we saw fully-written snapshots
             std::atomic_thread_fence(std::memory_order_acquire);
 
-            double now = TimeNowSec();
             double t0 = prevSnap.Timestamp;
             double t1 = nextSnap.Timestamp;
             double alpha = 0.0;
             if (t1 > t0) {
                 alpha = (now - t0) / (t1 - t0);
+                // If Now is after t1, Alpha > 1 -> we are rendering ahead of latest snapshot (no new snapshot yet).
+                // In that case we can extrapolate from NextSnap using velocity, but clamp extrapolation.
+                if (alpha > 1.0) {
+                    double ExtrapSec = (now - t1);
+                    if (ExtrapSec > maxExtrapolationSec) {
+                        // clamp to avoid severe divergence
+                        ExtrapSec = maxExtrapolationSec;
+                    }
+                    // Convert extrapolation to a (capped) alpha over the next frame interval (t1-t0)
+                    double FrameSec = (t1 - t0);
+                    if (FrameSec > 0.0) {
+                        alpha = 1.0 + (ExtrapSec / FrameSec); // >1 means extrapolate
+                    } else {
+                        alpha = 1.0;
+                    }
+                }
+            } else {
+                // degenerate timestamps: fall back to not interpolating
+                alpha = 0.0;
             }
-            if (!(alpha >= 0.0)) alpha = 0.0;
-            if (alpha > 1.0) alpha = 1.0;
+
+            // For most interpolation math we clamp alpha to [0,1] and separately handle extrapolation
+            double interpAlpha = std::clamp(alpha, 0.0, 1.0);
 
             // Simple linear interpolation of the object position
             float interpX = float((1.0 - alpha) * prevSnap.ObjectX + alpha * nextSnap.ObjectX);
@@ -427,7 +389,7 @@ public:
             float green = 0.3f + 0.2f * float(std::fmod(mx / 640.0, 1.0));
             float blue = 0.2f;
 
-            // ... render code
+            m_Renderer->Render(renderDelta, red, green, blue);
 
             // Advance frame index
             frame = (frame + 1) % 3;
@@ -436,15 +398,33 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(0));
         }
 
-        // cleanup code
+        Cleanup();
     }
 
-    void Stop() { Running = false; }
+    void Stop() { m_Running = false; }
 
 private:
-    GLFWwindow* Window;
-    bool Running;
+
+    bool Initialize() {
+        m_Renderer = new Renderer(m_Window);
+        if (!m_Renderer->Init(m_API)) {
+            SM_ERROR("RenderThread: Initialize failed");
+            return false;
+        }
+        return true;
+    }
+
+    void Cleanup() {
+        if (m_Renderer) {
+            delete m_Renderer;
+            m_Renderer = nullptr;
+        }
+    }
+
+    GLFWwindow* m_Window;
+    bool m_Running;
     Renderer* m_Renderer = nullptr;
+    RendererAPI m_API = RendererAPI::Invalid;
 };
 
 // ---------------------------
@@ -452,7 +432,7 @@ private:
 // ---------------------------
 int main() {
     std::atexit([](){ DumpAllocations(); });
-    std::cout << "Three-thread GLFW demo starting...\n";
+    SM_TRACE("Three-thread GLFW demo starting...");
     // Platform thread is main thread
     PlatformThread platform;
     if (!platform.Init()) return -1;
@@ -465,19 +445,21 @@ int main() {
     GameThread game;
     std::thread gameThread([&game]() {
         game.RunLoop();
+        SM_TRACE("Game thread exiting...");
     });
 
     // Now start Render thread (it will make context current on its own thread)
-    RenderThread renderer(win);
+    RenderThread renderer(win, RendererAPI::DirectX12);
     std::thread renderThread([&renderer]() {
         renderer.RunLoop();
+        SM_TRACE("Render thread exiting...");
     });
 
     // Run platform main loop (this thread handles OS events)
     platform.RunMainLoop();
 
     // User closed window -> stop others
-    std::cout << "Window closed: shutting down...\n";
+    SM_TRACE("Window closed: shutting down...");
 
     // Signal other threads
     game.Stop();
@@ -489,6 +471,6 @@ int main() {
 
     InputRing.~SpscRing();
 
-    std::cout << "Shutdown complete.\n";
+    SM_TRACE("Shutdown complete.");
     return 0;
 }
