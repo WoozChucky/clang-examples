@@ -4,6 +4,10 @@
 #include <lib.h>
 #include <nvrhi/validation.h>
 
+#ifndef GLFW_EXPOSE_NATIVE_WIN32
+#define GLFW_EXPOSE_NATIVE_WIN32
+#endif // GLFW_EXPOSE_NATIVE_WIN32
+
 #include <GLFW/glfw3native.h>
 
 #define HR_ASSERT(x, msg) SM_ASSERT(SUCCEEDED(x), msg)

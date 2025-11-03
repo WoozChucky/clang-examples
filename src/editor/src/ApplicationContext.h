@@ -49,7 +49,7 @@ struct ApplicationContext {
     static constexpr int UiRingSize = 128;
     SpscRing<UiCommand, UiRingSize> UiRing{};
 
-    // Platform -> Render
+    // Platform -> Render (Stuff like pause, vsync, resize)
     static constexpr int RendererCommandRingSize = 16;
     SpscRing<RendererCommand, RendererCommandRingSize> RendererCommandRing{};
 

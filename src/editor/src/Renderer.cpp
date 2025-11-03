@@ -2,8 +2,11 @@
 
 #include <iostream>
 
-#include "glm/vec4.hpp"
-#include "nvrhi/utils.h"
+#include <glm/vec4.hpp>
+#include <nvrhi/utils.h>
+
+#include "RendererBackendDX12.h"
+#include "RendererBackendVulkan.h"
 
 bool Renderer::Init(const RendererAPI api) {
     switch (api) {
@@ -13,6 +16,7 @@ bool Renderer::Init(const RendererAPI api) {
             m_Backend = new RendererBackendDX12(m_BackendSettings, m_Window);
             break;
         case RendererAPI::Vulkan:
+            m_Backend = new RendererBackendVulkan(m_BackendSettings, m_Window);
             break;
         default:
             SM_ERROR("Unsupported rendering API: %d", static_cast<int>(api));

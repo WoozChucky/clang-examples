@@ -17,7 +17,6 @@ void RenderThread::RunLoop()
 {
     if (!Initialize())
     {
-        SM_ERROR("RenderThread: Initialize failed");
         return;
     }
 

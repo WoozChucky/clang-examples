@@ -1,10 +1,9 @@
 #pragma once
 
-#include "RendererBackendDX12.h"
-
 #include <nvrhi/nvrhi.h>
+#include <GLFW/glfw3.h>
 
-#include "GLFW/glfw3.h"
+#include "RendererBackend.h"
 
 struct GpuTimer
 {
