@@ -108,5 +108,5 @@ bool RenderThread::Initialize()
 
 void RenderThread::Cleanup()
 {
-    SM_WARN("Dont forget to add resource cleanup when more stuff is added");
+    m_Renderer.reset();
 }

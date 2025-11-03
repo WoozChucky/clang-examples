@@ -6,6 +6,9 @@ add_executable(editor
     src/RendererBackendDX12.cpp
     src/RendererBackendVulkan.cpp
     src/Renderer.cpp
+
+    src/imgui_nvrhi.cpp
+    src/registered_font.cpp
 )
 
 target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL GLFW_INCLUDE_VULKAN)
@@ -22,7 +25,7 @@ endif()
 
 target_include_directories(editor PRIVATE ../common/include)
 
-target_link_libraries(editor PRIVATE glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi nvrhi_vk)
+target_link_libraries(editor PRIVATE glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi nvrhi_vk imgui)
 if (TARGET Vulkan-Headers)
     target_link_libraries(editor PRIVATE Vulkan-Headers)
 elseif (TARGET Vulkan::Headers)
@@ -47,3 +50,8 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     # Keep your explicit suppressions if desired
     target_compile_options(editor PRIVATE -Wno-switch -Wno-writable-strings -Wno-sign-compare -Wno-deprecated-declarations -Wno-format-security -Wmissing-braces)
 endif()
+
+add_library(GameLogic SHARED
+    src/Game.cpp
+)
+target_include_directories(GameLogic PRIVATE ../common/include)
