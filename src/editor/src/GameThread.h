@@ -3,8 +3,30 @@
 #include <thread>
 
 #include "ApplicationContext.h"
+#include "Game.h"
 #include "Timing.h"
 #include "GLFW/glfw3.h"
+
+
+using Library = void*;
+
+struct GameLibrary {
+    Library Handle;
+    GameGetVersionFunc GetVersion;
+    GameSetPlatformDebugBreakFunc SetPlatformDebugBreak;
+    GameUpdateFunc Update;
+    GameResizeFunc Resize;
+    GameExitFunc ExitGame;
+
+    [[nodiscard]] bool IsValid() const {
+        return Handle != nullptr
+            && GetVersion != nullptr
+            && SetPlatformDebugBreak != nullptr
+            && Update != nullptr
+            && Resize != nullptr
+            && ExitGame != nullptr;
+    }
+};
 
 class GameThread {
 public:
