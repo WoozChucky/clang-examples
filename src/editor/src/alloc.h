@@ -27,8 +27,6 @@ constexpr uint32_t kHeaderMagic = 0xA110C7ED; // "ALLOCATED" like magic
 // Thread-local recursion guard
 inline thread_local bool gInAllocator = false;
 
-extern "C" {
-
 // Minimal OS mutex wrapper (no allocations)
 struct OsMutex {
 #if defined(_WIN32) || defined(_WIN64)
@@ -227,8 +225,6 @@ inline void* AllocateBlockWithHeader(std::size_t userSize, std::size_t alignment
     // return user pointer
     return reinterpret_cast<void*>(aligned);
 }
-
-} // extern "C"
 
 // --- PUBLIC API / operator overloads ---
 

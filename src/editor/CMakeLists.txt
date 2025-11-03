@@ -1,6 +1,10 @@
 add_executable(editor
     src/main.cpp
+    src/RendererBackendDX12.cpp
+    src/Renderer.cpp
 )
+
+target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL GLFW_INCLUDE_NONE GLFW_EXPOSE_NATIVE_WIN32)
 
 # Allocation tracker flag: ENABLE_ALLOC_TRACKER can be ON, OFF or AUTO (default)
 set(ENABLE_ALLOC_TRACKER "AUTO" CACHE STRING "Enable allocation tracker (ON/OFF/AUTO)")
@@ -12,7 +16,9 @@ elseif(ENABLE_ALLOC_TRACKER STREQUAL "AUTO")
     target_compile_definitions(editor PRIVATE $<$<CONFIG:Debug>:ALLOC_TRACKER_ENABLED>)
 endif()
 
-target_link_libraries(editor PRIVATE glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11)
+target_include_directories(editor PRIVATE ../common/include)
+
+target_link_libraries(editor PRIVATE glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi)
 
 set_target_properties(editor PROPERTIES
     OUTPUT_NAME editor
