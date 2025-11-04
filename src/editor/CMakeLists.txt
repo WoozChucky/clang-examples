@@ -55,3 +55,10 @@ add_library(GameLogic SHARED
     src/Game.cpp
 )
 target_include_directories(GameLogic PRIVATE ../common/include)
+set_target_properties(GameLogic PROPERTIES
+  OUTPUT_NAME Game
+  RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+  ARCHIVE_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+  LIBRARY_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+  FOLDER Libraries
+)

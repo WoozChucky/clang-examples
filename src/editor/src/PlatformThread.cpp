@@ -77,6 +77,8 @@ bool PlatformThread::Init() {
         ev.TypeId = InputEvent::Key;
         ev.Time = TimeNowSec();
         ev.Button = key;
+        ev.Action = action;
+		ev.Mods = mods;
         if (!self->m_AppContext->InputRing.Push(ev)) {
             // drop
             SM_WARN("InputRing full, dropping evt");
