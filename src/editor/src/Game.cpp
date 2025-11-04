@@ -17,6 +17,7 @@ void GameSetPlatformDebugBreak(GameDebugBreakFn fn) {
 void GameUpdate(GameState* state) {
     if (g_GameState != state) {
         g_GameState = state;
+		SM_TRACE("Game: State Update")
 	}
 
     if (!g_GameState) return;

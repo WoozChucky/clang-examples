@@ -1,11 +1,16 @@
 #pragma once
 
 #include <thread>
+#include <memory>
+#include <string>
+#include <atomic>
+#include <filesystem>
 
 #include "ApplicationContext.h"
 #include "Game.h"
 #include "Timing.h"
 #include "GLFW/glfw3.h"
+#include "FileWatch.h"
 
 
 using Library = void*;
@@ -18,40 +23,48 @@ struct GameLibrary {
 	GameResizeFunc Resize{ nullptr };
 	GameExitFunc ExitGame{ nullptr };
 
-    [[nodiscard]] bool IsValid() const {
-        return Handle != nullptr
-            && GetVersion != nullptr
-            && SetPlatformDebugBreak != nullptr
-            && Update != nullptr
-            && Resize != nullptr
-            && ExitGame != nullptr;
-    }
+	[[nodiscard]] bool IsValid() const {
+		return Handle != nullptr
+		&& GetVersion != nullptr
+		&& SetPlatformDebugBreak != nullptr
+		&& Update != nullptr
+		&& Resize != nullptr
+		&& ExitGame != nullptr;
+	}
 };
 
 class GameThread {
 public:
-    explicit GameThread(const std::shared_ptr<ApplicationContext> &appContext);
+	explicit GameThread(const std::shared_ptr<ApplicationContext> &appContext);
 
-    void RunLoop();
+	void RunLoop();
 
-    void Stop();
+	void Stop();
 
 private:
-    void ProcessInput();
+	// Main loop helpers
+	void ProcessInput();
+	void SimulateStep(double dt);
+	void PublishSnapshot();
 
-    void SimulateStep(double dt);
-
-    void PublishSnapshot();
+	// GameCode hot-reload helpers
+	void InitHotReload();
+	void SetupGameDllWatcher();
+	bool CopyGameDllToTempWithRetry(int maxRetries =40, int delayMs =50);
+	bool LoadTempGameLibrary();
+	void UnloadGameLibrary();
+	void ReloadGameLibraryIfRequested();
 
 	GameLibrary LoadGameLibrary(std::string_view libraryName);
-    void FreeGameLibrary();
+	void FreeGameLibrary();
 
-    std::shared_ptr<ApplicationContext> m_AppContext;
-    std::atomic<bool> m_Running;
-    std::atomic<bool> m_LibraryReload{ false };
-    uint64_t m_TickCounter;
-    float m_simX{0.0f};
-    float m_simVX{0.5f};
+	std::shared_ptr<ApplicationContext> m_AppContext;
+	std::atomic<bool> m_Running;
+	std::atomic<bool> m_LibraryReload{ false };
+	uint64_t m_TickCounter;
+	float m_simX{0.0f};
+	float m_simVX{0.5f};
 
 	GameLibrary m_GameLib;
+	std::unique_ptr<filewatch::FileWatch<std::string>> m_GameDllWatch;
 };
