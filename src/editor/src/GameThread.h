@@ -11,12 +11,12 @@
 using Library = void*;
 
 struct GameLibrary {
-    Library Handle;
-    GameGetVersionFunc GetVersion;
-    GameSetPlatformDebugBreakFunc SetPlatformDebugBreak;
-    GameUpdateFunc Update;
-    GameResizeFunc Resize;
-    GameExitFunc ExitGame;
+	Library Handle{ nullptr };
+	GameGetVersionFunc GetVersion{ nullptr };
+	GameSetPlatformDebugBreakFunc SetPlatformDebugBreak{ nullptr };
+	GameUpdateFunc Update{ nullptr };
+	GameResizeFunc Resize{ nullptr };
+	GameExitFunc ExitGame{ nullptr };
 
     [[nodiscard]] bool IsValid() const {
         return Handle != nullptr
@@ -43,9 +43,15 @@ private:
 
     void PublishSnapshot();
 
+	GameLibrary LoadGameLibrary(std::string_view libraryName);
+    void FreeGameLibrary();
+
     std::shared_ptr<ApplicationContext> m_AppContext;
     std::atomic<bool> m_Running;
+    std::atomic<bool> m_LibraryReload{ false };
     uint64_t m_TickCounter;
     float m_simX{0.0f};
     float m_simVX{0.5f};
+
+	GameLibrary m_GameLib;
 };

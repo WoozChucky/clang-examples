@@ -15,6 +15,7 @@ struct GameState {
     double DeltaTime;
     void* PlatformInputHandle;
     void* GameOutputHandle;
+    bool QuitRequested;
 };
 
 using GameGetVersionFunc = uint32_t(*)();

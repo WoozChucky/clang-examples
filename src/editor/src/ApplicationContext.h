@@ -8,6 +8,8 @@ struct InputEvent {
     double Time; // seconds
     double MouseX, MouseY;
     int Button; // or Keycode
+    int Action;
+    int Mods;
 };
 
 struct UiCommand {
