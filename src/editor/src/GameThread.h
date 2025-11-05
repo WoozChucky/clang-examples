@@ -43,9 +43,8 @@ public:
 
 private:
 	// Main loop helpers
-	void ProcessInput();
 	void SimulateStep(double dt);
-	void PublishSnapshot();
+	void PublishSnapshot(const GameState& state);
 
 	// GameCode hot-reload helpers
 	void InitHotReload();

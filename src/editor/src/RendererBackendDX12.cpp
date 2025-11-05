@@ -8,6 +8,7 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #endif // GLFW_EXPOSE_NATIVE_WIN32
 
+#include <d3dcompiler.h>
 #include <GLFW/glfw3native.h>
 
 #define HR_ASSERT(x, msg) SM_ASSERT(SUCCEEDED(x), msg)
@@ -210,7 +211,7 @@ void RendererBackendDX12::CreateSwapChain(const uint32_t width, const uint32_t h
         m_FrameFenceEvents.push_back( CreateEvent(nullptr, false, true, nullptr) );
     }
 
-    m_ResizeRequested = true;
+    BackBufferResized();
 }
 
 nvrhi::CommandListHandle RendererBackendDX12::CreateCommandList() {
@@ -299,6 +300,45 @@ bool RendererBackendDX12::Present() {
     m_GraphicsQueue->Signal(m_FrameFence, m_FrameCount);
     m_FrameCount++;
     return SUCCEEDED(result);
+}
+
+nvrhi::ShaderHandle RendererBackendDX12::CreateShaderFromMemory(nvrhi::ShaderType shaderType, const char *content,
+    size_t contentSize, const char *entryPoint, const char *targetName) {
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.debugName = "ShaderFromMemory";
+    shaderDesc.shaderType = shaderType;
+    shaderDesc.entryName = entryPoint;
+
+    ComPtr<ID3DBlob> bytecode;
+    ComPtr<ID3DBlob> errors;
+    UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
+#if defined(_DEBUG)
+    flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#endif
+    HRESULT hr = D3DCompile(
+        content, strlen(content),
+        nullptr,
+        nullptr, nullptr,
+        entryPoint,
+        targetName,
+        flags, 0,
+        &bytecode, &errors
+    );
+    if (FAILED(hr)) {
+        if (errors) {
+            char temp[1024];
+            size_t size = std::min<size_t>(errors->GetBufferSize(), sizeof(temp) - 1);
+            memcpy(temp, errors->GetBufferPointer(), size);
+            temp[size] = 0;
+            SM_ERROR("Shader compile error: %s", (char*)errors->GetBufferPointer());
+        }
+        SM_ASSERT(false, "Shader compile failed");
+    }
+
+    if(!bytecode)
+        return nullptr;
+
+    return m_Device->createShader(shaderDesc, bytecode->GetBufferPointer(), bytecode->GetBufferSize());
 }
 
 void RendererBackendDX12::DestroyDeviceAndSwapChain() {

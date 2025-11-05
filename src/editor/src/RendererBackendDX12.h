@@ -33,6 +33,12 @@ public:
     nvrhi::IFramebuffer* GetFrameBuffer(int32_t index) override;
     bool BeginFrame() override;
     bool Present() override;
+    nvrhi::ShaderHandle CreateShaderFromMemory(
+        nvrhi::ShaderType shaderType,
+        const char* content,
+        size_t contentSize,
+        const char* entryPoint,
+        const char* targetName) override;
 protected:
     void DestroyDeviceAndSwapChain() override;
 

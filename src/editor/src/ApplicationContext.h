@@ -1,16 +1,9 @@
 #pragma once
 
+#include "Camera.h"
+#include "Input.h"
 #include "SpscRing.h"
 #include "Seqlock.h"
-
-struct InputEvent {
-    enum Type : uint8_t { MouseMove = 0, MouseButton = 1, Key = 2 } TypeId;
-    double Time; // seconds
-    double MouseX, MouseY;
-    int Button; // or Keycode
-    int Action;
-    int Mods;
-};
 
 struct UiCommand {
     enum Type : uint8_t { SetVelocity = 0, TogglePause = 1 } type{};
@@ -23,6 +16,8 @@ struct SimulationSnapshot {
     // Minimal renderable state: a single float position for demo (x in [-1..1])
     float ObjectX;
     float ObjectVX;     // velocity for possible extrapolation
+    PerspectiveCamera3D GameCamera;
+    OrthographicCamera2D UICamera;
 };
 
 // Small atomic for late-latch (latest input state snapshot)

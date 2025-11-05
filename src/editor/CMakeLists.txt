@@ -11,7 +11,9 @@ add_executable(editor
     src/registered_font.cpp
 )
 
-target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RIGHT_HANDED GLM_ENABLE_EXPERIMENTAL GLFW_INCLUDE_VULKAN)
+set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE_EXPERIMENTAL;")
+
+target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES} GLFW_INCLUDE_VULKAN)
 
 # Allocation tracker flag: ENABLE_ALLOC_TRACKER can be ON, OFF or AUTO (default)
 set(ENABLE_ALLOC_TRACKER "AUTO" CACHE STRING "Enable allocation tracker (ON/OFF/AUTO)")
@@ -25,7 +27,7 @@ endif()
 
 target_include_directories(editor PRIVATE ../common/include)
 
-target_link_libraries(editor PRIVATE glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi nvrhi_vk imgui)
+target_link_libraries(editor PRIVATE glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi dxcompiler nvrhi_vk imgui)
 if (TARGET Vulkan-Headers)
     target_link_libraries(editor PRIVATE Vulkan-Headers)
 elseif (TARGET Vulkan::Headers)
@@ -54,6 +56,8 @@ endif()
 add_library(GameLogic SHARED
     src/Game.cpp
 )
+target_link_libraries(GameLogic PRIVATE glm::glm)
+target_compile_definitions(GameLogic PRIVATE ${GLM_DEFINES})
 target_include_directories(GameLogic PRIVATE ../common/include)
 set_target_properties(GameLogic PROPERTIES
   OUTPUT_NAME Game

@@ -53,9 +53,8 @@ void GameThread::RunLoop() {
 			break;
 		 }
 
-		 ProcessInput(); // drain InputRing (S -> G)
 		 SimulateStep(targetDt); // advance simulation
-		 PublishSnapshot(); // publish to SnapshotRing (S -> R)
+		 PublishSnapshot(gameState); // publish to SnapshotRing (S -> R)
 
 		 // sleep until next tick (simple fixed-step)
 		 next += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(targetDt));
@@ -73,18 +72,6 @@ void GameThread::Stop() {
 	m_Running.store(false, std::memory_order_relaxed);
 }
 
-void GameThread::ProcessInput() {
-	InputEvent ev{};
-	while (m_AppContext->InputRing.Pop(ev)) {
-		// For demo, we don't do much: we could react to keys or mouse
-		if (ev.TypeId == InputEvent::Key && ev.Button == GLFW_KEY_ESCAPE && ev.Action == GLFW_RELEASE) {
-			//m_AppContext->ShutdownRequested.store(true, std::memory_order_relaxed);
-			break;
-		}
-		// else ignore
-	}
-}
-
 void GameThread::SimulateStep(double dt) {
 	// Simple1D motion that bounces in [-1,1]
 	m_simX += m_simVX * static_cast<float>(dt);
@@ -92,7 +79,7 @@ void GameThread::SimulateStep(double dt) {
 	if (m_simX < -1.0f) { m_simX = -1.0f; m_simVX = std::fabs(m_simVX); }
 }
 
-void GameThread::PublishSnapshot() {
+void GameThread::PublishSnapshot(const GameState& state) {
 	const uint64_t tick = m_TickCounter++;
 
 	SimulationSnapshot snap{};
@@ -100,6 +87,8 @@ void GameThread::PublishSnapshot() {
 	snap.Timestamp = TimeNowSec();
 	snap.ObjectX = m_simX;
 	snap.ObjectVX = m_simVX;
+	snap.GameCamera = state.GameCamera;
+	snap.UICamera = state.UICamera;
 
 	// Single-writer seqlock publish
 	m_AppContext->LatestSnapshot.store(snap);
@@ -125,6 +114,7 @@ void GameThread::SetupGameDllWatcher() {
 		 [this](const std::string& /*file*/, const filewatch::Event eventType) {
 				switch (eventType) {
 					case filewatch::Event::modified:
+					case filewatch::Event::renamed_new:
 						SM_TRACE("Game.dll changed, scheduling reload...");
 						m_LibraryReload.store(true, std::memory_order_relaxed);
 						break;

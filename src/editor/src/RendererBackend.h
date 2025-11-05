@@ -44,6 +44,12 @@ public:
     virtual nvrhi::IFramebuffer* GetFrameBuffer(int32_t index) = 0;
     virtual bool BeginFrame() = 0;
     virtual bool Present() = 0;
+    virtual nvrhi::ShaderHandle CreateShaderFromMemory(
+        nvrhi::ShaderType shaderType,
+        const char* content,
+        size_t contentSize,
+        const char* entryPoint,
+        const char* targetName) = 0;
 protected:
     constexpr static uint32_t   SHUTDOWN_TIMEOUT = 5000;
     RendererBackendSettings     m_Settings {};

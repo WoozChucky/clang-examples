@@ -36,6 +36,12 @@ public:
     nvrhi::IFramebuffer* GetFrameBuffer(int32_t index) override;
     bool BeginFrame() override;
     bool Present() override;
+    nvrhi::ShaderHandle CreateShaderFromMemory(
+        nvrhi::ShaderType shaderType,
+        const char* content,
+        size_t contentSize,
+        const char* entryPoint,
+        const char* targetName) override;
 protected:
     void DestroyDeviceAndSwapChain() override;
 
@@ -74,9 +80,12 @@ private:
     uint32_t                                        m_FrameIndex = 0;
 
     std::vector<nvrhi::FramebufferHandle>           m_SwapChainFramebuffers;
-    bool                                            m_ResizeRequested = true;
+    bool                                            m_ResizeRequested = false;
 
     std::string                                     m_RendererString{};
+
+    vk::Semaphore m_LastAcquireSemaphore{};
+    bool m_FrameHadWork = false;
 
     // Vulkan-specific members
     VulkanExtensionSet enabledExtensions = {
@@ -153,9 +162,12 @@ private:
     std::vector<SwapChainImage> m_SwapChainImages;
     uint32_t m_SwapChainIndex = static_cast<uint32_t>(-1);
 
-    std::vector<vk::Semaphore> m_AcquireSemaphores;
-    std::vector<vk::Semaphore> m_PresentSemaphores;
-    uint32_t m_AcquireSemaphoreIndex = 0;
+    std::vector<vk::Fence> m_InFlightFences;
+    std::vector<vk::Semaphore> m_PresentCompleteSemaphores;
+    std::vector<vk::Semaphore> m_RenderFinishedSemaphore;
+    uint32_t m_SemaphoreIndex = 0;
+    uint32_t m_CurrentFrame = 0;
+    bool m_SyncObjectsMissing = true;
 
     std::queue<nvrhi::EventQueryHandle> m_FramesInFlight;
     std::vector<nvrhi::EventQueryHandle> m_QueryPool;

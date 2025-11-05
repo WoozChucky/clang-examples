@@ -244,19 +244,26 @@ void RendererBackendVulkan::CreateSwapChain(uint32_t width, uint32_t height) {
 
     CreateSwapChain();
 
-    size_t const numPresentSemaphores = m_SwapChainImages.size();
-    m_PresentSemaphores.reserve(numPresentSemaphores);
-    for (uint32_t i = 0; i < numPresentSemaphores; ++i)
-    {
-        m_PresentSemaphores.push_back(m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo()));
-    }
+    BackBufferResized();
 
-    size_t const numAcquireSemaphores = std::max(size_t(m_Settings.maxFramesInFlight),
-        m_SwapChainImages.size());
-    m_AcquireSemaphores.reserve(numAcquireSemaphores);
-    for (uint32_t i = 0; i < numAcquireSemaphores; ++i)
-    {
-        m_AcquireSemaphores.push_back(m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo()));
+    if (m_SyncObjectsMissing) {
+        m_SyncObjectsMissing = false;
+
+        m_PresentCompleteSemaphores.clear();
+        m_RenderFinishedSemaphore.clear();
+        m_InFlightFences.clear();
+
+        for (size_t i = 0; i < m_SwapChainImages.size(); i++) {
+            m_PresentCompleteSemaphores.emplace_back(m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo()));
+            m_RenderFinishedSemaphore.emplace_back(m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo()));
+        }
+
+
+        for (size_t i = 0; i < m_Settings.maxFramesInFlight; i++) {
+            vk::FenceCreateInfo fenceCreateInfo{};
+            fenceCreateInfo.flags = vk::FenceCreateFlagBits::eSignaled;
+            m_InFlightFences.emplace_back(m_VulkanDevice.createFence(fenceCreateInfo));
+        }
     }
 }
 
@@ -275,109 +282,222 @@ void RendererBackendVulkan::ResizeSwapChain(uint32_t width, uint32_t height) {
 }
 
 bool RendererBackendVulkan::BeginFrame() {
-    const auto& semaphore = m_AcquireSemaphores[m_AcquireSemaphoreIndex];
+
+    while (vk::Result::eTimeout == m_VulkanDevice.waitForFences(m_InFlightFences[m_CurrentFrame], vk::True, UINT64_MAX) )
+        ;
 
     vk::Result res;
 
-    int const maxAttempts = 3;
-    for (int attempt = 0; attempt < maxAttempts; ++attempt)
+    constexpr uint64_t kAcquireTimeoutNs = 1'000'000'000ull; // 1s
+
+    res = m_VulkanDevice.acquireNextImageKHR(
+        m_SwapChain,
+        kAcquireTimeoutNs, // timeout
+        m_PresentCompleteSemaphores[m_SemaphoreIndex],
+        vk::Fence(),
+        &m_SwapChainIndex);
+
+    if (res == vk::Result::eErrorOutOfDateKHR || m_ResizeRequested)
     {
-        res = m_VulkanDevice.acquireNextImageKHR(
-            m_SwapChain,
-            std::numeric_limits<uint64_t>::max(), // timeout
-            semaphore,
-            vk::Fence(),
-            &m_SwapChainIndex);
+        m_ResizeRequested = false;
+        BackBufferResizing();
+        auto surfaceCaps = m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_WindowSurface);
 
-        if ((res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR || m_ResizeRequested) && attempt < maxAttempts)
-        {
-            BackBufferResizing();
-            auto surfaceCaps = m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_WindowSurface);
+        m_Settings.backBufferWidth = surfaceCaps.currentExtent.width;
+        m_Settings.backBufferHeight = surfaceCaps.currentExtent.height;
 
-            m_Settings.backBufferWidth = surfaceCaps.currentExtent.width;
-            m_Settings.backBufferHeight = surfaceCaps.currentExtent.height;
-
-            ResizeSwapChain();
-            BackBufferResized();
-        }
-        else
-            break;
+        ResizeSwapChain();
+        BackBufferResized();
+        return false;
     }
 
-    m_AcquireSemaphoreIndex = (m_AcquireSemaphoreIndex + 1) % m_AcquireSemaphores.size();
-
-    if (res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR) // Suboptimal is considered a success
+    if (res != vk::Result::eSuccess && res != vk::Result::eSuboptimalKHR)
     {
-        // Schedule the wait. The actual wait operation will be submitted when the app executes any command list.
-        m_Device->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, semaphore, 0);
-        return true;
+        SM_TRACE("Failed to acquire next swap chain image, error code = %s", nvrhi::vulkan::resultToString(static_cast<VkResult>(res)));
+        return false;
     }
 
-    return false;
+    m_VulkanDevice.resetFences(m_InFlightFences[m_CurrentFrame]);
+
+    return true;
 }
 
 bool RendererBackendVulkan::Present() {
-    const auto& semaphore = m_PresentSemaphores[m_SwapChainIndex];
+    /*
+    constexpr vk::PipelineStageFlags waitDestinationStageMask( vk::PipelineStageFlagBits::eColorAttachmentOutput );
+    vk::SubmitInfo submitInfo{};
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = &m_PresentCompleteSemaphores[m_SemaphoreIndex];
+    submitInfo.pWaitDstStageMask = &waitDestinationStageMask;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = static_cast<const vk::CommandBuffer*>(test);
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &m_RenderFinishedSemaphore[m_SwapChainIndex];
 
-    m_Device->queueSignalSemaphore(nvrhi::CommandQueue::Graphics, semaphore, 0);
-
-    // NVRHI buffers the semaphores and signals them when something is submitted to a queue.
-    // Call 'executeCommandLists' with no command lists to actually signal the semaphore.
-    m_Device->executeCommandLists(nullptr, 0);
+    m_PresentQueue.submit(submitInfo, m_InFlightFences[m_CurrentFrame]);
+    */
 
     vk::PresentInfoKHR info = vk::PresentInfoKHR()
                                 .setWaitSemaphoreCount(1)
-                                .setPWaitSemaphores(&semaphore)
+                                .setPWaitSemaphores(&m_RenderFinishedSemaphore[m_SwapChainIndex])
                                 .setSwapchainCount(1)
                                 .setPSwapchains(&m_SwapChain)
                                 .setPImageIndices(&m_SwapChainIndex);
 
-    const vk::Result res = m_PresentQueue.presentKHR(&info);
-    if (!(res == vk::Result::eSuccess || res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR))
-    {
+    const vk::Result result = m_PresentQueue.presentKHR(&info);
+    if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR || m_ResizeRequested) {
+        m_ResizeRequested = false;
+        BackBufferResizing();
+        auto surfaceCaps = m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_WindowSurface);
+
+        m_Settings.backBufferWidth = surfaceCaps.currentExtent.width;
+        m_Settings.backBufferHeight = surfaceCaps.currentExtent.height;
+
+        ResizeSwapChain();
+        BackBufferResized();
+    } else if (result != vk::Result::eSuccess) {
+        SM_TRACE("Failed to present swap chain image, error code = %s", nvrhi::vulkan::resultToString(static_cast<VkResult>(result)));
         return false;
     }
 
-#ifndef _WIN32
-    if (m_DeviceParams.vsyncEnabled || m_DeviceParams.enableDebugRuntime)
+    return true;
+}
+
+#include <Unknwn.h>
+#include <dxcapi.h>
+#include <wrl/client.h>
+#include <vector>
+#include <string>
+
+using Microsoft::WRL::ComPtr;
+
+static const wchar_t* MapTargetProfile(nvrhi::ShaderType type, const char* targetName)
+{
+    // Use provided profile if not null, else infer from shader type.
+    if (targetName && targetName[0])
     {
-        // according to vulkan-tutorial.com, "the validation layer implementation expects
-        // the application to explicitly synchronize with the GPU"
-        m_PresentQueue.waitIdle();
+        static std::wstring wprofile;
+        int len = MultiByteToWideChar(CP_UTF8, 0, targetName, -1, nullptr, 0);
+        wprofile.resize(size_t(len));
+        MultiByteToWideChar(CP_UTF8, 0, targetName, -1, wprofile.data(), len);
+        return wprofile.c_str();
     }
+    switch (type)
+    {
+        case nvrhi::ShaderType::Vertex:   return L"vs_6_7";
+        case nvrhi::ShaderType::Pixel:    return L"ps_6_7";
+        case nvrhi::ShaderType::Compute:  return L"cs_6_7";
+        case nvrhi::ShaderType::Geometry: return L"gs_6_7";
+        case nvrhi::ShaderType::Hull:     return L"hs_6_7";
+        case nvrhi::ShaderType::Domain:   return L"ds_6_7";
+            // For raytracing you typically use lib_6_x with -spirv and entry point per stage.
+        default:                          return L"vs_6_7";
+    }
+}
+
+static std::wstring ToWide(const char* s)
+{
+    if (!s) return L"";
+    int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+    std::wstring ws; ws.resize(static_cast<size_t>(len));
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, ws.data(), len);
+    return ws;
+}
+
+static bool CompileHlslToSpirv_DXC(const char* source, size_t sourceSize,
+                                   nvrhi::ShaderType stage,
+                                   const char* entryPoint,
+                                   const char* targetName,
+                                   std::vector<uint8_t>& outSpirv,
+                                   std::string& outErrors)
+{
+    outSpirv.clear();
+    outErrors.clear();
+
+    ComPtr<IDxcUtils> utils;
+    ComPtr<IDxcCompiler3> compiler;
+    if (FAILED(DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils)))) return false;
+    if (FAILED(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler)))) return false;
+
+    DxcBuffer src{};
+    src.Ptr = source;
+    src.Size = sourceSize != 0 ? sourceSize : strlen(source);
+    src.Encoding = DXC_CP_UTF8;
+
+    ComPtr<IDxcIncludeHandler> includeHandler;
+    utils->CreateDefaultIncludeHandler(&includeHandler);
+
+    std::wstring wEntry = ToWide(entryPoint ? entryPoint : "main");
+    const wchar_t* profile = MapTargetProfile(stage, targetName);
+
+    fprintf(stdout, "%ls", wEntry.c_str());
+
+    // DXC arguments for Vulkan SPIR-V
+    std::vector args = {
+        L"-E", wEntry.c_str(),
+        L"-T", profile,
+        L"-spirv",
+        L"-fspv-target-env=vulkan1.3",
+        L"-fvk-use-dx-layout",
+        L"-O3",
+        L"-Zpr" // row-major
+    };
+
+#if defined(_DEBUG)
+    args.push_back(L"-Zi");
+    args.push_back(L"-Qembed_debug");
 #endif
 
-    while (m_FramesInFlight.size() >= m_Settings.maxFramesInFlight)
-    {
-        auto query = m_FramesInFlight.front();
-        m_FramesInFlight.pop();
+    ComPtr<IDxcResult> result;
+    if (FAILED(compiler->Compile(&src, args.data(), (UINT)args.size(), includeHandler.Get(),
+                                 IID_PPV_ARGS(&result))))
+        return false;
 
-        m_Device->waitEventQuery(query);
+    // Collect errors (if any)
+    ComPtr<IDxcBlobUtf8> errors;
+    result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errors), nullptr);
+    if (errors && errors->GetStringLength() > 0)
+        outErrors.assign(errors->GetStringPointer(), errors->GetStringPointer() + errors->GetStringLength());
 
-        m_QueryPool.push_back(query);
-    }
+    HRESULT status = S_OK;
+    result->GetStatus(&status);
+    if (FAILED(status))
+        return false;
 
-    nvrhi::EventQueryHandle query;
-    if (!m_QueryPool.empty())
-    {
-        query = m_QueryPool.back();
-        m_QueryPool.pop_back();
-    }
-    else
-    {
-        query = m_Device->createEventQuery();
-    }
+    // Get SPIR-V
+    ComPtr<IDxcBlob> obj;
+    ComPtr<IDxcBlobUtf16> dummy;
+    if (FAILED(result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&obj), &dummy))) return false;
 
-    m_Device->resetEventQuery(query);
-    m_Device->setEventQuery(query, nvrhi::CommandQueue::Graphics);
-    m_FramesInFlight.push(query);
+    outSpirv.resize(obj->GetBufferSize());
+    memcpy(outSpirv.data(), obj->GetBufferPointer(), obj->GetBufferSize());
     return true;
+}
+
+nvrhi::ShaderHandle RendererBackendVulkan::CreateShaderFromMemory(nvrhi::ShaderType shaderType, const char *content,
+    size_t contentSize, const char *entryPoint, const char *targetName) {
+
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.debugName = "ShaderFromMemory";
+    shaderDesc.shaderType = shaderType;
+    shaderDesc.entryName = entryPoint;
+
+    std::vector<uint8_t> spirv;
+    std::string errors;
+    if (!CompileHlslToSpirv_DXC(content, contentSize, shaderType, entryPoint, targetName, spirv, errors))
+    {
+        if (!errors.empty())
+            SM_ERROR("DXC compile failed: %s", errors.c_str());
+        return nullptr;
+    }
+
+    return m_Device->createShader(shaderDesc, spirv.data(), spirv.size());
 }
 
 void RendererBackendVulkan::DestroyDeviceAndSwapChain() {
     DestroySwapChain();
 
-    for (auto& semaphore : m_PresentSemaphores)
+    for (auto& semaphore : m_PresentCompleteSemaphores)
     {
         if (semaphore)
         {
@@ -386,12 +506,19 @@ void RendererBackendVulkan::DestroyDeviceAndSwapChain() {
         }
     }
 
-    for (auto& semaphore : m_AcquireSemaphores)
+    for (auto& semaphore : m_RenderFinishedSemaphore)
     {
         if (semaphore)
         {
             m_VulkanDevice.destroySemaphore(semaphore);
             semaphore = vk::Semaphore();
+        }
+    }
+
+    for (auto& fence : m_InFlightFences) {
+        if (fence) {
+            m_VulkanDevice.destroyFence(fence);
+            fence = vk::Fence();
         }
     }
 
@@ -1015,6 +1142,8 @@ void RendererBackendVulkan::DestroySwapChain() {
         m_VulkanDevice.waitIdle();
     }
 
+    m_SwapChainFramebuffers.clear();
+
     if (m_SwapChain)
     {
         m_VulkanDevice.destroySwapchainKHR(m_SwapChain);
@@ -1088,7 +1217,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugCallback(
     const char* msg,
     void* userData)
 {
-    fprintf(stderr, "[Vulkan: location=0x%zx code=%d, layerPrefix='%s'] %s", location, code, layerPrefix, msg);
+    fprintf(stderr, "[Vulkan: location=0x%zx code=%d, layerPrefix='%s'] %s\n", location, code, layerPrefix, msg);
     // SM_WARN("[Vulkan: location=0x%zx code=%d, layerPrefix='%s'] %s", location, code, layerPrefix, msg);
 
     return VK_FALSE;
