@@ -161,7 +161,9 @@ enum Button : uint8_t {
 enum class InputEventType : uint8_t {
     MouseMove = 0,
     MouseButton = 1,
-    Key = 2,
+    MouseWheel = 2,
+    Key = 3,
+    TextInput = 4,
 };
 
 struct InputEvent {
@@ -180,10 +182,19 @@ struct InputEvent {
         } MouseButtonEvent;
 
         struct {
+            double OffsetX;
+            double OffsetY;
+        } MouseScrollEvent;
+
+        struct {
             KeyCode Key;
             InputAction Action;
             KeyModifier Modifier;
         } KeyEvent;
+
+        struct {
+            uint32_t Key;
+        } TextEvent;
     };
 
     InputEvent() = default;

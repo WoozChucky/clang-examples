@@ -4,7 +4,11 @@
 
 template <typename T>
 class Seqlock {
+    static_assert(std::is_trivially_copyable_v<T>,
+                  "Seqlock requires trivially copyable T (memcpy-safe).");
 public:
+    Seqlock() noexcept = default;
+
     void store(const T& v) {
         // single writer
         uint64_t s = seq_.load(std::memory_order_relaxed);

@@ -6,14 +6,14 @@ add_executable(editor
     src/RendererBackendDX12.cpp
     src/RendererBackendVulkan.cpp
     src/Renderer.cpp
-
+    ../../third_party/tracy/public/TracyClient.cpp
     src/imgui_nvrhi.cpp
     src/registered_font.cpp
 )
 
 set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE_EXPERIMENTAL;")
 
-target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES} GLFW_INCLUDE_VULKAN)
+target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES} GLFW_INCLUDE_VULKAN) # TRACY_ENABLE TRACY_ON_DEMAND
 
 # Allocation tracker flag: ENABLE_ALLOC_TRACKER can be ON, OFF or AUTO (default)
 set(ENABLE_ALLOC_TRACKER "AUTO" CACHE STRING "Enable allocation tracker (ON/OFF/AUTO)")
@@ -27,7 +27,7 @@ endif()
 
 target_include_directories(editor PRIVATE ../common/include)
 
-target_link_libraries(editor PRIVATE glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi dxcompiler nvrhi_vk imgui)
+target_link_libraries(editor PRIVATE freetype Tracy::TracyClient glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi dxcompiler nvrhi_vk imgui)
 if (TARGET Vulkan-Headers)
     target_link_libraries(editor PRIVATE Vulkan-Headers)
 elseif (TARGET Vulkan::Headers)

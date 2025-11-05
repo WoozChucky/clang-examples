@@ -8,6 +8,8 @@
 #include "lib.h"
 #include "Timing.h"
 
+#include <tracy/Tracy.hpp>
+
 RenderThread::RenderThread(const std::shared_ptr<ApplicationContext> &appContext, GLFWwindow* window, RendererAPI api)
     : m_AppContext(appContext), m_Window(window), m_Running(true), m_API(api)
 {
@@ -15,6 +17,8 @@ RenderThread::RenderThread(const std::shared_ptr<ApplicationContext> &appContext
 
 void RenderThread::RunLoop()
 {
+    tracy::SetThreadName("RenderThread");
+
     if (!Initialize())
     {
         return;
@@ -30,6 +34,7 @@ void RenderThread::RunLoop()
     while (m_Running.load(std::memory_order_relaxed)
         && !m_AppContext->ShutdownRequested.load(std::memory_order_relaxed))
     {
+        ZoneScopedN("Render");
         RendererCommand cmd{};
         while (m_AppContext->RendererCommandRing.Pop(cmd)) {
             switch (cmd.Type) {
@@ -83,6 +88,8 @@ void RenderThread::RunLoop()
 
         // Advance interpolation baseline
         prevSnap = nextSnap;
+
+        FrameMark;
 
         // Small yield to avoid starving other threads (not strictly necessary)
         std::this_thread::sleep_for(std::chrono::milliseconds(0));

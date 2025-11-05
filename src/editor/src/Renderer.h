@@ -111,10 +111,11 @@ public:
 
 
     float Render(double deltaTime, float red, float green, float blue, OrthographicCamera2D& uiCamera, PerspectiveCamera3D& gameCamera);
-    void Resize(uint32_t width, uint32_t height) const;
+    void Resize(uint32_t width, uint32_t height);
     void ToggleVSync();
 
 private:
+    void RenderImGui();
     void PreparePrimitivePass();
     void RenderSomethingTemporarily(nvrhi::IFramebuffer* frameBuffer, PerspectiveCamera3D& camera);
 

@@ -10,6 +10,8 @@
 #include "Timing.h"
 #include "GLFW/glfw3.h"
 
+#include <tracy/Tracy.hpp>
+
 using namespace std::chrono_literals;
 
 GameThread::GameThread(const std::shared_ptr<ApplicationContext> &appContext)
@@ -24,6 +26,8 @@ GameThread::GameThread(const std::shared_ptr<ApplicationContext> &appContext)
 }
 
 void GameThread::RunLoop() {
+	 tracy::SetThreadName("GameThread");
+
 	 // Initialize hot-reload system (file watcher + initial copy & load)
 	 InitHotReload();
 
@@ -35,37 +39,40 @@ void GameThread::RunLoop() {
 	 while (m_Running.load(std::memory_order_relaxed)
 		 && !m_AppContext->ShutdownRequested.load(std::memory_order_relaxed))
 	 {
-		 const auto start = Clock::now();
-		 (void)start; // reserved for profiling if needed
+		const auto start = Clock::now();
+		(void)start; // reserved for profiling if needed
+		{
+			ZoneScopedN("Game:FixedUpdate");
+			// Handle requested reloads
+			ReloadGameLibraryIfRequested();
 
-		 // Handle requested reloads
-		 ReloadGameLibraryIfRequested();
+			gameState.DeltaTime = targetDt;
 
-		 gameState.DeltaTime = targetDt;
+			if (m_GameLib.IsValid()) {
+				ZoneScopedN("Game:DLLUpdate");
+				m_GameLib.Update(&gameState);
+			}
 
-		 if (m_GameLib.IsValid()) {
-			m_GameLib.Update(&gameState);
-		 }
+			if (gameState.QuitRequested) {
+				m_Running.store(false, std::memory_order_relaxed);
+				m_AppContext->ShutdownRequested.store(true, std::memory_order_relaxed);
+				break;
+			}
 
-		 if (gameState.QuitRequested) {
-			 m_Running.store(false, std::memory_order_relaxed);
-			 m_AppContext->ShutdownRequested.store(true, std::memory_order_relaxed);
-			break;
-		 }
+			SimulateStep(targetDt); // advance simulation
+			PublishSnapshot(gameState); // publish to SnapshotRing (S -> R)
 
-		 SimulateStep(targetDt); // advance simulation
-		 PublishSnapshot(gameState); // publish to SnapshotRing (S -> R)
+			// sleep until next tick (simple fixed-step)
+			next += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(targetDt));
+			std::this_thread::sleep_until(next);
+		}
+	}
 
-		 // sleep until next tick (simple fixed-step)
-		 next += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(targetDt));
-		 std::this_thread::sleep_until(next);
-	 }
-
-	 if (m_GameLib.IsValid()) {
+	if (m_GameLib.IsValid()) {
 		m_GameLib.ExitGame();
-	 }
+	}
 
-	 UnloadGameLibrary();
+	UnloadGameLibrary();
 }
 
 void GameThread::Stop() {
@@ -80,6 +87,7 @@ void GameThread::SimulateStep(double dt) {
 }
 
 void GameThread::PublishSnapshot(const GameState& state) {
+	ZoneScopedN("PublishSnapshot");
 	const uint64_t tick = m_TickCounter++;
 
 	SimulationSnapshot snap{};
@@ -165,6 +173,7 @@ void GameThread::UnloadGameLibrary() {
 }
 
 void GameThread::ReloadGameLibraryIfRequested() {
+	ZoneScopedN("HotReload");
 	if (!m_LibraryReload.load(std::memory_order_relaxed)) {
 		return;
 	}
