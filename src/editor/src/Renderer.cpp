@@ -8,6 +8,8 @@
 #include "RendererBackendDX12.h"
 #include "RendererBackendVulkan.h"
 
+#include <tracy/Tracy.hpp>
+
 bool Renderer::Init(const RendererAPI api) {
     switch (api) {
         case RendererAPI::DirectX11:
@@ -104,28 +106,43 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Ort
 
             nvrhi::IFramebuffer* frameBuffer = m_Backend->GetFrameBuffer(-1);
 
-            m_CommandList->open();
-            m_GpuTimer.Begin(m_CommandList);
+            {
+                ZoneScopedN("BeginRecording");
+                m_CommandList->open();
+                m_GpuTimer.Begin(m_CommandList);
+            }
 
-            static glm::vec4 ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            //nvrhi::Color(ClearColor.r, ClearColor.g, ClearColor.b, ClearColor.a);
-            const auto clearColor = nvrhi::Color(red, green, blue, ClearColor.a);
 
-            nvrhi::utils::ClearColorAttachment(m_CommandList, frameBuffer, 0, clearColor);
+            {
+                ZoneScopedN("RenderPasses");
+                static glm::vec4 ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                //nvrhi::Color(ClearColor.r, ClearColor.g, ClearColor.b, ClearColor.a);
+                const auto clearColor = nvrhi::Color(red, green, blue, ClearColor.a);
 
-            RenderSomethingTemporarily(frameBuffer, gameCamera);
+                nvrhi::utils::ClearColorAttachment(m_CommandList, frameBuffer, 0, clearColor);
 
-            m_GpuTimer.End(m_CommandList);
-            m_CommandList->close();
+                RenderSomethingTemporarily(frameBuffer, gameCamera);
+            }
 
-            m_Device->executeCommandList(m_CommandList, nvrhi::CommandQueue::Graphics);
+            {
+                ZoneScopedN("SubmitRecording");
+                m_GpuTimer.End(m_CommandList);
+                m_CommandList->close();
 
-            m_GpuTimer.Advance();
+                m_Device->executeCommandList(m_CommandList, nvrhi::CommandQueue::Graphics);
 
-            const bool presentSuccess = m_Backend->Present();
-            if (!presentSuccess) {
-                SM_ERROR("[Renderer] Present() failed");
-                return 0.0f;
+                m_GpuTimer.Advance();
+            }
+
+            RenderImGui();
+
+            {
+                ZoneScopedN("Present");
+                const bool presentSuccess = m_Backend->Present();
+                if (!presentSuccess) {
+                    SM_ERROR("[Renderer] Present() failed");
+                    return 0.0f;
+                }
             }
         }
     }
@@ -137,8 +154,9 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Ort
     return secs;
 }
 
-void Renderer::Resize(uint32_t width, uint32_t height) const {
+void Renderer::Resize(const uint32_t width, const uint32_t height) {
     // TODO: nullptr pipelines/render passes
+    m_PrimitivePass.m_Pipeline = nullptr;
     if (m_Backend) {
         m_Backend->ResizeSwapChain(width, height);
     }
@@ -146,6 +164,9 @@ void Renderer::Resize(uint32_t width, uint32_t height) const {
 
 void Renderer::ToggleVSync() {
     m_BackendSettings.vsyncEnabled = !m_BackendSettings.vsyncEnabled;
+}
+
+void Renderer::RenderImGui() {
 }
 
 inline auto PRIM_VS_HLSL = R"(
