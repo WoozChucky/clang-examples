@@ -1,6 +1,17 @@
 #pragma once
 
-#include <lib.h>
+#ifdef _WIN32
+#define DEBUG_BREAK() __debugbreak()
+#define EXPORT_FN __declspec(dllexport)
+#elif __linux__
+#define DEBUG_BREAK() __builtin_debugtrap()
+#define EXPORT_FN
+#elif __APPLE__
+#define DEBUG_BREAK() __builtin_trap()
+#define EXPORT_FN
+#endif
+
+#include "Camera.h"
 
 enum class GameStateId : uint32_t {
     Uninitialized = 0,
@@ -11,11 +22,13 @@ enum class GameStateId : uint32_t {
 };
 
 struct GameState {
-    GameStateId StateId;
-    double DeltaTime;
-    void* PlatformInputHandle;
-    void* GameOutputHandle;
-    bool QuitRequested;
+    GameStateId StateId = GameStateId::Uninitialized;
+    double DeltaTime = 0.0;
+    void* PlatformInputHandle = nullptr;
+    void* GameOutputHandle = nullptr;
+    bool QuitRequested = false;
+    PerspectiveCamera3D GameCamera {};
+    OrthographicCamera2D UICamera {};
 };
 
 using GameGetVersionFunc = uint32_t(*)();

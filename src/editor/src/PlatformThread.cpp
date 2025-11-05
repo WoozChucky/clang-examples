@@ -40,9 +40,9 @@ bool PlatformThread::Init() {
     glfwSetCursorPosCallback(m_Window, [](GLFWwindow* w, double x, double y) {
         const auto* self = static_cast<PlatformThread *>(glfwGetWindowUserPointer(w));
         InputEvent ev{};
-        ev.TypeId = InputEvent::MouseMove;
+        ev.Type = InputEventType::MouseMove;
         ev.Time = TimeNowSec();
-        ev.MouseX = x; ev.MouseY = y;
+        ev.MouseMoveEvent.X = x; ev.MouseMoveEvent.Y = y;
         if (!self->m_AppContext->InputRing.Push(ev)) {
             // drop if full (in real engine you'd grow ring or backpressure)
             SM_WARN("InputRing full, dropping evt");
@@ -53,17 +53,18 @@ bool PlatformThread::Init() {
         // Avoid writing to the currently published object: use the spare one pattern
         InputState* spare = (s == &self->m_AppContext->InputStateA) ? &self->m_AppContext->InputStateB : &self->m_AppContext->InputStateA;
         spare->Time = ev.Time;
-        spare->MouseX = ev.MouseX;
-        spare->MouseY = ev.MouseY;
+        spare->MouseX = ev.MouseMoveEvent.X;
+        spare->MouseY = ev.MouseMoveEvent.Y;
         self->m_AppContext->LatestInputStatePtr.store(spare, std::memory_order_release);
     });
 
     glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* w, int button, int action, int mods) {
         const auto* self = static_cast<PlatformThread *>(glfwGetWindowUserPointer(w));
         InputEvent ev{};
-        ev.TypeId = InputEvent::MouseButton;
+        ev.Type = InputEventType::MouseButton;
         ev.Time = TimeNowSec();
-        ev.Button = button;
+        ev.MouseButtonEvent.Button = static_cast<Button>(button);
+        ev.MouseButtonEvent.Action = static_cast<InputAction>(action);
         if (!self->m_AppContext->InputRing.Push(ev)) {
             // drop
             SM_WARN("InputRing full, dropping evt");
@@ -74,11 +75,11 @@ bool PlatformThread::Init() {
     glfwSetKeyCallback(m_Window, [](GLFWwindow* w, int key, int scancode, int action, int mods) {
         const auto* self = static_cast<PlatformThread *>(glfwGetWindowUserPointer(w));
         InputEvent ev{};
-        ev.TypeId = InputEvent::Key;
+        ev.Type = InputEventType::Key;
         ev.Time = TimeNowSec();
-        ev.Button = key;
-        ev.Action = action;
-		ev.Mods = mods;
+        ev.KeyEvent.Key = static_cast<KeyCode>(key);
+        ev.KeyEvent.Action = static_cast<InputAction>(action);
+		ev.KeyEvent.Modifier = static_cast<KeyModifier>(mods);
         if (!self->m_AppContext->InputRing.Push(ev)) {
             // drop
             SM_WARN("InputRing full, dropping evt");

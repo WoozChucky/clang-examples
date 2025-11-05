@@ -4,43 +4,88 @@
 
 static GameState* g_GameState = nullptr;
 static GameDebugBreakFn g_PlatformDebugBreak = nullptr;
+static bool gKeysDown[KEY_LAST + 1] = {};
+
+using namespace Input;
 
 uint32_t GameGetVersion() {
     SM_TRACE("GameGetVersion");
     return 0;
 }
 
-void GameSetPlatformDebugBreak(GameDebugBreakFn fn) {
-    SM_TRACE("GameSetPlatformDebugBreak"); 
+void GameSetPlatformDebugBreak(const GameDebugBreakFn fn) {
+    SM_TRACE("GameSetPlatformDebugBreak");
+	if (fn) {
+		g_PlatformDebugBreak = fn;
+	}
 }
 
 void GameUpdate(GameState* state) {
     if (g_GameState != state) {
         g_GameState = state;
-		SM_TRACE("Game: State Update")
+		SM_TRACE("Game: State Memory Updated")
 	}
 
     if (!g_GameState) return;
 
 	const auto inputRing = static_cast<SpscRing<InputEvent, ApplicationContext::InputRingSize>*>(g_GameState->PlatformInputHandle);
+	const auto dt = static_cast<float>(state->DeltaTime);
 
 	InputEvent ev{};
 	while (inputRing->Pop(ev))
 	{
-		if (ev.TypeId == InputEvent::Key && ev.Button == 256 && ev.Action == 0)
+		if (ev.Type == InputEventType::Key && ev.KeyEvent.Key == KEY_ESCAPE && ev.KeyEvent.Action == RELEASE)
 		{
 			SM_TRACE("GameUpdate: Shutdown requested via ESC key")
 			g_GameState->QuitRequested = true;
 			break;
 		}
-		// else ignore
+
+		const auto k = static_cast<int>(ev.KeyEvent.Key);
+		if (k >= 0 && k <= KEY_LAST) {
+			if (ev.KeyEvent.Action == PRESS || ev.KeyEvent.Action == REPEAT)   gKeysDown[k] = true;
+			if (ev.KeyEvent.Action == RELEASE) gKeysDown[k] = false;
+		}
 	}
+
+    {
+    	const glm::vec3 rot= state->GameCamera.rotation; // pitch(x), yaw(y), roll(z)
+    	const float cp = cosf(rot.x), sp = sinf(rot.x);
+    	const float cy = cosf(rot.y), sy = sinf(rot.y);
+
+    	// Camera-to-world forward for RH, y-up, default forward = -Z:
+    	// forward = (Rx * Ry * Rz) * (0,0,-1) with roll=0
+    	const glm::vec3 forward = glm::normalize(glm::vec3(
+		  -sy,            // x
+		   sp * cy,       // y
+		  -cp * cy        // z
+		));
+
+    	// Right vector consistent with RH system
+    	const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0,1,0)));
+
+    	float moveSpeed = 7.5f; // units/sec
+
+    	if (gKeysDown[KEY_W]) state->GameCamera.position += forward * (moveSpeed * dt);
+    	if (gKeysDown[KEY_S]) state->GameCamera.position -= forward * (moveSpeed * dt);
+    	if (gKeysDown[KEY_A]) state->GameCamera.position -= right   * (moveSpeed * dt);
+    	if (gKeysDown[KEY_D]) state->GameCamera.position += right   * (moveSpeed * dt);
+
+    	if (gKeysDown[KEY_SPACE]) { state->GameCamera.position.y += moveSpeed * dt; state->GameCamera.invalidate(); }
+    	if (gKeysDown[KEY_LEFT_SHIFT]) { state->GameCamera.position.y -= moveSpeed * dt; state->GameCamera.invalidate(); }
+
+    	constexpr float yawSpeed = glm::radians(120.0f);
+    	auto& yaw = state->GameCamera.rotation.y;
+		if (gKeysDown[KEY_Q]) yaw += yawSpeed * dt; state->GameCamera.invalidate();
+		if (gKeysDown[KEY_E]) yaw -= yawSpeed * dt; state->GameCamera.invalidate();
+    }
 
     switch (g_GameState->StateId)
     {
 	    case GameStateId::Uninitialized:
 			SM_TRACE("Initializing game...")
 			g_GameState->StateId = GameStateId::MainMenu;
+    		g_GameState->GameCamera.position = glm::vec3(0.0f, 5.0f, 10.0f);
 		    break;
 	    case GameStateId::MainMenu:
 		    break;
@@ -62,12 +107,6 @@ void GameResize(uint32_t width, uint32_t height) {
 }
 
 void GameExit() {
-	/*
-	if (g_GameState) {
-        delete g_GameState;
-        g_GameState = nullptr;
-    }
-	*/
 	if (g_PlatformDebugBreak) {
 		g_PlatformDebugBreak = nullptr;
 	}
