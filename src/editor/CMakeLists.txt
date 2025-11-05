@@ -66,3 +66,5 @@ set_target_properties(GameLogic PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
   FOLDER Libraries
 )
+
+add_dependencies(editor GameLogic)
