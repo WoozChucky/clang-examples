@@ -23,6 +23,7 @@ add_library(imgui STATIC
         imgui/imgui_impl_win32.cpp
         imgui/imgui_impl_dx11.cpp
         imgui/imgui_impl_dx12.cpp
+        imgui/imgui_impl_glfw.cpp
 )
 set_target_properties(imgui PROPERTIES
         OUTPUT_NAME imgui
@@ -31,3 +32,4 @@ set_target_properties(imgui PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
 )
 target_include_directories(imgui PUBLIC imgui)
+target_link_libraries(imgui PRIVATE glfw)

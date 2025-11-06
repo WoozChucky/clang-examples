@@ -7,6 +7,8 @@
 #include <filesystem>
 
 #include "ApplicationContext.h"
+#include "DotNetPluginHost.h"
+#include "DotNetPluginManager.h"
 #include "Game.h"
 #include "Timing.h"
 #include "GLFW/glfw3.h"
@@ -56,6 +58,8 @@ private:
 
 	GameLibrary LoadGameLibrary(std::string_view libraryName);
 	void FreeGameLibrary();
+
+	std::unique_ptr<DotNetPluginManager> m_PluginManager{nullptr};
 
 	std::shared_ptr<ApplicationContext> m_AppContext;
 	std::atomic<bool> m_Running;

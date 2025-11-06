@@ -31,6 +31,12 @@ void GameThread::RunLoop() {
 	 // Initialize hot-reload system (file watcher + initial copy & load)
 	 InitHotReload();
 
+	// Initialize plugin system
+	m_PluginManager = std::make_unique<DotNetPluginManager>();
+	if (m_PluginManager->Initialize("plugins/PluginCore.runtimeconfig.json")) {
+		m_PluginManager->LoadPluginsFromDirectory("plugins");
+	}
+
 	 GameState gameState{};
 	 gameState.PlatformInputHandle = &m_AppContext->InputRing;
 
@@ -53,6 +59,11 @@ void GameThread::RunLoop() {
 				m_GameLib.Update(&gameState);
 			}
 
+			// Update all loaded plugins
+			if (m_PluginManager) {
+				m_PluginManager->UpdateAll(gameState.DeltaTime);
+			}
+
 			if (gameState.QuitRequested) {
 				m_Running.store(false, std::memory_order_relaxed);
 				m_AppContext->ShutdownRequested.store(true, std::memory_order_relaxed);
@@ -70,6 +81,10 @@ void GameThread::RunLoop() {
 
 	if (m_GameLib.IsValid()) {
 		m_GameLib.ExitGame();
+	}
+
+	if (m_PluginManager) {
+		m_PluginManager->ShutdownAll();
 	}
 
 	UnloadGameLibrary();

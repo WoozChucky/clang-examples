@@ -10,6 +10,7 @@
 #include "glm/vec4.hpp"
 
 #include "Camera.h"
+#include "ImGuiRenderer.h"
 
 struct GpuTimer
 {
@@ -98,7 +99,7 @@ struct PrimitiveInstance
     glm::vec4     params;    // optional parameters per primitive
 };
 
-class Renderer {
+class Renderer final {
 public:
     explicit Renderer(GLFWwindow* window) : m_Window(window) {}
     ~Renderer() {
@@ -115,11 +116,12 @@ public:
     void ToggleVSync();
 
 private:
-    void RenderImGui();
     void PreparePrimitivePass();
     void RenderSomethingTemporarily(nvrhi::IFramebuffer* frameBuffer, PerspectiveCamera3D& camera);
 
     constexpr static uint32_t   SHUTDOWN_TIMEOUT = 5000;
+
+    std::unique_ptr<ImGuiRenderer> m_ImGuiRenderer;
 
     nvrhi::DeviceHandle         m_Device = nullptr;
     nvrhi::CommandListHandle    m_CommandList = nullptr;
