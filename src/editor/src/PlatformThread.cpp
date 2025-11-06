@@ -30,7 +30,7 @@ bool PlatformThread::Init() {
 
     // Create window on platform thread (main thread).
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    m_Window = glfwCreateWindow(1920, 1080, "Three-Thread Demo", nullptr, nullptr);
+    m_Window = glfwCreateWindow(m_AppContext->Settings.windowWidth, m_AppContext->Settings.windowHeight, "Three-Thread Demo", nullptr, nullptr);
     if (!m_Window) {
         SM_ERROR("glfwCreateWindow failed");
         glfwTerminate();
@@ -134,7 +134,6 @@ void PlatformThread::OnMouseWheelCallback(double offsetX, double offsetY) {
         // drop
         SM_WARN("InputRing full, dropping evt");
     }
-    SM_TRACE("Mouse wheel: offsetX=%.2f offsetY=%.2f", offsetX, offsetY);
 }
 
 void PlatformThread::OnKeyCallback(int key, int scancode, int action, int mods) {
@@ -158,6 +157,14 @@ void PlatformThread::OnKeyCallback(int key, int scancode, int action, int mods) 
         } else {
             glfwSetInputMode(m_Window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             SM_TRACE("Cursor normal");
+        }
+    }
+
+    if (key == GLFW_KEY_F5 && action == GLFW_PRESS) {
+        SM_TRACE("F5 pressed - toggling VSync");
+        RendererCommand cmd{RendererCommandType::ToggleVSync};
+        if (!m_AppContext->RendererCommandRing.Push(cmd)) {
+            SM_WARN("RendererCommandRing full, dropping cmd");
         }
     }
 }

@@ -38,6 +38,10 @@ void RenderThread::RunLoop()
         RendererCommand cmd{};
         while (m_AppContext->RendererCommandRing.Pop(cmd)) {
             switch (cmd.Type) {
+                case RendererCommandType::ToggleVSync:
+                    m_Renderer->ToggleVSync();
+                    SM_TRACE("VSync toggled");
+                    break;
                 case RendererCommandType::Resize:
                     m_Renderer->Resize(cmd.ResizeParams.Width, cmd.ResizeParams.Height);
                     break;
@@ -105,7 +109,7 @@ void RenderThread::Stop()
 
 bool RenderThread::Initialize()
 {
-    m_Renderer = std::make_unique<Renderer>(m_Window);
+    m_Renderer = std::make_unique<Renderer>(m_Window, m_AppContext->Settings);
     if (!m_Renderer->Init(m_API)) {
         SM_ERROR("RenderThread: Initialize failed");
         return false;

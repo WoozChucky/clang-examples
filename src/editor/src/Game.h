@@ -21,11 +21,14 @@ enum class GameStateId : uint32_t {
     Paused = 4,
 };
 
+struct ApplicationSettings;
+
 struct GameState {
     GameStateId StateId = GameStateId::Uninitialized;
     double DeltaTime = 0.0;
     void* PlatformInputHandle = nullptr;
     void* GameOutputHandle = nullptr;
+    const ApplicationSettings* Settings = nullptr;
     bool QuitRequested = false;
     PerspectiveCamera3D GameCamera {};
     OrthographicCamera2D UICamera {};

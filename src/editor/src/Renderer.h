@@ -3,6 +3,7 @@
 #include <nvrhi/nvrhi.h>
 #include <GLFW/glfw3.h>
 
+#include "ApplicationContext.h"
 #include "RendererBackend.h"
 #include "glm/mat4x4.hpp"
 #include "glm/vec2.hpp"
@@ -101,7 +102,11 @@ struct PrimitiveInstance
 
 class Renderer final {
 public:
-    explicit Renderer(GLFWwindow* window) : m_Window(window) {}
+    explicit Renderer(GLFWwindow* window, const ApplicationSettings& settings) : m_Window(window) {
+        m_BackendSettings.backBufferWidth = settings.windowWidth;
+        m_BackendSettings.backBufferHeight = settings.windowHeight;
+        m_BackendSettings.vsyncEnabled = settings.vsyncEnabled;
+    }
     ~Renderer() {
         Shutdown();
     }

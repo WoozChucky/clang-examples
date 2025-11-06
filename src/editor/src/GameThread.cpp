@@ -39,6 +39,7 @@ void GameThread::RunLoop() {
 
 	 GameState gameState{};
 	 gameState.PlatformInputHandle = &m_AppContext->InputRing;
+	 gameState.Settings = &m_AppContext->Settings;
 
 	 constexpr double targetDt =1.0 /60.0;
 	 auto next = Clock::now();

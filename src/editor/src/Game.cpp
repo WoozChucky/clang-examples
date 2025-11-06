@@ -11,7 +11,6 @@ static bool gKeysDown[KEY_LAST + 1] = {};
 static int32_t gMouseWheel = 0;
 static bool   g_MouseAimEnabled = false;        // toggled by T
 static double g_MouseX = 0.0, g_MouseY = 0.0;   // last mouse position in window coords
-static int    g_ViewportW = 1920, g_ViewportH = 1080; // update in GameResize
 
 using namespace Input;
 
@@ -108,8 +107,8 @@ void GameUpdate(GameState* state) {
 
     		if (g_MouseAimEnabled) {
     			// Reset virtual cursor to center when enabling mouse aim
-    			g_MouseX = g_ViewportW / 2.0;
-    			g_MouseY = g_ViewportH / 2.0;
+    			g_MouseX = state->Settings->windowWidth / 2.0;
+    			g_MouseY = state->Settings->windowHeight / 2.0;
     		}
 
     		SM_TRACE("[GAMEDLL] Mouse Aim %s", g_MouseAimEnabled ? "Enabled" : "Disabled")
@@ -143,8 +142,8 @@ void GameUpdate(GameState* state) {
 void HandleFreeLook() {
 	if (!g_MouseAimEnabled) return;
 
-	static double lastMouseX = g_ViewportW / 2.0;
-	static double lastMouseY = g_ViewportH / 2.0;
+	static double lastMouseX = g_GameState->Settings->windowWidth / 2.0;
+	static double lastMouseY = g_GameState->Settings->windowHeight / 2.0;
 
 	// Compute delta from last frame
 	const double dx = g_MouseX - lastMouseX;
