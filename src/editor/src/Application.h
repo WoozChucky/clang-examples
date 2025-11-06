@@ -10,6 +10,9 @@ public:
 
     bool Init() {
         m_AppContext = std::make_shared<ApplicationContext>();
+        m_AppContext->Settings.windowWidth = 1920;
+        m_AppContext->Settings.windowHeight = 1080;
+        m_AppContext->Settings.vsyncEnabled = true;
 
         m_PlatformThread = std::make_unique<PlatformThread>(m_AppContext);
         if (!m_PlatformThread->Init()) {

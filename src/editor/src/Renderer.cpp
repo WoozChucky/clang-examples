@@ -175,6 +175,9 @@ void Renderer::Resize(const uint32_t width, const uint32_t height) {
 
 void Renderer::ToggleVSync() {
     m_BackendSettings.vsyncEnabled = !m_BackendSettings.vsyncEnabled;
+    if (m_Backend) {
+        m_Backend->SetVSync(m_BackendSettings.vsyncEnabled);
+    }
 }
 
 inline auto PRIM_VS_HLSL = R"(

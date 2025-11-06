@@ -5,6 +5,12 @@
 #include "SpscRing.h"
 #include "Seqlock.h"
 
+struct ApplicationSettings {
+    uint32_t windowWidth = 1920;
+    uint32_t windowHeight = 1080;
+    bool vsyncEnabled = true;
+};
+
 struct UiCommand {
     enum Type : uint8_t { SetVelocity = 0, TogglePause = 1 } type{};
     float fval{}; bool bval{};
@@ -35,6 +41,9 @@ struct RendererCommand {
 };
 
 struct ApplicationContext {
+    // Application settings
+    ApplicationSettings Settings{};
+
     // Shutdown
     std::atomic<bool> ShutdownRequested{false};
 

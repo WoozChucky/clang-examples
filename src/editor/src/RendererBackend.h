@@ -36,6 +36,7 @@ public:
     virtual void CreateSwapChain(uint32_t width, uint32_t height) = 0;
     virtual nvrhi::CommandListHandle CreateCommandList() = 0;
     virtual void ResizeSwapChain(uint32_t width, uint32_t height) = 0;
+    virtual void SetVSync(bool enabled) { m_Settings.vsyncEnabled = enabled; }
     virtual nvrhi::ITexture* GetCurrentBackBuffer() = 0;
     virtual nvrhi::ITexture* GetBackBuffer(uint32_t index) = 0;
     virtual uint32_t GetCurrentBackBufferIndex() = 0;
