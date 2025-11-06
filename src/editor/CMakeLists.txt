@@ -6,6 +6,9 @@ add_executable(editor
     src/RendererBackendDX12.cpp
     src/RendererBackendVulkan.cpp
     src/Renderer.cpp
+    src/ImGuiRenderer.cpp
+    src/DotNetPluginHost.cpp
+    src/DotNetPluginManager.cpp
     ../../third_party/tracy/public/TracyClient.cpp
     src/imgui_nvrhi.cpp
     src/registered_font.cpp
@@ -45,6 +48,24 @@ set_target_properties(editor PROPERTIES
 add_custom_command(TARGET editor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/assets ${RUNTIME_DIR}/assets
+)
+
+# Add .NET hosting include directory
+target_include_directories(editor PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/dotnet/include
+)
+
+# Link against nethost
+target_link_libraries(editor PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/dotnet/lib/nethost.lib
+)
+
+# Copy runtime DLLs to output directory
+add_custom_command(TARGET editor POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/nethost.dll
+        ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/hostfxr.dll
+        $<TARGET_FILE_DIR:editor>
 )
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")

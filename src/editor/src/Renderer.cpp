@@ -44,6 +44,12 @@ bool Renderer::Init(const RendererAPI api) {
 
     m_GpuTimer.Init(m_Device, 256);
 
+    m_ImGuiRenderer = std::make_unique<ImGuiRenderer>();
+    if (!m_ImGuiRenderer->Init(m_Window, m_Device)) {
+        SM_ERROR("Failed to initialize ImGuiRenderer");
+        return false;
+    }
+
     SM_TRACE("Renderer initialized with API: %d", static_cast<int>(m_Backend->GetAPI()));
 
     PreparePrimitivePass();
@@ -52,6 +58,11 @@ bool Renderer::Init(const RendererAPI api) {
 }
 
 void Renderer::Shutdown(const uint32_t timeoutMs) {
+    if (m_ImGuiRenderer) {
+        m_ImGuiRenderer.reset();
+        m_ImGuiRenderer = nullptr;
+    }
+
     m_GpuTimer.Cleanup();
 
     {
@@ -134,7 +145,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Ort
                 m_GpuTimer.Advance();
             }
 
-            RenderImGui();
+            m_ImGuiRenderer->Render(frameBuffer, deltaTime);
 
             {
                 ZoneScopedN("Present");
@@ -164,9 +175,6 @@ void Renderer::Resize(const uint32_t width, const uint32_t height) {
 
 void Renderer::ToggleVSync() {
     m_BackendSettings.vsyncEnabled = !m_BackendSettings.vsyncEnabled;
-}
-
-void Renderer::RenderImGui() {
 }
 
 inline auto PRIM_VS_HLSL = R"(
