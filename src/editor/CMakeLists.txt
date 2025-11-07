@@ -6,6 +6,7 @@ add_executable(editor
     src/RendererBackendDX12.cpp
     src/RendererBackendVulkan.cpp
     src/Renderer.cpp
+    src/PrimitiveRenderPass.cpp
     src/ImGuiRenderer.cpp
     src/DotNetPluginHost.cpp
     src/DotNetPluginManager.cpp
