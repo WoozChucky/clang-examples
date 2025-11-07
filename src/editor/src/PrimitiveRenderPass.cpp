@@ -1,0 +1,275 @@
+#include "PrimitiveRenderPass.h"
+#include "Renderer.h"
+#include "lib.h"
+#include <nvrhi/utils.h>
+
+// Shader source code
+static const char* PRIM_VS_HLSL = R"(
+cbuffer PerFrame : register(b0, space0) // set = 0, binding = 0
+{
+    float4x4 uModel;
+    float4x4 uVP;
+    float4 uCameraPos; // xyz = camera world pos
+};
+
+struct VSIn { float3 Pos : POSITION; };
+struct VSOut {
+    float4 PosH  : SV_POSITION;
+    float3 World : TEXCOORD0;
+};
+
+VSOut main_vs(VSIn vin)
+{
+    VSOut o;
+    float4 wpos = mul(float4(vin.Pos, 1.0f), uModel);
+    o.World = wpos.xyz;
+    o.PosH = mul(uVP, wpos);
+    return o;
+}
+)";
+
+static const char* PRIM_PS_HLSL = R"(
+cbuffer PerFrame : register(b0, space0) // set = 0, binding = 0
+{
+    float4x4 uModel;
+    float4x4 uVP;
+    float4 uCameraPos; // xyz = camera world pos
+};
+
+cbuffer PrimPerDraw : register(b2, space0) // set = 0, binding = 2
+{
+    float4 GridColor;
+    float4 AxisXColor;
+    float4 AxisZColor;
+    float2 GridParams;  // (gridScale, lineThickness)
+    float2 FadeParams;  // (fadeStart, fadeEnd)
+};
+
+struct PSIn {
+    float4 PosH   : SV_POSITION;
+    float3 World  : TEXCOORD0;
+};
+
+float4 main_ps(PSIn i) : SV_TARGET
+{
+    float3 P = i.World;
+
+    // Fade by camera distance
+    float dist = length(P - uCameraPos.xyz);
+    float fade = 1.0;
+    if (FadeParams.x < FadeParams.y) {
+        fade = saturate(1.0 - smoothstep(FadeParams.x, FadeParams.y, dist));
+    }
+
+    // Grid coordinates in world units scaled by gridScale
+    float gridScale = max(GridParams.x, 1e-4);
+    float2 g = P.xz * gridScale;          // grid coordinates (world * scale)
+    float2 fracg = abs(frac(g) - 0.5);    // distance inside cell
+
+    // Use derivatives of the grid coordinate across the screen for AA
+    float2 fw_g = max(abs(fwidth(g)), 1e-6);
+
+    float thickness = max(GridParams.y, 0.5); // user thickness (approx pixels)
+    // Anti-aliased grid lines (smoothstep over screen-space derivative scale)
+    float gx = 1.0 - smoothstep(0.0, 0.5 * fw_g.x * thickness, fracg.x);
+    float gz = 1.0 - smoothstep(0.0, 0.5 * fw_g.y * thickness, fracg.y);
+    float gridLine = max(gx, gz);
+
+    // Axis lines at world X==0 and Z==0 (use g directly; axis at g==0)
+    float axisWidth = 1.5 * thickness;
+    float a_fw_x = max(abs(fwidth(g.x)), 1e-6);
+    float a_fw_y = max(abs(fwidth(g.y)), 1e-6);
+    float ax = 1.0 - smoothstep(0.0, 0.5 * a_fw_x * axisWidth, abs(g.x));
+    float az = 1.0 - smoothstep(0.0, 0.5 * a_fw_y * axisWidth, abs(g.y));
+
+    float3 color = GridColor.rgb * gridLine;
+    color = lerp(color, AxisXColor.rgb, ax);
+    color = lerp(color, AxisZColor.rgb, az);
+
+    return float4(color * fade, 1.0);
+}
+)";
+
+bool PrimitiveRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer) {
+    m_Device = device;
+    m_Renderer = renderer;
+
+    if (!m_Device || !m_Renderer) {
+        SM_ERROR("PrimitiveRenderPass::Initialize - Invalid device or renderer");
+        return false;
+    }
+
+    // Create constant buffers
+    m_PerFrameConstantBuffer = m_Device->createBuffer(
+        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(PerFrameCBData), "PerFrameCBData")
+            .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
+            .setKeepInitialState(true)
+    );
+
+    m_PerDrawCB = m_Device->createBuffer(
+        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(PrimPerDrawCB), "PrimPerDrawCB")
+            .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
+            .setKeepInitialState(true)
+    );
+
+    // Compile primitive shaders (procedural grid)
+    m_VS = m_Renderer->CreateShader(nvrhi::ShaderType::Vertex, PRIM_VS_HLSL, 0, "main_vs", "vs_5_1");
+    m_PS = m_Renderer->CreateShader(nvrhi::ShaderType::Pixel, PRIM_PS_HLSL, 0, "main_ps", "ps_5_1");
+
+    if (!m_VS || !m_PS) {
+        SM_ERROR("Failed to create primitive shaders");
+        return false;
+    }
+
+    // Create big plane geometry on Y=0 (two triangles)
+    struct PrimVertex { float x, y, z; };
+    const float S = 2000.0f;
+    PrimVertex verts[4] = { {-S,0,-S}, {+S,0,-S}, {+S,0,+S}, {-S,0,+S} };
+    uint16_t inds[6] = { 0,1,2, 0,2,3 };
+
+    auto cl = m_Device->createCommandList();
+    cl->open();
+
+    nvrhi::BufferDesc vbDesc;
+    vbDesc.byteSize = sizeof(verts);
+    vbDesc.isVertexBuffer = true;
+    vbDesc.debugName = "PrimPlaneVB";
+    vbDesc.initialState = nvrhi::ResourceStates::CopyDest;
+    m_VertexBuffer = m_Device->createBuffer(vbDesc);
+
+    cl->beginTrackingBufferState(m_VertexBuffer, nvrhi::ResourceStates::CopyDest);
+    cl->writeBuffer(m_VertexBuffer, verts, sizeof(verts));
+    cl->setPermanentBufferState(m_VertexBuffer, nvrhi::ResourceStates::VertexBuffer);
+
+    nvrhi::BufferDesc ibDesc;
+    ibDesc.byteSize = sizeof(inds);
+    ibDesc.isIndexBuffer = true;
+    ibDesc.debugName = "PrimPlaneIB";
+    ibDesc.initialState = nvrhi::ResourceStates::CopyDest;
+    m_IndexBuffer = m_Device->createBuffer(ibDesc);
+
+    cl->beginTrackingBufferState(m_IndexBuffer, nvrhi::ResourceStates::CopyDest);
+    cl->writeBuffer(m_IndexBuffer, inds, sizeof(inds));
+    cl->setPermanentBufferState(m_IndexBuffer, nvrhi::ResourceStates::IndexBuffer);
+
+    cl->close();
+
+    m_IndexCount = 6;
+
+    m_Device->executeCommandList(cl);
+
+    // Create input layout (POSITION only)
+    nvrhi::VertexAttributeDesc attr;
+    attr.setName("POSITION").setFormat(nvrhi::Format::RGB32_FLOAT).setOffset(0).setBufferIndex(0).setElementStride(sizeof(PrimVertex));
+    m_InputLayout = m_Device->createInputLayout(&attr, 1, m_VS);
+
+    // Create binding layout/set (b0 = PerFrame from main pass, b2 = PrimPerDraw)
+    nvrhi::BindingSetDesc bs;
+    bs.bindings = {
+        nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameConstantBuffer),
+        nvrhi::BindingSetItem::ConstantBuffer(2, m_PerDrawCB)
+    };
+
+    if (!nvrhi::utils::CreateBindingSetAndLayout(
+            m_Device,
+            nvrhi::ShaderType::All,
+            0,
+            bs,
+            m_BindingLayout,
+            m_BindingSet, true))
+    {
+        SM_ERROR("Failed to create Primitive binding set/layout");
+        return false;
+    }
+
+    SM_TRACE("PrimitiveRenderPass initialized successfully");
+    return true;
+}
+
+void PrimitiveRenderPass::Render(
+    nvrhi::ICommandList* commandList,
+    nvrhi::IFramebuffer* framebuffer,
+    PerspectiveCamera3D& camera,
+    double deltaTime)
+{
+    if (!m_Pipeline)
+    {
+        const auto fbi = framebuffer->getFramebufferInfo();
+        nvrhi::GraphicsPipelineDesc pso;
+        pso.VS = m_VS;
+        pso.PS = m_PS;
+        pso.inputLayout = m_InputLayout;
+        pso.bindingLayouts = { m_BindingLayout };
+        pso.primType = nvrhi::PrimitiveType::TriangleList;
+        pso.renderState.depthStencilState.depthTestEnable = false; // no depth buffer yet
+        pso.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+        m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
+    }
+
+    // Common VP for this frame
+    glm::mat4 V = camera.get_view_matrix();
+    glm::mat4 P = camera.get_projection_matrix();
+
+    // Defaults for the grid
+    PrimPerDrawCB prim{};
+    prim.GridColor  = {0.35f, 0.35f, 0.35f, 1.0f};
+    prim.AxisXColor = {1.0f, 0.2f, 0.2f, 1.0f};
+    prim.AxisZColor = {0.2f, 0.6f, 1.0f, 1.0f};
+    prim.GridParams = {1.f, 2.0f};   // 1 unit per cell, 2px thickness
+    prim.FadeParams = {100.0f, 150.0f};
+    commandList->writeBuffer(m_PerDrawCB, &prim, sizeof(prim));
+
+    // State
+    nvrhi::GraphicsState primState;
+    primState.pipeline = m_Pipeline.Get();
+    primState.framebuffer = framebuffer;
+    primState.viewport.addViewportAndScissorRect(framebuffer->getFramebufferInfo().getViewport());
+    primState.bindings = { m_BindingSet };
+    primState.vertexBuffers = { nvrhi::VertexBufferBinding(m_VertexBuffer, 0, 0) };
+    primState.indexBuffer = nvrhi::IndexBufferBinding(m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+
+    PrimitiveInstance inst{};
+    inst.type = PrimitiveType::Plane;
+    inst.transform = glm::mat4(1.0f); // Typically identity for Y=0 grid
+    inst.color = {1,1,1,1};
+    inst.params = {0,0,0,0};
+
+    PerFrameCBData pf{};
+    pf.Model = inst.transform;
+    pf.VP = P * V;
+    pf.CameraPos = glm::vec4(camera.position, 0.0f);
+
+    commandList->writeBuffer(m_PerFrameConstantBuffer, &pf, sizeof(pf));
+
+    commandList->setGraphicsState(primState);
+
+    nvrhi::DrawArguments args{};
+    args.vertexCount = m_IndexCount; // vertexCount acts as index count for indexed draw per NVRHI documentation
+    args.instanceCount = 1;
+    args.startIndexLocation = 0;
+    args.startVertexLocation = 0;
+
+    commandList->drawIndexed(args);
+}
+
+void PrimitiveRenderPass::Shutdown() {
+    // Clear all pipeline objects
+    m_Pipeline = nullptr;
+    m_BindingSet = nullptr;
+    m_BindingLayout = nullptr;
+    m_InputLayout = nullptr;
+    m_IndexCount = 0;
+    m_PerFrameConstantBuffer = nullptr;
+    m_PerDrawCB = nullptr;
+    m_VertexBuffer = nullptr;
+    m_IndexBuffer = nullptr;
+    m_VS = nullptr;
+    m_PS = nullptr;
+    
+    m_Device = nullptr;
+}
+
+void PrimitiveRenderPass::OnResize(uint32_t width, uint32_t height) {
+    // Invalidate pipeline on resize so it gets recreated with new framebuffer info
+    m_Pipeline = nullptr;
+}
