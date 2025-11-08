@@ -96,10 +96,18 @@ void PlatformThread::OnCursorPositionCallback(double x, double y) {
     ev.Type = InputEventType::MouseMove;
     ev.Time = TimeNowSec();
     ev.MouseMoveEvent.X = x; ev.MouseMoveEvent.Y = y;
+
+    // Push to game thread
     if (!m_AppContext->InputRing.Push(ev)) {
         // drop if full (in real engine you'd grow ring or backpressure)
         SM_WARN("InputRing full, dropping evt");
     }
+
+    // Push to ImGui (renderer thread)
+    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
+        SM_WARN("ImGuiInputRing full, dropping evt");
+    }
+
     // also update atomic latest input state for late-latch
     const InputState* s = m_AppContext->LatestInputStatePtr.load(std::memory_order_acquire);
     if (!s) s = &m_AppContext->InputStateA; // default
@@ -117,11 +125,16 @@ void PlatformThread::OnMouseButtonCallback(int button, int action, int mods) {
     ev.Time = TimeNowSec();
     ev.MouseButtonEvent.Button = static_cast<Button>(button);
     ev.MouseButtonEvent.Action = static_cast<InputAction>(action);
+
+    // Push to game thread
     if (!m_AppContext->InputRing.Push(ev)) {
-        // drop
         SM_WARN("InputRing full, dropping evt");
     }
-    // no late-latch here
+
+    // Push to ImGui (renderer thread)
+    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
+        SM_WARN("ImGuiInputRing full, dropping evt");
+    }
 }
 
 void PlatformThread::OnMouseWheelCallback(double offsetX, double offsetY) {
@@ -130,9 +143,15 @@ void PlatformThread::OnMouseWheelCallback(double offsetX, double offsetY) {
     ev.Time = TimeNowSec();
     ev.MouseScrollEvent.OffsetX = offsetX;
     ev.MouseScrollEvent.OffsetY = offsetY;
+
+    // Push to game thread
     if (!m_AppContext->InputRing.Push(ev)) {
-        // drop
         SM_WARN("InputRing full, dropping evt");
+    }
+
+    // Push to ImGui (renderer thread)
+    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
+        SM_WARN("ImGuiInputRing full, dropping evt");
     }
 }
 
@@ -143,9 +162,15 @@ void PlatformThread::OnKeyCallback(int key, int scancode, int action, int mods) 
     ev.KeyEvent.Key = static_cast<KeyCode>(key);
     ev.KeyEvent.Action = static_cast<InputAction>(action);
     ev.KeyEvent.Modifier = static_cast<KeyModifier>(mods);
+
+    // Push to game thread
     if (!m_AppContext->InputRing.Push(ev)) {
-        // drop
         SM_WARN("InputRing full, dropping evt");
+    }
+
+    // Push to ImGui (renderer thread)
+    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
+        SM_WARN("ImGuiInputRing full, dropping evt");
     }
 
     if (key == GLFW_KEY_T && action == GLFW_PRESS) {
@@ -174,9 +199,15 @@ void PlatformThread::OnTextInputCallback(unsigned int code) {
     ev.Type = InputEventType::TextInput;
     ev.Time = TimeNowSec();
     ev.TextEvent.Key = code;
+
+    // Push to game thread
     if (!m_AppContext->InputRing.Push(ev)) {
-        // drop
         SM_WARN("InputRing full, dropping evt");
+    }
+
+    // Push to ImGui (renderer thread)
+    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
+        SM_WARN("ImGuiInputRing full, dropping evt");
     }
 }
 

@@ -51,6 +51,10 @@ struct ApplicationContext {
     static constexpr int InputRingSize = 256;
     SpscRing<InputEvent, InputRingSize> InputRing{};
 
+    // Input: Platform -> ImGui (Renderer Thread)
+    static constexpr int ImGuiInputRingSize = 256;
+    SpscRing<InputEvent, ImGuiInputRingSize> ImGuiInputRing{};
+
     // UI: Render -> Game (For future use with Immediate mode UI)
     static constexpr int UiRingSize = 128;
     SpscRing<UiCommand, UiRingSize> UiRing{};

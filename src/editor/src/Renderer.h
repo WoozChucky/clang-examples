@@ -60,10 +60,10 @@ struct GpuTimer
 
 class Renderer final {
 public:
-    explicit Renderer(GLFWwindow* window, const ApplicationSettings& settings) : m_Window(window) {
-        m_BackendSettings.backBufferWidth = settings.windowWidth;
-        m_BackendSettings.backBufferHeight = settings.windowHeight;
-        m_BackendSettings.vsyncEnabled = settings.vsyncEnabled;
+    explicit Renderer(GLFWwindow* window, ApplicationContext* appContext) : m_Window(window), m_AppContext(appContext) {
+        m_BackendSettings.backBufferWidth = appContext->Settings.windowWidth;
+        m_BackendSettings.backBufferHeight = appContext->Settings.windowHeight;
+        m_BackendSettings.vsyncEnabled = appContext->Settings.vsyncEnabled;
     }
     ~Renderer() {
         Shutdown();
@@ -100,6 +100,7 @@ private:
     GpuTimer                    m_GpuTimer {};
 
     GLFWwindow*                 m_Window;
+    ApplicationContext*         m_AppContext;
 
     RendererBackend*            m_Backend = nullptr;
     RendererBackendSettings     m_BackendSettings{};
