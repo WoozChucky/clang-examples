@@ -109,7 +109,7 @@ void RenderThread::Stop()
 
 bool RenderThread::Initialize()
 {
-    m_Renderer = std::make_unique<Renderer>(m_Window, m_AppContext->Settings);
+    m_Renderer = std::make_unique<Renderer>(m_Window, m_AppContext.get());
     if (!m_Renderer->Init(m_API)) {
         SM_ERROR("RenderThread: Initialize failed");
         return false;

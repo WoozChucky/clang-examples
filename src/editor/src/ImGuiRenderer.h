@@ -7,6 +7,7 @@
 #include "imgui_nvrhi.h"
 
 class RegisteredFont;
+struct ApplicationContext;
 
 class ImGuiRenderer final {
 public:
@@ -15,13 +16,15 @@ public:
         Shutdown();
     }
 
-    bool Init(GLFWwindow* window, nvrhi::IDevice* device);
+    bool Init(GLFWwindow* window, nvrhi::IDevice* device, ApplicationContext* appContext);
     void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime);
     void Shutdown();
 private:
     std::shared_ptr<RegisteredFont> CreateFontFromFile(const char* fontFile, float fontSize);
+    void ProcessInputEvents();
 
 private:
     std::vector<std::shared_ptr<RegisteredFont>> m_fonts;
     std::unique_ptr<ImGui_NVRHI> m_ImGuiNvrhi;
+    ApplicationContext* m_AppContext = nullptr;
 };

@@ -46,7 +46,7 @@ bool Renderer::Init(const RendererAPI api) {
     m_GpuTimer.Init(m_Device, 256);
 
     m_ImGuiRenderer = std::make_unique<ImGuiRenderer>();
-    if (!m_ImGuiRenderer->Init(m_Window, m_Device)) {
+    if (!m_ImGuiRenderer->Init(m_Window, m_Device, m_AppContext)) {
         SM_ERROR("Failed to initialize ImGuiRenderer");
         return false;
     }
