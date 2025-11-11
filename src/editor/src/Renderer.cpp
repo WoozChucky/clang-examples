@@ -38,10 +38,23 @@ bool Renderer::Init(const RendererAPI api) {
     }
 
     m_Device = m_Backend->CreateDevice();
+    if (!m_Device) {
+        SM_ERROR("Failed to create Device");
+        delete m_Backend;
+        m_Backend = nullptr;
+        return false;
+    }
 
     m_Backend->CreateSwapChain(m_BackendSettings.backBufferWidth, m_BackendSettings.backBufferHeight);
 
     m_CommandList = m_Backend->CreateCommandList();
+    if (!m_CommandList) {
+        SM_ERROR("Failed to create CommandList");
+        delete m_Backend;
+        m_Backend = nullptr;
+        m_Device = nullptr;
+        return false;
+    }
 
     m_GpuTimer.Init(m_Device, 256);
 
@@ -97,10 +110,11 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
 
 float Renderer::Render(double deltaTime, float red, float green, float blue, OrthographicCamera2D& uiCamera, PerspectiveCamera3D& gameCamera) {
 
-    if (!m_Backend || !m_Device) {
-        SM_ERROR("Failed to render API: not initialized");
-        return 0.0f;
-    }
+if (!m_Backend || !m_Device || !m_CommandList) {
+    SM_ERROR("Failed to render: renderer not fully initialized (backend=%p, device=%p, cmdlist=%p)",
+             (void*)m_Backend, (void*)m_Device.Get(), (void*)m_CommandList.Get());
+    return 0.0f;
+}
 
     float secs = 0;
     {
