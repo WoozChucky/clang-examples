@@ -40,17 +40,25 @@ RendererAPI RendererBackendDX12::GetAPI() const {
 
 nvrhi::DeviceHandle RendererBackendDX12::CreateDevice() {
 
-    m_DxgiAdapter = PickHardwareAdapter(m_DxgiFactory2);
-    if (!m_DxgiAdapter) {
-        // No hardware adapter found; user might want to fall back to WARP.
-        // We throw here to keep this example focused. In production, consider creating WARP adapter:
-        // factory->EnumWarpAdapter(IID_PPV_ARGS(&warpAdapter))
-        SM_ASSERT(false, "No suitable hardware adapter found for D3D12.");
-        return nullptr;
-    }
+if (!m_DxgiFactory2) {
+    SM_ERROR("CreateDevice called before DxgiFactory2 was initialized");
+    return nullptr;
+}
+
+m_DxgiAdapter = PickHardwareAdapter(m_DxgiFactory2);
+if (!m_DxgiAdapter) {
+    // No hardware adapter found; user might want to fall back to WARP.
+    // We throw here to keep this example focused. In production, consider creating WARP adapter:
+    // factory->EnumWarpAdapter(IID_PPV_ARGS(&warpAdapter))
+    SM_ERROR("No suitable hardware adapter found for D3D12.");
+    return nullptr;
+}
 
     HRESULT hr = D3D12CreateDevice(m_DxgiAdapter, D3D_FEATURE_LEVEL_11_1, IID_PPV_ARGS(&m_Device12));
-    HR_ASSERT(hr, "Failed to create D3D12 device");
+    if (FAILED(hr)) {
+        SM_ERROR("Failed to create D3D12 device (HRESULT=0x%08X)", hr);
+        return nullptr;
+    }
 
 #if defined(_DEBUG)
     {
@@ -76,7 +84,12 @@ nvrhi::DeviceHandle RendererBackendDX12::CreateDevice() {
 #endif
 
     // Sanity: confirm CheckFeatureSupport & capability tiers (DXR/VRS/Mesh/SamplerFeedback).
-    ValidateDX12UltimateCapabilities(m_Device12);
+    try {
+        ValidateDX12UltimateCapabilities(m_Device12);
+    }
+    catch (const std::exception& e) {
+        SM_ERROR("DX12 Ultimate validation failed: %s", e.what());
+    }
 
     D3D12_COMMAND_QUEUE_DESC queueDesc;
     ZeroMemory(&queueDesc, sizeof(queueDesc));
@@ -119,9 +132,17 @@ nvrhi::DeviceHandle RendererBackendDX12::CreateDevice() {
     SM_TRACE("[D3D12] Created graphics (DIRECT) queue, compute queue, and copy queue.");
 
     nvrhi::DeviceHandle nvrhiDevice = nvrhi::d3d12::createDevice(m_DeviceDesc);
+    if (!nvrhiDevice) {
+        SM_ERROR("Failed to create NVRHI device from D3D12 device");
+        return nullptr;
+    }
 
 #if defined(_DEBUG)
     nvrhiDevice = nvrhi::validation::createValidationLayer(nvrhiDevice);
+    if (!nvrhiDevice) {
+        SM_ERROR("Failed to create NVRHI validation layer");
+        return nullptr;
+    }
 #endif
 
     m_Device = nvrhiDevice;
@@ -215,6 +236,11 @@ void RendererBackendDX12::CreateSwapChain(const uint32_t width, const uint32_t h
 }
 
 nvrhi::CommandListHandle RendererBackendDX12::CreateCommandList() {
+    if (!m_Device) {
+        SM_ERROR("CreateCommandList called with null Device");
+        return nullptr;
+    }
+
     if (!m_CommandList) {
         m_CommandList = m_Device->createCommandList();
     }
@@ -258,9 +284,14 @@ nvrhi::IFramebuffer * RendererBackendDX12::GetFrameBuffer(int32_t index) {
 }
 
 bool RendererBackendDX12::BeginFrame() {
-    DXGI_SWAP_CHAIN_DESC1 newSwapChainDesc;
-    DXGI_SWAP_CHAIN_FULLSCREEN_DESC newFullScreenDesc;
-    if (SUCCEEDED(m_SwapChain->GetDesc1(&newSwapChainDesc)) && SUCCEEDED(m_SwapChain->GetFullscreenDesc(&newFullScreenDesc)))
+if (!m_SwapChain) {
+    SM_ERROR("BeginFrame called with null SwapChain");
+    return false;
+}
+
+DXGI_SWAP_CHAIN_DESC1 newSwapChainDesc;
+DXGI_SWAP_CHAIN_FULLSCREEN_DESC newFullScreenDesc;
+if (SUCCEEDED(m_SwapChain->GetDesc1(&newSwapChainDesc)) && SUCCEEDED(m_SwapChain->GetFullscreenDesc(&newFullScreenDesc)))
     {
         if (m_FullScreenDesc.Windowed != newFullScreenDesc.Windowed || m_ResizeRequested)
         {
@@ -373,11 +404,16 @@ void RendererBackendDX12::DestroyDeviceAndSwapChain() {
 
 // Private Impls
 void RendererBackendDX12::CreateRenderTargets() {
-    m_SwapChainBuffers.resize(m_SwapChainDesc.BufferCount);
-    m_RhiSwapChainBuffers.resize(m_SwapChainDesc.BufferCount);
+if (!m_SwapChain || !m_Device) {
+    SM_ERROR("CreateRenderTargets called without SwapChain or Device");
+    return;
+}
 
-    for(UINT n = 0; n < m_SwapChainDesc.BufferCount; n++)
-    {
+m_SwapChainBuffers.resize(m_SwapChainDesc.BufferCount);
+m_RhiSwapChainBuffers.resize(m_SwapChainDesc.BufferCount);
+
+for(UINT n = 0; n < m_SwapChainDesc.BufferCount; n++)
+{
         const HRESULT hr = m_SwapChain->GetBuffer(n, IID_PPV_ARGS(&m_SwapChainBuffers[n]));
         HR_ASSERT(hr, "Failed to get swap chain buffer");
 
@@ -410,6 +446,8 @@ void RendererBackendDX12::ReleaseRenderTargets() {
     // Set the events so that WaitForSingleObject in OneFrame will not hang later
     for(auto e : m_FrameFenceEvents)
         SetEvent(e);
+
+    m_SwapChainFramebuffers.clear();
 
     // Release the old buffers because ResizeBuffers requires that
     m_RhiSwapChainBuffers.clear();
