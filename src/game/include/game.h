@@ -1,76 +1,57 @@
 #pragma once
 
-#include "lib.h"
-#include "ui.h"
-#include "input.h"
-#include "render.h"
-#include "sound.h"
+#ifdef _WIN32
+#define DEBUG_BREAK() __debugbreak()
+#define EXPORT_FN __declspec(dllexport)
+#elif __linux__
+#define DEBUG_BREAK() __builtin_debugtrap()
+#define EXPORT_FN
+#elif __APPLE__
+#define DEBUG_BREAK() __builtin_trap()
+#define EXPORT_FN
+#endif
 
-// #############################################################################
-//                           Game Constants
-// #############################################################################
-constexpr int UPDATES_PER_SECOND = 60;
-constexpr double UPDATE_DELAY = 1.0 / UPDATES_PER_SECOND;
+#include "Camera.h"
 
-// #############################################################################
-//                           Game Structs
-// #############################################################################
-enum class GameStateId : uint8_t
-{
-  GAME_STATE_MAIN_MENU,
-  GAME_STATE_IN_LEVEL,
-  GAME_STATE_EDITOR,
+enum class GameStateId : uint32_t {
+    Uninitialized = 0,
+    MainMenu = 1,
+    InLevel = 2,
+    InEditor = 3,
+    Paused = 4,
 };
 
-struct GameState
-{
-  GameStateId m_State = GameStateId::GAME_STATE_IN_LEVEL;
-  bool m_Initialized = false;
+struct ApplicationSettings;
 
-  double m_UpdateTimer = 0.0;
-
-  Sound m_JumpSound{};
-  Sound m_DeathSound{};
-  bool m_QuitRequested = false;
-
-  float m_Fps = 0.0f;
-  float m_FrameTime = 0.0f;
-  float m_GpuTime = 0.0f;
-
-  uint64_t m_FrameCycles = 0;
-  uint64_t m_UpdateGameCycles = 0;
-  uint64_t m_RenderCycles = 0;
+struct GameState {
+    GameStateId StateId = GameStateId::Uninitialized;
+    double DeltaTime = 0.0;
+    double TargetTPS = 60.0;  // Intended tick rate
+    double ActualTPS = 0.0;   // Measured actual tick rate (work time only)
+    void* PlatformInputHandle = nullptr;
+    void* GameOutputHandle = nullptr;
+    const ApplicationSettings* Settings = nullptr;
+    bool QuitRequested = false;
+    PerspectiveCamera3D GameCamera {};
+    OrthographicCamera2D UICamera {};
 };
 
-// #############################################################################
-//                           Game Functions (Not Exposed)
-// #############################################################################
-void game_update_main_menu(GameState* gameState, UIState* uiState, RenderData* renderData, Input* input, float dt);
-void game_update_in_level(GameState* gameState, UIState* uiState, SoundState* soundState, RenderData* renderData, Input* input,
-  BumpAllocator* frameAllocator, size_t persistentStorageAllocated, size_t frameStorageAllocated, float dt);
-void game_update_editor(GameState* gameState, UIState* uiState, RenderData* renderData, Input* input, float dt);
-
-// #############################################################################
-//                           Game Functions (Exposed)
-// #############################################################################
-
-// Runtime API versioning between main EXE and game DLL
-constexpr uint32_t GAME_API_VERSION = 1;
-
-// Function pointer type for platform-provided debug break handler
-using game_debug_break_fn = void(*)(const char* expr, const char* file, int line, const char* message);
+using GameGetVersionFunc = uint32_t(*)();
+using GameDebugBreakFn = void(*)(const char* expr, const char* file, int line, const char* message);
+using GameSetPlatformDebugBreakFunc = void(*)(GameDebugBreakFn);
+using GameUpdateFunc = void(*)(GameState* state);
+using GameResizeFunc = void(*)(uint32_t width, uint32_t height);
+using GameExitFunc = void(*)();
 
 extern "C"
 {
-  // The game DLL must export this; the EXE will check it during hot-reload
-  EXPORT_FN uint32_t game_get_api_version();
+    EXPORT_FN uint32_t GameGetVersion();
 
-  // Allows the host executable to provide its platform-specific debug break handler
-  EXPORT_FN void game_set_platform_debug_break(game_debug_break_fn fn);
+    EXPORT_FN void GameSetPlatformDebugBreak(GameDebugBreakFn fn);
 
-  EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* renderDataIn,
-                             SoundState* soundStateIn, UIState* uiStateIn, 
-                             BumpAllocator* transientStorageIn, BumpAllocator* persistentStorageIn, size_t lastFrameAllocationBytes, float frameTime);
+    EXPORT_FN void GameUpdate(GameState* state);
 
-  EXPORT_FN void game_resize(int width, int height); // Check
+    EXPORT_FN void GameResize(uint32_t width, uint32_t height);
+
+    EXPORT_FN void GameExit();
 }

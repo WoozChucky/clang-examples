@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Camera.h"
-#include "Input.h"
-#include "SpscRing.h"
-#include "Seqlock.h"
+#include <Camera.h>
+#include <Input.h>
+#include <SpscRing.h>
+#include <Seqlock.h>
 
 struct ApplicationSettings {
     uint32_t windowWidth = 1920;

@@ -9,10 +9,10 @@
 #include "ApplicationContext.h"
 #include "DotNetPluginHost.h"
 #include "DotNetPluginManager.h"
-#include "Game.h"
+#include <Game.h>
 #include "Timing.h"
 #include "GLFW/glfw3.h"
-#include "FileWatch.h"
+#include <FileWatch.h>
 
 
 using Library = void*;

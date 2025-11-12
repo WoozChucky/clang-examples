@@ -17,6 +17,9 @@ set(RUNTIME_DIR "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 # third-party libraries
 add_subdirectory(third_party)
 
+# add common headers interface library
+add_subdirectory(src/common)
+
 # game library
 add_subdirectory(src/game)
 
