@@ -27,3 +27,6 @@ add_subdirectory(src/overlay)
 add_subdirectory(src/runtime)
 # editor application (does not link game or imgui_overlay)
 add_subdirectory(src/editor)
+
+# Visual Studio nicety: select startup project
+set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" PROPERTY VS_STARTUP_PROJECT editor)

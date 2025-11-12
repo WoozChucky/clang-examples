@@ -1,20 +1,46 @@
-
 add_subdirectory(glm)
+# Set folder for GLM targets
+get_directory_property(glm_targets DIRECTORY glm BUILDSYSTEM_TARGETS)
+foreach(target ${glm_targets})
+    set_target_properties(${target} PROPERTIES FOLDER ThirdParty/GLM)
+endforeach()
+
 add_subdirectory(freetype)
+# Set folder for FreeType targets
+get_directory_property(freetype_targets DIRECTORY freetype BUILDSYSTEM_TARGETS)
+foreach(target ${freetype_targets})
+    set_target_properties(${target} PROPERTIES FOLDER ThirdParty/FreeType)
+endforeach()
+
 set(NVRHI_WITH_DX12 ON)
 set(NVRHI_WITH_DX11 ON)
 set(NVRHI_WITH_VULKAN ON)
 add_subdirectory(NVRHI)
+# Set folder for NVRHI targets
+get_directory_property(nvrhi_targets DIRECTORY NVRHI BUILDSYSTEM_TARGETS)
+foreach(target ${nvrhi_targets})
+    set_target_properties(${target} PROPERTIES FOLDER ThirdParty/NVRHI)
+endforeach()
 
 set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
 set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
 add_subdirectory(tracy)
+# Set folder for Tracy targets
+get_directory_property(tracy_targets DIRECTORY tracy BUILDSYSTEM_TARGETS)
+foreach(target ${tracy_targets})
+    set_target_properties(${target} PROPERTIES FOLDER ThirdParty/Tracy)
+endforeach()
 
 option(GLFW_BUILD_EXAMPLES "" OFF)
 option(GLFW_BUILD_TESTS "" OFF)
 option(GLFW_BUILD_DOCS "" OFF)
 option(GLFW_INSTALL "" OFF)
 add_subdirectory(glfw)
+# Set folder for GLFW targets
+get_directory_property(glfw_targets DIRECTORY glfw BUILDSYSTEM_TARGETS)
+foreach(target ${glfw_targets})
+    set_target_properties(${target} PROPERTIES FOLDER ThirdParty/GLFW)
+endforeach()
 
 add_library(imgui STATIC
         imgui/imgui.cpp
@@ -31,6 +57,7 @@ set_target_properties(imgui PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
         ARCHIVE_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
         LIBRARY_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+        FOLDER ThirdParty/ImGui
 )
 target_include_directories(imgui PUBLIC imgui)
 target_link_libraries(imgui PRIVATE glfw)

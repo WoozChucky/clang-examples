@@ -44,6 +44,7 @@ set_target_properties(editor PROPERTIES
     OUTPUT_NAME editor
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Applications
+    VS_DEBUGGER_WORKING_DIRECTORY "${RUNTIME_DIR}"
 )
 
 add_custom_command(TARGET editor POST_BUILD

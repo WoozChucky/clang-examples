@@ -2,21 +2,21 @@
     "version": 8,
     "configurePresets": [
       {
-        "name": "clang-win64",
-        "displayName": "Clang 19.1.5 (GNU CLI) - amd64 for MSVC",
-        "description": "Using compilers: C = C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe, CXX = C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang++.exe",
+        "name": "clang-win64-vs2026-community",
+        "displayName": "Clang 20 - VS2026 Community",
+        "description": "",
         "binaryDir": "${sourceDir}/out/build/${presetName}",
         "cacheVariables": {
           "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-          "CMAKE_C_COMPILER": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang.exe",
-          "CMAKE_CXX_COMPILER": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang++.exe",
+          "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe",
+          "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang++.exe",
           "CMAKE_BUILD_TYPE": "Debug"
         }
       },
       {
-        "name": "clang-win64-vs2026",
-        "displayName": "Clang 20 - VS2026",
-        "description": "Using compilers: C = C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe, CXX = C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang++.exe",
+        "name": "clang-win64-vs2026-enterprise",
+        "displayName": "Clang 20 - VS2026 Enterprise",
+        "description": "",
         "binaryDir": "${sourceDir}/out/build/${presetName}",
         "cacheVariables": {
           "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",

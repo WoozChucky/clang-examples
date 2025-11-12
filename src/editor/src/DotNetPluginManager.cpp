@@ -9,36 +9,46 @@ bool DotNetPluginManager::Initialize(const char* runtimeConfigPath) {
         return false;
     }
 
+    // Derive the plugin directory from the runtimeConfigPath
+    // e.g., "assets/plugins/PluginCore.runtimeconfig.json" -> "assets/plugins/PluginCore.dll"
+    namespace fs = std::filesystem;
+    fs::path configPath(runtimeConfigPath);
+    fs::path pluginDir = configPath.parent_path();
+    fs::path pluginCorePath = pluginDir / "PluginCore.dll";
+    
+    // Convert to narrow string for the LoadFunction calls
+    std::string pluginCorePathStr = pluginCorePath.string();
+
     // Load PluginCore.dll and get PluginDiscovery methods
     const wchar_t* typeName = L"PluginCore.PluginDiscovery, PluginCore";
 
-    if (!m_Host.LoadFunction("plugins/PluginCore.dll", typeName, L"LoadPlugin", &m_LoadPluginFunc)) {
-        SM_WARN("Failed to load LoadPlugin function");
+    if (!m_Host.LoadFunction(pluginCorePathStr.c_str(), typeName, L"LoadPlugin", &m_LoadPluginFunc)) {
+        SM_WARN("Failed to load LoadPlugin function from %s", pluginCorePathStr.c_str());
         return false;
     }
 
-    if (!m_Host.LoadFunction("plugins/PluginCore.dll", typeName, L"GetPluginTypes", &m_GetPluginTypesFunc)) {
-        SM_WARN("Failed to load GetPluginTypes function");
+    if (!m_Host.LoadFunction(pluginCorePathStr.c_str(), typeName, L"GetPluginTypes", &m_GetPluginTypesFunc)) {
+        SM_WARN("Failed to load GetPluginTypes function from %s", pluginCorePathStr.c_str());
         return false;
     }
 
-    if (!m_Host.LoadFunction("plugins/PluginCore.dll", typeName, L"Initialize", &m_InitializeFunc)) {
+    if (!m_Host.LoadFunction(pluginCorePathStr.c_str(), typeName, L"Initialize", &m_InitializeFunc)) {
         std::cerr << "Failed to load Initialize function" << std::endl;
-        SM_WARN("Failed to load Initialize function");
+        SM_WARN("Failed to load Initialize function from %s", pluginCorePathStr.c_str());
         return false;
     }
 
-    if (!m_Host.LoadFunction("plugins/PluginCore.dll", typeName, L"Update", &m_UpdateFunc)) {
-        SM_WARN("Failed to load Update function");
+    if (!m_Host.LoadFunction(pluginCorePathStr.c_str(), typeName, L"Update", &m_UpdateFunc)) {
+        SM_WARN("Failed to load Update function from %s", pluginCorePathStr.c_str());
         return false;
     }
 
-    if (!m_Host.LoadFunction("plugins/PluginCore.dll", typeName, L"Shutdown", &m_ShutdownFunc)) {
-        SM_WARN("Failed to load Shutdown function");
+    if (!m_Host.LoadFunction(pluginCorePathStr.c_str(), typeName, L"Shutdown", &m_ShutdownFunc)) {
+        SM_WARN("Failed to load Shutdown function from %s", pluginCorePathStr.c_str());
         return false;
     }
 
-    SM_TRACE("DotNetPluginManager initialized successfully");
+    SM_TRACE("DotNetPluginManager initialized successfully from %s", pluginCorePathStr.c_str());
     return true;
 }
 
