@@ -4,8 +4,8 @@
 
 #include "lib.h"
 
-#include "input.h"
-#include "game.h"
+#include "input_old.h"
+#include "game_old.h"
 #include "ui.h"
 #include "sound.h"
 #include "render.h"

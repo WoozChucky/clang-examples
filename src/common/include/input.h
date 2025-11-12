@@ -1,155 +1,215 @@
 #pragma once
+#include "Timing.h"
 
-#include "glm/vec2.hpp"
-#include "glm/vec3.hpp"
+enum KeyCode : uint16_t {
+    /* Printable keys */
+    KEY_SPACE              = 32,
+    KEY_APOSTROPHE         = 39,  /* ' */
+    KEY_COMMA              = 44,  /* , */
+    KEY_MINUS              = 45,  /* - */
+    KEY_PERIOD             = 46,  /* . */
+    KEY_SLASH              = 47,  /* / */
+    KEY_0                  = 48,
+    KEY_1                  = 49,
+    KEY_2                  = 50,
+    KEY_3                  = 51,
+    KEY_4                  = 52,
+    KEY_5                  = 53,
+    KEY_6                  = 54,
+    KEY_7                  = 55,
+    KEY_8                  = 56,
+    KEY_9                  = 57,
+    KEY_SEMICOLON          = 59, /* ; */
+    KEY_EQUAL              = 61,  /* = */
+    KEY_A                  = 65,
+    KEY_B                  = 66,
+    KEY_C                  = 67,
+    KEY_D                  = 68,
+    KEY_E                  = 69,
+    KEY_F                  = 70,
+    KEY_G                  = 71,
+    KEY_H                  = 72,
+    KEY_I                  = 73,
+    KEY_J                  = 74,
+    KEY_K                  = 75,
+    KEY_L                  = 76,
+    KEY_M                  = 77,
+    KEY_N                  = 78,
+    KEY_O                  = 79,
+    KEY_P                  = 80,
+    KEY_Q                  = 81,
+    KEY_R                  = 82,
+    KEY_S                  = 83,
+    KEY_T                  = 84,
+    KEY_U                  = 85,
+    KEY_V                  = 86,
+    KEY_W                  = 87,
+    KEY_X                  = 88,
+    KEY_Y                  = 89,
+    KEY_Z                  = 90,
+    KEY_LEFT_BRACKET       = 91,  /* [ */
+    KEY_BACKSLASH          = 92,  /* \ */
+    KEY_RIGHT_BRACKET      = 93,  /* ] */
+    KEY_GRAVE_ACCENT       = 96,  /* ` */
+    KEY_WORLD_1            = 161, /* non-US #1 */
+    KEY_WORLD_2            = 162, /* non-US #2 */
 
-// #############################################################################
-//                           Input Constants
-// #############################################################################
-constexpr int MAX_KEYCODES = 256;
-
-// #############################################################################
-//                           Input Structs
-// #############################################################################
-enum KeyCodeID
-{
-  KEY_MOUSE_LEFT,
-  KEY_MOUSE_MIDDLE,
-  KEY_MOUSE_RIGHT,
-  
-  KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
-  KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T,
-  KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z,
-  
-  KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9,
-  
-  KEY_SPACE,
-  KEY_TICK,
-  KEY_MINUS,
-  KEY_EQUAL,
-  KEY_LEFT_BRACKET,
-  KEY_RIGHT_BRACKET,
-  KEY_SEMICOLON,
-  KEY_QUOTE,
-  KEY_COMMA,
-  KEY_PERIOD,
-  KEY_FORWARD_SLASH,
-  KEY_BACKWARD_SLASH,
-  KEY_TAB,
-  KEY_ESCAPE,
-  KEY_PAUSE,
-  KEY_UP,
-  KEY_DOWN,
-  KEY_LEFT,
-  KEY_RIGHT,
-  KEY_BACKSPACE,
-  KEY_RETURN,
-  KEY_DELETE,
-  KEY_INSERT,
-  KEY_HOME,
-  KEY_END,
-  KEY_PAGE_UP,
-  KEY_PAGE_DOWN,
-  KEY_CAPS_LOCK,
-  KEY_NUM_LOCK,
-  KEY_SCROLL_LOCK,
-  KEY_MENU,
-  KEY_SHIFT,
-  KEY_CONTROL,
-  KEY_ALT,
-  KEY_COMMAND,
-  
-  KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6, 
-  KEY_F7, KEY_F8, KEY_F9, KEY_F10, KEY_F11, KEY_F12,
-  
-  KEY_NUMPAD_0,
-  KEY_NUMPAD_1,
-  KEY_NUMPAD_2,
-  KEY_NUMPAD_3,
-  KEY_NUMPAD_4,
-  KEY_NUMPAD_5,
-  KEY_NUMPAD_6,
-  KEY_NUMPAD_7,
-  KEY_NUMPAD_8,
-  KEY_NUMPAD_9,
-  
-  KEY_NUMPAD_STAR,
-  KEY_NUMPAD_PLUS,
-  KEY_NUMPAD_MINUS,
-  KEY_NUMPAD_DOT,
-  KEY_NUMPAD_SLASH,
-  
-  KEY_COUNT = MAX_KEYCODES,
+    /* Function keys */
+    KEY_ESCAPE             = 256,
+    KEY_ENTER              = 257,
+    KEY_TAB                = 258,
+    KEY_BACKSPACE          = 259,
+    KEY_INSERT             = 260,
+    KEY_DELETE             = 261,
+    KEY_RIGHT              = 262,
+    KEY_LEFT               = 263,
+    KEY_DOWN               = 264,
+    KEY_UP                 = 265,
+    KEY_PAGE_UP            = 266,
+    KEY_PAGE_DOWN          = 267,
+    KEY_HOME               = 268,
+    KEY_END                = 269,
+    KEY_CAPS_LOCK          = 280,
+    KEY_SCROLL_LOCK        = 281,
+    KEY_NUM_LOCK           = 282,
+    KEY_PRINT_SCREEN       = 283,
+    KEY_PAUSE              = 284,
+    KEY_F1                 = 290,
+    KEY_F2                 = 291,
+    KEY_F3                 = 292,
+    KEY_F4                 = 293,
+    KEY_F5                 = 294,
+    KEY_F6                 = 295,
+    KEY_F7                 = 296,
+    KEY_F8                 = 297,
+    KEY_F9                 = 298,
+    KEY_F10                = 299,
+    KEY_F11                = 300,
+    KEY_F12                = 301,
+    KEY_F13                = 302,
+    KEY_F14                = 303,
+    KEY_F15                = 304,
+    KEY_F16                = 305,
+    KEY_F17                = 306,
+    KEY_F18                = 307,
+    KEY_F19                = 308,
+    KEY_F20                = 309,
+    KEY_F21                = 310,
+    KEY_F22                = 311,
+    KEY_F23                = 312,
+    KEY_F24                = 313,
+    KEY_F25                = 314,
+    KEY_KP_0               = 320,
+    KEY_KP_1               = 321,
+    KEY_KP_2               = 322,
+    KEY_KP_3               = 323,
+    KEY_KP_4               = 324,
+    KEY_KP_5               = 325,
+    KEY_KP_6               = 326,
+    KEY_KP_7               = 327,
+    KEY_KP_8               = 328,
+    KEY_KP_9               = 329,
+    KEY_KP_DECIMAL         = 330,
+    KEY_KP_DIVIDE          = 331,
+    KEY_KP_MULTIPLY        = 332,
+    KEY_KP_SUBTRACT        = 333,
+    KEY_KP_ADD             = 334,
+    KEY_KP_ENTER           = 335,
+    KEY_KP_EQUAL           = 336,
+    KEY_LEFT_SHIFT         = 340,
+    KEY_LEFT_CONTROL       = 341,
+    KEY_LEFT_ALT           = 342,
+    KEY_LEFT_SUPER         = 343,
+    KEY_RIGHT_SHIFT        = 344,
+    KEY_RIGHT_CONTROL      = 345,
+    KEY_RIGHT_ALT          = 346,
+    KEY_RIGHT_SUPER        = 347,
+    KEY_MENU               = 348,
+    KEY_LAST               = KEY_MENU
 };
 
-// 32 Bits, 16 Bit aligned
-struct Key
-{
-  bool isDown;
-  bool justPressed;
-  bool justReleased;
-  unsigned char halfTransitionCount;
+enum KeyModifier : uint8_t {
+    SHIFT        = 0x0001,
+    CONTROL      = 0x0002,
+    ALT          = 0x0004,
+    SUPER        = 0x0008,
+    CAPS_LOCK    = 0x0010,
+    MOD_NUM_LOCK = 0x0020,
 };
 
-struct Input
-{
-  glm::vec2 screenSize;
-
-  // Screen
-  glm::ivec2 relMouse;
-  glm::ivec2 prevMousePos;
-  glm::ivec2 mousePos;
-
-  // World
-  glm::vec3 prevMouseWorldPos;
-  glm::vec3 mouseWorldPos;
-  glm::vec3 relMouseWorld;
-
-  Key keys[MAX_KEYCODES];
+enum InputAction : uint8_t {
+    RELEASE = 0,
+    PRESS = 1,
+    REPEAT = 2,
 };
 
-// #############################################################################
-//                           Input Globals
-// #############################################################################
-// static Input* g_Input;
+enum Button : uint8_t {
+    MOUSE_BUTTON_1 = 0,
+    MOUSE_BUTTON_2 = 1,
+    MOUSE_BUTTON_3 = 2,
+    MOUSE_BUTTON_4 = 3,
+    MOUSE_BUTTON_5 = 4,
+    MOUSE_BUTTON_6 = 5,
+    MOUSE_BUTTON_7 = 6,
+    MOUSE_BUTTON_8 = 7,
+    MOUSE_BUTTON_LAST = MOUSE_BUTTON_8,
+    MOUSE_BUTTON_LEFT = MOUSE_BUTTON_1,
+    MOUSE_BUTTON_RIGHT = MOUSE_BUTTON_2,
+    MOUSE_BUTTON_MIDDLE = MOUSE_BUTTON_3,
+};
 
-// #############################################################################
-//                           Input Functions
-// #############################################################################
-inline bool key_is_down(const Input* input, const KeyCodeID key)
-{
-  return input->keys[key].isDown;
+enum class InputEventType : uint8_t {
+    MouseMove = 0,
+    MouseButton = 1,
+    MouseWheel = 2,
+    Key = 3,
+    TextInput = 4,
+};
+
+struct InputEvent {
+    InputEventType Type{};
+    double Time{TimeNowSec()}; // seconds
+
+    union {
+        struct {
+            double X;
+            double Y;
+        } MouseMoveEvent{};
+
+        struct {
+            Button Button;
+            InputAction Action;
+        } MouseButtonEvent;
+
+        struct {
+            double OffsetX;
+            double OffsetY;
+        } MouseScrollEvent;
+
+        struct {
+            KeyCode Key;
+            InputAction Action;
+            KeyModifier Modifier;
+        } KeyEvent;
+
+        struct {
+            uint32_t Key;
+        } TextEvent;
+    };
+
+    InputEvent() = default;
+    explicit InputEvent(const InputEventType type) : Type(type) {}
+};
+
+namespace Input {
+    inline bool IsKeyDown(InputEvent evt, KeyCode keyCode) {
+        if (evt.Type != InputEventType::Key) return false;
+        return (evt.KeyEvent.Key == keyCode) && (evt.KeyEvent.Action == InputAction::PRESS || evt.KeyEvent.Action == InputAction::REPEAT);
+    }
+
+    inline bool IsKeyUp(InputEvent evt, KeyCode keyCode) {
+        if (evt.Type != InputEventType::Key) return false;
+        return (evt.KeyEvent.Key == keyCode) && (evt.KeyEvent.Action == InputAction::RELEASE);
+    }
 }
 
-inline bool key_pressed_this_frame(const Input* input, const KeyCodeID key)
-{
-  const Key k = input->keys[key];
-  return k.halfTransitionCount > 0 && k.isDown || k.halfTransitionCount > 1;
-}
-
-inline bool key_released_this_frame(const Input* input, const KeyCodeID key)
-{
-  const Key k = input->keys[key];
-  return k.halfTransitionCount > 0 && !k.isDown || k.halfTransitionCount > 1;
-}
-
-/*
-
-inline bool key_pressed_this_frame(KeyCodeID key)
-{
-  Key k = g_Input->keys[key];
-  return k.halfTransitionCount > 0 && k.isDown || k.halfTransitionCount > 1;
-}
-
-inline bool key_is_down(KeyCodeID key)
-{
-  return g_Input->keys[key].isDown;
-}
-
-inline bool key_released_this_frame(KeyCodeID key)
-{
-  Key k = g_Input->keys[key];
-  return k.halfTransitionCount > 0 && !k.isDown || k.halfTransitionCount > 1;
-}
-
-*/

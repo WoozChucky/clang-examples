@@ -1,18 +1,37 @@
 add_executable(editor
     src/main.cpp
-    src/PlatformThread.cpp
-    src/GameThread.cpp
-    src/RenderThread.cpp
-    src/RendererBackendDX12.cpp
-    src/RendererBackendVulkan.cpp
-    src/Renderer.cpp
-    src/PrimitiveRenderPass.cpp
-    src/ImGuiRenderer.cpp
-    src/DotNetPluginHost.cpp
-    src/DotNetPluginManager.cpp
+
+    # Core
+    src/core/Application.cpp
+    
+    # Threading
+    src/threading/PlatformThread.cpp
+    src/threading/GameThread.cpp
+    src/threading/RenderThread.cpp
+    
+    # Rendering
+    src/rendering/Renderer.cpp
+    src/rendering/RendererBackendDX12.cpp
+    src/rendering/RendererBackendVulkan.cpp
+    src/rendering/PrimitiveRenderPass.cpp
+    src/rendering/ImGuiRenderer.cpp
+    src/rendering/imgui_nvrhi.cpp
+    src/rendering/registered_font.cpp
+    
+    # Plugins
+    src/plugins/DotNetPluginHost.cpp
+    src/plugins/DotNetPluginManager.cpp
+    
+    # Third-party (keep Tracy here for now)
     ../../third_party/tracy/public/TracyClient.cpp
-    src/imgui_nvrhi.cpp
-    src/registered_font.cpp
+)
+
+# Add all subdirectories to include paths for cleaner includes
+target_include_directories(editor PRIVATE 
+    src/core
+    src/threading
+    src/rendering
+    src/plugins
 )
 
 set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE_EXPERIMENTAL;")
@@ -29,16 +48,12 @@ elseif(ENABLE_ALLOC_TRACKER STREQUAL "AUTO")
     target_compile_definitions(editor PRIVATE $<$<CONFIG:Debug>:ALLOC_TRACKER_ENABLED>)
 endif()
 
-target_include_directories(editor PRIVATE ../common/include)
-
-target_link_libraries(editor PRIVATE freetype Tracy::TracyClient glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi dxcompiler nvrhi_vk imgui)
+target_link_libraries(editor PRIVATE CommonHeaders GameHeaders freetype Tracy::TracyClient glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi dxcompiler nvrhi_vk imgui)
 if (TARGET Vulkan-Headers)
     target_link_libraries(editor PRIVATE Vulkan-Headers)
 elseif (TARGET Vulkan::Headers)
     target_link_libraries(editor PRIVATE Vulkan::Headers)
 endif()
-
-#target_compile_definitions(glfw PRIVATE _GLFW_VULKAN_LIBRARY="sl.interposer.dll")
 
 set_target_properties(editor PROPERTIES
     OUTPUT_NAME editor
@@ -54,20 +69,20 @@ add_custom_command(TARGET editor POST_BUILD
 
 # Add .NET hosting include directory
 target_include_directories(editor PRIVATE
-        ${CMAKE_SOURCE_DIR}/third_party/dotnet/include
+    ${CMAKE_SOURCE_DIR}/third_party/dotnet/include
 )
 
 # Link against nethost
 target_link_libraries(editor PRIVATE
-        ${CMAKE_SOURCE_DIR}/third_party/dotnet/lib/nethost.lib
+    ${CMAKE_SOURCE_DIR}/third_party/dotnet/lib/nethost.lib
 )
 
 # Copy runtime DLLs to output directory
 add_custom_command(TARGET editor POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/nethost.dll
-        ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/hostfxr.dll
-        $<TARGET_FILE_DIR:editor>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/nethost.dll
+    ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/hostfxr.dll
+    $<TARGET_FILE_DIR:editor>
 )
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
@@ -76,18 +91,4 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(editor PRIVATE -Wno-switch -Wno-writable-strings -Wno-sign-compare -Wno-deprecated-declarations -Wno-format-security -Wmissing-braces)
 endif()
 
-add_library(GameLogic SHARED
-    src/Game.cpp
-)
-target_link_libraries(GameLogic PRIVATE glm::glm)
-target_compile_definitions(GameLogic PRIVATE ${GLM_DEFINES})
-target_include_directories(GameLogic PRIVATE ../common/include)
-set_target_properties(GameLogic PROPERTIES
-  OUTPUT_NAME Game
-  RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
-  ARCHIVE_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
-  LIBRARY_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
-  FOLDER Libraries
-)
-
-add_dependencies(editor GameLogic)
+add_dependencies(editor game)

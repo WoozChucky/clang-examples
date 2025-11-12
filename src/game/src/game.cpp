@@ -1,296 +1,288 @@
-#include <game.h>
-#include <ui.h>
+#include "Game.h"
 
-// #############################################################################
-//                           Game Globals
-// #############################################################################
-static BumpAllocator* transientStorage;
-static BumpAllocator* persistentStorage;
-static Input* g_Input;
-static RenderData* g_RenderData;
-static UIState* g_UIState;
-static SoundState* g_SoundState;
-static GameState* g_GameState;
-static size_t g_LastFrameAllocationBytes = 0;
+#include <ApplicationContext.h>
+#include <Input.h>
 
-// #############################################################################
-//                           Game Functions
-// #############################################################################
-// Input
-void update_game_input(float dt);
-void update(float dt);
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
-// #############################################################################
-//                           Game API Version (Exported)
-// #############################################################################
-EXPORT_FN uint32_t game_get_api_version()
-{
-  return GAME_API_VERSION;
+static GameState* g_GameState = nullptr;
+static GameDebugBreakFn g_PlatformDebugBreak = nullptr;
+static bool gKeysDown[KEY_LAST + 1] = {};
+static int32_t gMouseWheel = 0;
+static bool   g_MouseAimEnabled = false;        // toggled by T
+static double g_MouseX = 0.0, g_MouseY = 0.0;   // last mouse position in window coords
+
+using namespace Input;
+
+void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRing);
+void HandleFreeLook();
+
+uint32_t GameGetVersion() {
+    SM_TRACE("[GAMEDLL] GameGetVersion");
+    return 0;
 }
 
-// #############################################################################
-//                   Platform Debug Break Handler (Exported)
-// #############################################################################
-
-// Platform-provided debug break callback (optional, set by host EXE)
-static game_debug_break_fn g_PlatformDebugBreak = nullptr;
-
-// Setter exported from the game DLL so the host can pass its platform handler
-EXPORT_FN void game_set_platform_debug_break(const game_debug_break_fn fn)
-{
-  g_PlatformDebugBreak = fn;
+void GameSetPlatformDebugBreak(const GameDebugBreakFn fn) {
+    SM_TRACE("[GAMEDLL] GameSetPlatformDebugBreak");
+	if (fn) {
+		g_PlatformDebugBreak = fn;
+	}
 }
 
-// #############################################################################
-//                           Game Update (Exported from DLL)
-// #############################################################################
-EXPORT_FN void game_update(GameState* gameStateIn, Input* inputIn, RenderData* renderDataIn,
-                           SoundState* soundStateIn, UIState* uiStateIn,
-                           BumpAllocator* transientStorageIn, BumpAllocator* persistentStorageIn, size_t lastFrameAllocationBytes, float frameTime)
-{
-  g_LastFrameAllocationBytes = lastFrameAllocationBytes;
-  if(g_GameState != gameStateIn)
-  {
-    g_GameState = gameStateIn;
-    g_Input = inputIn;
-    g_RenderData = renderDataIn;
-    g_SoundState = soundStateIn;
-    g_UIState = uiStateIn;
-    transientStorage = transientStorageIn;
-    persistentStorage = persistentStorageIn;
+void GameUpdate(GameState* state) {
+    if (g_GameState != state) {
+        g_GameState = state;
+		SM_TRACE("[GAMEDLL] State Memory Updated")
+	}
 
-    // Sounds
-    const auto jumpSound = "assets/jump_01.wav";
-    const auto deathSound = "assets/died_01.wav";
-    memcpy(g_GameState->m_JumpSound.path, jumpSound, strlen(jumpSound));
-    memcpy(g_GameState->m_DeathSound.path, deathSound, strlen(deathSound));
-    // Game Camera
-    g_RenderData->gameCamera.aspectRatio = g_Input->screenSize.x / g_Input->screenSize.y;
-    // UI Camera
-    g_RenderData->uiCamera.dimensions.x = g_Input->screenSize.x;
-    g_RenderData->uiCamera.dimensions.y = g_Input->screenSize.y;
-    // Top Left is going to be 0/0 now
-    g_RenderData->uiCamera.position.x = g_RenderData->uiCamera.dimensions.x / 2.0f;
-    g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
-  }
+    if (!g_GameState) return;
 
-  if(!g_GameState->m_Initialized)
-  {
-    // Game Camera
-    g_RenderData->gameCamera.position = {0.0, 2.5f, +5.0f};
-    g_RenderData->gameCamera.rotation = {0.0f, 0.0f, 0.0f};
-    g_RenderData->gameCamera.fov = glm::radians(80.0f);
-    g_RenderData->gameCamera.aspectRatio = g_Input->screenSize.x / g_Input->screenSize.y;
-    g_RenderData->gameCamera.nearClip = 0.1f;
-    g_RenderData->gameCamera.farClip = 1000.0f;
-    g_RenderData->gameCamera.invalidate();
+	const auto inputRing = static_cast<SpscRing<InputEvent, ApplicationContext::InputRingSize>*>(g_GameState->PlatformInputHandle);
+	const auto dt = static_cast<float>(state->DeltaTime);
 
-    // UI Camera
-    g_RenderData->uiCamera.dimensions.x = g_Input->screenSize.x;
-    g_RenderData->uiCamera.dimensions.y = g_Input->screenSize.y;
-    // Top Left is going to be 0/0 now
-    g_RenderData->uiCamera.position.x = g_RenderData->uiCamera.dimensions.x / 2.0f;
-    g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
-    g_RenderData->uiCamera.zoom = 1.0f;
+	DrainInput(inputRing);
 
-    g_GameState->m_Initialized = true;
-  }
-
-  g_RenderData->clearColor = {0.1f, 0.1f, 0.1f, 1.0f};
-
-  g_GameState->m_UpdateTimer += frameTime;
-
-  switch (g_GameState->m_State) {
-    case GameStateId::GAME_STATE_MAIN_MENU:
-      game_update_main_menu(gameStateIn, uiStateIn, renderDataIn, inputIn, frameTime);
-      break;
-    case GameStateId::GAME_STATE_IN_LEVEL:
-      game_update_in_level(gameStateIn, uiStateIn, soundStateIn, renderDataIn, inputIn, transientStorageIn, persistentStorageIn->used, lastFrameAllocationBytes, frameTime);
-      break;
-    case GameStateId::GAME_STATE_EDITOR:
-      game_update_editor(gameStateIn, uiStateIn, renderDataIn, inputIn, frameTime);
-      break;
-    default:
-      SM_ASSERT(false, "Unknown Game State!");
-      break;
-  }
-
-  // Reset Input
-  g_Input->relMouse = {};
-  for(auto & key : g_Input->keys)
-  {
-    key.justReleased = false;
-    key.justPressed = false;
-    key.halfTransitionCount = 0;
-  }
-  // float interpolatedDT = (float)(g_GameState->updateTimer / UPDATE_DELAY);
-  // draw(interpolatedDT);
-}
-
-// #############################################################################
-//                           Game Resize (Exported from DLL)
-// #############################################################################
-
-EXPORT_FN void game_resize(const int width, const int height)
-{
-  if(g_RenderData)
-  {
-    // Game Camera
-    g_RenderData->gameCamera.aspectRatio = static_cast<float>(width) / static_cast<float>(height);
-    g_RenderData->gameCamera.invalidate();
-    // UI Camera
-    g_RenderData->uiCamera.dimensions.x = static_cast<float>(width);
-    g_RenderData->uiCamera.dimensions.y = static_cast<float>(height);
-    // Top Left is going to be 0/0 now
-    g_RenderData->uiCamera.position.x = g_RenderData->uiCamera.dimensions.x / 2.0f;
-    g_RenderData->uiCamera.position.y = -g_RenderData->uiCamera.dimensions.y / 2.0f;
-  }
-}
-
-void update_game_input(float dt) {
-  if (key_released_this_frame(g_Input, KEY_TAB)) {
-    play_sound(g_SoundState, g_GameState->m_JumpSound);
-  }
-
-  if (key_released_this_frame(g_Input, KEY_1)) {
-    g_UIState->showDiagnostics = !g_UIState->showDiagnostics;
-  }
-  if (key_released_this_frame(g_Input, KEY_2)) {
-    g_UIState->showHUD = !g_UIState->showHUD;
-  }
-  if (key_released_this_frame(g_Input, KEY_3)) {
-    g_UIState->showEditor = !g_UIState->showEditor;
-  }
-}
-
-void update(float dt) {
-
-  static float diagnosticsTimer = 0.0f;
-  static float fps = 0.0f;
-  static float frameTimeMs = 0.0f;
-  static size_t persistentMemoryUsed = 0;
-  static size_t frameMemoryUsed = 0;
-  diagnosticsTimer += dt;
-  if (diagnosticsTimer >= 0.25f) {
-    diagnosticsTimer = 0.0f;
-    fps = g_GameState->m_Fps;
-    frameTimeMs = g_GameState->m_FrameTime;
-    persistentMemoryUsed = persistentStorage->used;
-    frameMemoryUsed = g_LastFrameAllocationBytes;
-  }
-
-  prim_draw_grid_plane(g_RenderData, glm::mat4(1.0f));
-
-  // Total screen size container
-  {
-    UIPanelOptions opts{};
-    opts.dock = UIDock::Fill;
-    opts.padding = 0.0f;
-    opts.bgColor = {0.0f, 0.0f, 0.0f, 0.0f};
-    ui_push_id(g_UIState, "Screen");
-    ui_begin_panel(g_UIState, g_RenderData, opts);
-
-    // Always-visible small control panel with buttons
     {
-      UIPanelOptions opt{};
-      opt.dock = UIDock::Right;
-      opt.x = {10, UIUnit::Px};
-      opt.y = {10, UIUnit::Px};
-      opt.w = {220, UIUnit::Px};
-      opt.h = {80, UIUnit::Px};
-      opt.padding = 6.0f;
-      opt.bgColor = {0.1f, 0.1f, 0.1f, 0.0f};
-      ui_push_id(g_UIState, "Controls");
-      ui_begin_panel(g_UIState, g_RenderData, opt);
+    	const glm::vec3 rot= state->GameCamera.rotation; // pitch(x), yaw(y), roll(z)
+    	const float cp = cosf(rot.x), sp = sinf(rot.x);
+    	const float cy = cosf(rot.y), sy = sinf(rot.y);
 
+    	// Camera-to-world forward for RH, y-up, default forward = -Z:
+    	// forward = (Rx * Ry * Rz) * (0,0,-1) with roll=0
+    	const glm::vec3 forward = glm::normalize(glm::vec3(
+		  -sy,            // x
+		   sp * cy,       // y
+		  -cp * cy        // z
+		));
 
-      if (ui_button(g_UIState, g_RenderData, g_UIState->showDiagnostics ? "Hide Diagnostics" : "Show Diagnostics", {210, 26})) {
-        g_UIState->showDiagnostics = !g_UIState->showDiagnostics;
-      }
+    	// Right vector consistent with RH system
+    	const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0,1,0)));
 
-      if (ui_button(g_UIState, g_RenderData, g_UIState->showHUD ? "Hide HUD" : "Show HUD", {210, 26})) {
-        g_UIState->showHUD = !g_UIState->showHUD;
-      }
+    	float moveSpeed = 7.5f; // units/sec
 
-      if (ui_button(g_UIState, g_RenderData, g_UIState->showEditor ? "Hide Editor" : "Show Editor", {210, 26})) {
-        g_UIState->showEditor = !g_UIState->showEditor;
-      }
+    	// Movement
+    	if (gKeysDown[KEY_W]) state->GameCamera.position += forward * (moveSpeed * dt);
+    	if (gKeysDown[KEY_S]) state->GameCamera.position -= forward * (moveSpeed * dt);
+    	if (gKeysDown[KEY_A]) state->GameCamera.position -= right   * (moveSpeed * dt);
+    	if (gKeysDown[KEY_D]) state->GameCamera.position += right   * (moveSpeed * dt);
 
-      ui_end_panel(g_UIState);
-      ui_pop_id(g_UIState);
+    	// Elevation
+    	if (gKeysDown[KEY_SPACE]) { state->GameCamera.position.y += moveSpeed * dt; state->GameCamera.invalidate(); }
+    	if (gKeysDown[KEY_LEFT_SHIFT]) { state->GameCamera.position.y -= moveSpeed * dt; state->GameCamera.invalidate(); }
+
+    	// Rotation
+    	constexpr float yawSpeed = glm::radians(120.0f);
+    	auto& yaw = state->GameCamera.rotation.y;
+		if (gKeysDown[KEY_Q]) yaw += yawSpeed * dt; state->GameCamera.invalidate();
+		if (gKeysDown[KEY_E]) yaw -= yawSpeed * dt; state->GameCamera.invalidate();
+
+    	//Zoom
+    	const int32_t wheel = std::exchange(gMouseWheel, 0);
+		if (wheel != 0) {
+			if (true) {
+				// Perspective zoom, usually for a 1st-person game ends up in FOV change
+				// decrease FOV to zoom in, increase to zoom out
+				constexpr float step   = glm::radians(2.0f);   // FOV change per notch
+				constexpr float minFov = glm::radians(20.0f);
+				constexpr float maxFov = glm::radians(179.99f);
+				// Adjust the correct FOV field for your camera (e.g., fovY)
+				state->GameCamera.fov = glm::clamp(
+					state->GameCamera.fov - step * static_cast<float>(wheel),
+					minFov, maxFov
+				);
+			}
+			if (false) {
+				// Perspective zoom, usually for a 3rd-person game ends up in camera position change
+				// in relation to the player
+				constexpr float zoomPerNotch = 2.0f; // units per wheel step
+				const float zoomDelta = static_cast<float>(wheel) * zoomPerNotch;
+				state->GameCamera.position += forward * zoomDelta;
+				state->GameCamera.invalidate();
+			}
+		}
+
+    	if (gKeysDown[KEY_T]) {
+    		gKeysDown[KEY_T] = false;
+    		g_MouseAimEnabled = !g_MouseAimEnabled;
+
+    		if (g_MouseAimEnabled) {
+    			// Reset virtual cursor to center when enabling mouse aim
+    			g_MouseX = state->Settings->windowWidth / 2.0;
+    			g_MouseY = state->Settings->windowHeight / 2.0;
+    		}
+
+    		SM_TRACE("[GAMEDLL] Mouse Aim %s", g_MouseAimEnabled ? "Enabled" : "Disabled")
+		   }
+
+    	HandleFreeLook();
     }
 
-    if (g_UIState->showEditor) {
-      // Lets start by drawing a 2D grid that fills the screen
-      // We do this by getting percentages of the screen size for width/height and drawing hlines/vlines all across
-      auto screenW    = g_Input->screenSize.x;
-      auto screenH    = g_Input->screenSize.y;
-      const float gridSpacing = g_UIState->editorState.gridSpacing * g_UIState->editorState.gridScale;
-      const int numVLines = static_cast<int>(screenW / gridSpacing);
-      const int numHLines = static_cast<int>(screenH / gridSpacing);
-      for (int i = 0; i <= numVLines; i++) {
-        float x = i * gridSpacing;
-        ui_draw_vline(g_RenderData, {x, 0.0f}, screenH, 1.f, {0.2f, 0.2f, 0.2f, 1.0f});
-      }
-      for (int j = 0; j <= numHLines; j++) {
-        float y = j * gridSpacing;
-        ui_draw_hline(g_RenderData, {0.0f, y}, screenW, 1.f, {0.2f, 0.2f, 0.2f, 1.0f});
-      }
+    switch (g_GameState->StateId)
+    {
+	    case GameStateId::Uninitialized:
+			SM_TRACE("[GAMEDLL] Initializing game...")
+			g_GameState->StateId = GameStateId::MainMenu;
+    		g_GameState->GameCamera.position = glm::vec3(0.0f, 5.0f, 10.0f);
+		    break;
+	    case GameStateId::MainMenu:
+		    break;
+	    case GameStateId::InLevel:
+		    break;
+	    case GameStateId::InEditor:
+		    break;
+	    case GameStateId::Paused:
 
-      // Editor panel docked to left
-      UIPanelOptions opt{};
-      opt.dock = UIDock::Left;
-      opt.w = {260, UIUnit::Px};
-      opt.padding = 6.0f;
-      opt.bgColor = {0.2f, 0.2f, 0.2f, 0.1f};
-      ui_push_id(g_UIState, "Editor");
-      ui_begin_panel(g_UIState, g_RenderData, opt);
-
-      ui_label(g_UIState, g_RenderData, "Editor Panel", {2.0f, 10.0f}, {1.0f, 1.0f, 1.0f, 1.0f});
-
-      // Editor Controls
-      {
-        static char editorName[128] = "";
-        //ui_label(g_UIState, g_RenderData, "Name", {2.0f, 10.0f}, {0.9f, 0.9f, 0.9f, 1.0f});
-        ui_input_text(g_UIState, g_RenderData, editorName, (int)sizeof(editorName), {180, 26}, "Type here...");
-
-        ui_button(g_UIState, g_RenderData, "Add Panel", {180, 26});
-        ui_button(g_UIState, g_RenderData, "Add Label", {180, 26});
-        ui_button(g_UIState, g_RenderData, "Add Button", {180, 26});
-      }
-
-      ui_end_panel(g_UIState);
-      ui_pop_id(g_UIState);
+		    break;
+	    default:
+	        SM_ERROR("[GAMEDLL] GameUpdate: Unknown GameStateId %u", static_cast<uint32_t>(g_GameState->StateId))
+			break;
     }
+}
+
+void HandleFreeLook() {
+	if (!g_MouseAimEnabled) return;
+
+	static double lastMouseX = g_GameState->Settings->windowWidth / 2.0;
+	static double lastMouseY = g_GameState->Settings->windowHeight / 2.0;
+
+	// Compute delta from last frame
+	const double dx = g_MouseX - lastMouseX;
+	const double dy = g_MouseY - lastMouseY;
+
+	// Update last position
+	lastMouseX = g_MouseX;
+	lastMouseY = g_MouseY;
+
+	// Mouse sensitivity (adjust to taste)
+	constexpr float sensitivity = 0.002f; // radians per pixel
+
+	// Apply deltas directly to yaw/pitch
+	g_GameState->GameCamera.rotation.y -= static_cast<float>(dx) * sensitivity; // yaw (left/right)
+	g_GameState->GameCamera.rotation.x -= static_cast<float>(dy) * sensitivity; // pitch (up/down)
+
+	// Clamp pitch to prevent flipping
+	constexpr float pitchLimit = glm::radians(89.0f);
+	g_GameState->GameCamera.rotation.x = glm::clamp(
+		g_GameState->GameCamera.rotation.x,
+		-pitchLimit,
+		pitchLimit
+	);
+
+	g_GameState->GameCamera.rotation.z = 0.0f; // no roll
+
+	g_GameState->GameCamera.invalidate();
+}
+
+void GameResize(uint32_t width, uint32_t height) {
+    SM_TRACE("[GAMEDLL] GameResize: %ux%u", width, height);
+}
+
+void GameExit() {
+	if (g_PlatformDebugBreak) {
+		g_PlatformDebugBreak = nullptr;
+	}
+    SM_TRACE("[GAMEDLL] GameExit");
+}
 
 
+void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRing) {
+	static double g_LastMouseX = 0.0, g_LastMouseY = 0.0;
+	static bool g_FirstMouse = true;
 
-    ui_end_panel(g_UIState);
-    ui_pop_id(g_UIState);
-  }
+	InputEvent ev{};
+	while (inputRing->Pop(ev))
+	{
+		if (ev.Type == InputEventType::Key && ev.KeyEvent.Key == KEY_ESCAPE && ev.KeyEvent.Action == RELEASE)
+		{
+			SM_TRACE("[GAMEDLL] GameUpdate: Shutdown requested via ESC key")
+			g_GameState->QuitRequested = true;
+			break;
+		}
 
-  // Crosshair and a random note label using low-level helpers (still valid)
-  ui_draw_hline(g_RenderData, {g_Input->screenSize.x / 2 - 5.f, g_Input->screenSize.y / 2}, 12.5f, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
-  ui_draw_vline(g_RenderData, {g_Input->screenSize.x / 2, g_Input->screenSize.y / 2 - 5.f}, 12.5f, 2.0f, {0.0f, 1.0f, 0.0f, 1.0f});
+		if (ev.Type == InputEventType::Key) {
+			const auto k = static_cast<int>(ev.KeyEvent.Key);
+			if (k >= 0 && k <= KEY_LAST) {
+				if (ev.KeyEvent.Action == PRESS || ev.KeyEvent.Action == REPEAT)   gKeysDown[k] = true;
+				if (ev.KeyEvent.Action == RELEASE) gKeysDown[k] = false;
+			}
+		}
 
-  char* todoText = bump_alloc(transientStorage, 128);
-  snprintf(todoText, 128, "TODO(Nuno): Fix VSync, Press TAB to play sound, WASD+QE+SPACE/SHIFT to fly, RMB+Mouse to look");
-  ui_draw_text_ex(g_RenderData, todoText, {g_Input->screenSize.x / 4.f, g_Input->screenSize.y / 2 - 50.f}, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
+		if (ev.Type == InputEventType::MouseMove) {
+			if (g_MouseAimEnabled) {
+				if (g_FirstMouse) {
+					g_LastMouseX = ev.MouseMoveEvent.X;
+					g_LastMouseY = ev.MouseMoveEvent.Y;
+					g_FirstMouse = false;
+				}
+
+				double dx = ev.MouseMoveEvent.X - g_LastMouseX;
+				double dy = ev.MouseMoveEvent.Y - g_LastMouseY;
+
+				// Optional: clamp large jumps to prevent teleportation
+				constexpr double maxDelta = 100.0;
+				dx = glm::clamp(dx, -maxDelta, maxDelta);
+				dy = glm::clamp(dy, -maxDelta, maxDelta);
+
+				// Just accumulate for smoothing (not for ray-casting anymore)
+				g_MouseX += dx;
+				g_MouseY += dy;
+
+				g_LastMouseX = ev.MouseMoveEvent.X;
+				g_LastMouseY = ev.MouseMoveEvent.Y;
+			} else {
+				g_MouseX = ev.MouseMoveEvent.X;
+				g_MouseY = ev.MouseMoveEvent.Y;
+				g_FirstMouse = true;
+			}
+		}
+
+		if (ev.Type == InputEventType::MouseWheel) {
+			gMouseWheel = static_cast<int32_t>(ev.MouseScrollEvent.OffsetY);
+		}
+	}
+
+	//static char utf8[5] = {}; // Max 4 bytes + null terminator
+	//int len = EncodeUTF8(code, utf8);
+	//SM_TRACE("Char: %.*s", len, utf8);
+}
+
+inline int EncodeUTF8(unsigned int codepoint, char* out) {
+	if (codepoint <= 0x7F) {
+		out[0] = static_cast<char>(codepoint);
+		return 1;
+	} else if (codepoint <= 0x7FF) {
+		out[0] = static_cast<char>(0xC0 | (codepoint >> 6));
+		out[1] = static_cast<char>(0x80 | (codepoint & 0x3F));
+		return 2;
+	} else if (codepoint <= 0xFFFF) {
+		out[0] = static_cast<char>(0xE0 | (codepoint >> 12));
+		out[1] = static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+		out[2] = static_cast<char>(0x80 | (codepoint & 0x3F));
+		return 3;
+	} else if (codepoint <= 0x10FFFF) {
+		out[0] = static_cast<char>(0xF0 | (codepoint >> 18));
+		out[1] = static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F));
+		out[2] = static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+		out[3] = static_cast<char>(0x80 | (codepoint & 0x3F));
+		return 4;
+	}
+	return 0; // Invalid codepoint
 }
 
 // Assertion handler entry point used inside the game DLL.
-// If the host EXE provided a platform-specific handler via set_platform_debug_break,
+// If the host EXE provided a platform-specific handler via GameSetPlatformDebugBreak,
 // we forward to it; otherwise, we use a minimal fallback (log + debugbreak).
 void platform_debug_break(const char* expr, const char* file, int line, const char* message)
 {
-  if (g_PlatformDebugBreak)
-  {
-    g_PlatformDebugBreak(expr, file, line, message);
-    return;
-  }
+	if (g_PlatformDebugBreak)
+	{
+		g_PlatformDebugBreak(expr, file, line, message);
+		return;
+	}
 
-  // Fallback when no platform callback has been set yet
-  _log("ASSERT:", "Expression: %s | File: %s | Line: %d | %s", TEXT_COLOR_RED,
-       (expr ? expr : "<none>"), (file ? file : "<unknown>"), line, (message ? message : ""));
-  DEBUG_BREAK();
+	// Fallback when no platform callback has been set yet
+	_log("ASSERT:", "Expression: %s | File: %s | Line: %d | %s", TEXT_COLOR_RED,
+		(expr ? expr : "<none>"), (file ? file : "<unknown>"), line, (message ? message : ""));
+	DEBUG_BREAK();
 }
