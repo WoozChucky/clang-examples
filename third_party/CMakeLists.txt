@@ -7,6 +7,7 @@ set(NVRHI_WITH_VULKAN ON)
 add_subdirectory(NVRHI)
 
 set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
+set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
 add_subdirectory(tracy)
 
 option(GLFW_BUILD_EXAMPLES "" OFF)

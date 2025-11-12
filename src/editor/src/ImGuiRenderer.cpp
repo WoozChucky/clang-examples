@@ -10,6 +10,27 @@
 #include "registered_font.h"
 #include "tracy/Tracy.hpp"
 
+struct TransformComponent {
+    glm::vec3 Position;
+    glm::vec3 Rotation;
+    glm::vec3 Scale;
+};
+
+struct MeshComponent {
+
+};
+
+using EntityId = uint64_t;
+
+struct ComponentStore {
+    
+};
+
+struct EntityStore {
+
+};
+
+
 // Helper function to convert GLFW keys to ImGuiKey
 static ImGuiKey GlfwKeyToImGuiKey(int key) {
     switch (key) {

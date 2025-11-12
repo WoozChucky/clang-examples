@@ -44,6 +44,7 @@ public:
 	void Stop();
 
 private:
+	bool Running() const;
 	// Main loop helpers
 	void SimulateStep(double dt);
 	void PublishSnapshot(const GameState& state);

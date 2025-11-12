@@ -42,18 +42,21 @@ void GameThread::RunLoop() {
 	 gameState.Settings = &m_AppContext->Settings;
 
 	 constexpr double targetDt =1.0 /60.0;
-	 auto next = Clock::now();
-	 while (m_Running.load(std::memory_order_relaxed)
-		 && !m_AppContext->ShutdownRequested.load(std::memory_order_relaxed))
+	auto nextFrameTime = Clock::now();
+	auto lastFrameTime = nextFrameTime;
+
+	 while (Running())
 	 {
-		const auto start = Clock::now();
-		(void)start; // reserved for profiling if needed
+		const auto frameStart = Clock::now();
+		const double actualDt = std::chrono::duration<double>(frameStart - lastFrameTime).count();
+	 	lastFrameTime = frameStart;
+
 		{
 			ZoneScopedN("Game:FixedUpdate");
 			// Handle requested reloads
 			ReloadGameLibraryIfRequested();
 
-			gameState.DeltaTime = targetDt;
+			gameState.DeltaTime = std::min(actualDt, targetDt * 2.0); // clamp to prevent spiral of death
 
 			if (m_GameLib.IsValid()) {
 				ZoneScopedN("Game:DLLUpdate");
@@ -74,10 +77,15 @@ void GameThread::RunLoop() {
 			SimulateStep(targetDt); // advance simulation
 			PublishSnapshot(gameState); // publish to SnapshotRing (S -> R)
 
-			// sleep until next tick (simple fixed-step)
-			next += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(targetDt));
-			std::this_thread::sleep_until(next);
 		}
+
+	 	nextFrameTime += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(targetDt));
+	 	std::this_thread::sleep_until(nextFrameTime);
+
+	 	const auto now = Clock::now();
+	 	if (now > nextFrameTime) {
+	 		nextFrameTime = now;
+	 	}
 	}
 
 	if (m_GameLib.IsValid()) {
@@ -93,6 +101,11 @@ void GameThread::RunLoop() {
 
 void GameThread::Stop() {
 	m_Running.store(false, std::memory_order_relaxed);
+}
+
+bool GameThread::Running() const {
+	return m_Running.load(std::memory_order_relaxed)
+		 && !m_AppContext->ShutdownRequested.load(std::memory_order_relaxed);
 }
 
 void GameThread::SimulateStep(double dt) {
