@@ -194,7 +194,7 @@ bool ImGuiRenderer::Init(GLFWwindow* window, nvrhi::IDevice* device, Application
     return true;
 }
 
-void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime) {
+void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, double targetTPS, double actualTPS) {
     ZoneScopedN("ImGui");
     {
         ZoneScopedN("ImGui_ProcessInput");
@@ -258,8 +258,8 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime) {
         }
 
         ImGui::Begin("Hello, world!");
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-        ImGui::Text("Hello from the dynamically loaded UI Overlay!");
+        ImGui::Text("Renderer average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        ImGui::Text("Game TPS: %.2f/%.2f", actualTPS > targetTPS ? targetTPS : actualTPS, targetTPS);
         ImGui::Separator();
         ImGui::End();
 

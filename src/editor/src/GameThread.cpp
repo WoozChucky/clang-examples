@@ -6,11 +6,17 @@
 #include <chrono>
 #include <regex>
 
+#ifdef _WIN32
+#include <timeapi.h>  // For timeBeginPeriod/timeEndPeriod
+#include <intrin.h>   // For _mm_pause
+#pragma comment(lib, "winmm.lib")  // Link against winmm.lib for timeBeginPeriod
+#endif
+
+#include <GLFW/glfw3.h>
+#include <tracy/Tracy.hpp>
+
 #include "lib.h"
 #include "Timing.h"
-#include "GLFW/glfw3.h"
-
-#include <tracy/Tracy.hpp>
 
 using namespace std::chrono_literals;
 
@@ -28,6 +34,12 @@ GameThread::GameThread(const std::shared_ptr<ApplicationContext> &appContext)
 void GameThread::RunLoop() {
 	 tracy::SetThreadName("GameThread");
 
+	 // Increase Windows timer resolution for more accurate sleep
+	 // This improves sleep_for/sleep_until from ~15ms to ~1ms granularity
+	 #ifdef _WIN32
+	 timeBeginPeriod(1);
+	 #endif
+
 	 // Initialize hot-reload system (file watcher + initial copy & load)
 	 InitHotReload();
 
@@ -41,9 +53,19 @@ void GameThread::RunLoop() {
 	 gameState.PlatformInputHandle = &m_AppContext->InputRing;
 	 gameState.Settings = &m_AppContext->Settings;
 
-	 constexpr double targetDt =1.0 /60.0;
+	 constexpr double targetDt = 1.0 / 60.0;
+	 gameState.TargetTPS = 1.0 / targetDt; // Set the intended tick rate (60.0)
+
 	auto nextFrameTime = Clock::now();
 	auto lastFrameTime = nextFrameTime;
+
+	 // TPS tracking variables
+	 auto tpsStartTime = Clock::now();
+	 uint64_t tickCount = 0;
+	 constexpr double tpsUpdateInterval = 1.0; // Update ActualTPS every second
+
+	 // Spin-wait threshold: sleep until we're this close, then spin
+	 const auto spinThreshold = std::chrono::microseconds(500); // 0.5ms before target, start spinning
 
 	 while (Running())
 	 {
@@ -76,16 +98,51 @@ void GameThread::RunLoop() {
 
 			SimulateStep(targetDt); // advance simulation
 			PublishSnapshot(gameState); // publish to SnapshotRing (S -> R)
-
 		}
 
-	 	nextFrameTime += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(targetDt));
-	 	std::this_thread::sleep_until(nextFrameTime);
+		const auto workEnd = Clock::now();
 
-	 	const auto now = Clock::now();
-	 	if (now > nextFrameTime) {
-	 		nextFrameTime = now;
-	 	}
+		// Calculate ActualTPS: how many ticks we've completed over wall-clock time
+		tickCount++;
+		const double elapsedWallTime = std::chrono::duration<double>(workEnd - tpsStartTime).count();
+		if (elapsedWallTime >= tpsUpdateInterval) {
+			// ActualTPS = ticks per second (based on wall-clock time including sleep)
+			gameState.ActualTPS = static_cast<double>(tickCount) / elapsedWallTime;
+			tickCount = 0;
+			tpsStartTime = workEnd;
+		}
+
+		// Advance target time
+	 	nextFrameTime += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(targetDt));
+
+		// Hybrid sleep/spin approach for accurate timing
+		{
+			ZoneScopedN("FramePacing");
+			const auto now = Clock::now();
+			
+			// If we're already late, skip sleep entirely
+			if (now >= nextFrameTime) {
+				nextFrameTime = now;
+				continue;
+			}
+
+			const auto timeUntilTarget = nextFrameTime - now;
+
+			// Coarse sleep: sleep until we're close to the target (within spin threshold)
+			if (timeUntilTarget > spinThreshold) {
+				const auto sleepDuration = timeUntilTarget - spinThreshold;
+				std::this_thread::sleep_for(sleepDuration);
+			}
+
+			// Fine spin-wait: busy-wait for the remaining time with CPU yield hints
+			while (Clock::now() < nextFrameTime) {
+				#ifdef _WIN32
+				_mm_pause(); // x86/x64 CPU hint for spin-wait loops
+				#else
+				std::this_thread::yield();
+				#endif
+			}
+		}
 	}
 
 	if (m_GameLib.IsValid()) {
@@ -97,6 +154,11 @@ void GameThread::RunLoop() {
 	}
 
 	UnloadGameLibrary();
+
+	// Restore Windows timer resolution
+	#ifdef _WIN32
+	timeEndPeriod(1);
+	#endif
 }
 
 void GameThread::Stop() {
@@ -122,6 +184,8 @@ void GameThread::PublishSnapshot(const GameState& state) {
 	SimulationSnapshot snap{};
 	snap.Tick = tick;
 	snap.Timestamp = TimeNowSec();
+	snap.TargetTPS = state.TargetTPS;  // Intended tick rate (60.0)
+	snap.ActualTPS = state.ActualTPS;  // Measured tick rate (work time only)
 	snap.ObjectX = m_simX;
 	snap.ObjectVX = m_simVX;
 	snap.GameCamera = state.GameCamera;

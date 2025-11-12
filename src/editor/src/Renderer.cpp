@@ -108,7 +108,7 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     }
 }
 
-float Renderer::Render(double deltaTime, float red, float green, float blue, OrthographicCamera2D& uiCamera, PerspectiveCamera3D& gameCamera) {
+float Renderer::Render(double deltaTime, float red, float green, float blue, OrthographicCamera2D& uiCamera, PerspectiveCamera3D& gameCamera, double targetTPS, double actualTPS) {
 
 if (!m_Backend || !m_Device || !m_CommandList) {
     SM_ERROR("Failed to render: renderer not fully initialized (backend=%p, device=%p, cmdlist=%p)",
@@ -163,7 +163,7 @@ if (!m_Backend || !m_Device || !m_CommandList) {
                 m_GpuTimer.Advance();
             }
 
-            m_ImGuiRenderer->Render(frameBuffer, deltaTime);
+            m_ImGuiRenderer->Render(frameBuffer, deltaTime, targetTPS, actualTPS);
 
             {
                 ZoneScopedN("Present");

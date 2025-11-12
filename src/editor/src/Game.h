@@ -26,6 +26,8 @@ struct ApplicationSettings;
 struct GameState {
     GameStateId StateId = GameStateId::Uninitialized;
     double DeltaTime = 0.0;
+    double TargetTPS = 60.0;  // Intended tick rate
+    double ActualTPS = 0.0;   // Measured actual tick rate (work time only)
     void* PlatformInputHandle = nullptr;
     void* GameOutputHandle = nullptr;
     const ApplicationSettings* Settings = nullptr;
