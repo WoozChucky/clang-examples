@@ -8,6 +8,7 @@
 #include <iostream>
 #include <thread>
 #include <mutex>
+#include <filesystem>
 
 #include "alloc.h"
 #include "lib.h"
@@ -32,6 +33,8 @@ void platform_debug_break(const char* expr, const char* file, int line, const ch
 
 int main() {
     std::atexit([](){ DumpAllocations(); });
+
+	SM_TRACE("Working Directory: %s", std::filesystem::current_path().string().c_str());
 
     Application app;
     if (!app.Init()) {

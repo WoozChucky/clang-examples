@@ -33,8 +33,8 @@ void GameThread::RunLoop() {
 
 	// Initialize plugin system
 	m_PluginManager = std::make_unique<DotNetPluginManager>();
-	if (m_PluginManager->Initialize("plugins/PluginCore.runtimeconfig.json")) {
-		m_PluginManager->LoadPluginsFromDirectory("plugins");
+	if (m_PluginManager->Initialize("assets/plugins/PluginCore.runtimeconfig.json")) {
+		m_PluginManager->LoadPluginsFromDirectory("assets/plugins");
 	}
 
 	 GameState gameState{};

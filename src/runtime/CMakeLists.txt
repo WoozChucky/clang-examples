@@ -1,4 +1,3 @@
-
 add_executable(runtime
         src/main.cpp
         src/renderer.cpp
@@ -45,6 +44,3 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     # Keep your explicit suppressions if desired
     target_compile_options(runtime PRIVATE -Wno-switch -Wno-writable-strings -Wno-sign-compare -Wno-deprecated-declarations -Wno-format-security -Wmissing-braces)
 endif()
-
-# Visual Studio nicety: select startup project
-set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" PROPERTY VS_STARTUP_PROJECT runtime)
