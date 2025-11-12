@@ -53,8 +53,15 @@ void GameThread::RunLoop() {
 	 gameState.PlatformInputHandle = &m_AppContext->InputRing;
 	 gameState.Settings = &m_AppContext->Settings;
 
-	 constexpr double targetDt = 1.0 / 60.0;
-	 gameState.TargetTPS = 1.0 / targetDt; // Set the intended tick rate (60.0)
+	 // Initialize default settings
+	 GameThreadSettings threadSettings{};
+	 threadSettings.TargetTPS = 60.0;
+	 threadSettings.SpinThresholdMicros = 500;
+	 threadSettings.EnableFrameTimeTracking = true;
+	 m_AppContext->GameThreadConfig.store(threadSettings);
+
+	 double targetDt = 1.0 / threadSettings.TargetTPS;
+	 gameState.TargetTPS = threadSettings.TargetTPS;
 
 	auto nextFrameTime = Clock::now();
 	auto lastFrameTime = nextFrameTime;
@@ -64,14 +71,46 @@ void GameThread::RunLoop() {
 	 uint64_t tickCount = 0;
 	 constexpr double tpsUpdateInterval = 1.0; // Update ActualTPS every second
 
-	 // Spin-wait threshold: sleep until we're this close, then spin
-	 const auto spinThreshold = std::chrono::microseconds(500); // 0.5ms before target, start spinning
+	 // Frame time tracking
+	 FrameTimeStats frameStats{};
+	 frameStats.MinFrameTimeMs = 1000.0; // Initialize to high value
+	 frameStats.MaxFrameTimeMs = 0.0;
+	 frameStats.AvgFrameTimeMs = 0.0;
+	 frameStats.SampleCount = 0;
 
 	 while (Running())
 	 {
+		// Read latest settings from render thread
+		const GameThreadSettings currentSettings = m_AppContext->GameThreadConfig.load();
+		
+		// Update target if changed
+		if (currentSettings.TargetTPS != threadSettings.TargetTPS) {
+			threadSettings = currentSettings;
+			targetDt = 1.0 / threadSettings.TargetTPS;
+			gameState.TargetTPS = threadSettings.TargetTPS;
+			// Reset timing to avoid jumps
+			nextFrameTime = Clock::now();
+			lastFrameTime = nextFrameTime;
+		}
+
 		const auto frameStart = Clock::now();
 		const double actualDt = std::chrono::duration<double>(frameStart - lastFrameTime).count();
 	 	lastFrameTime = frameStart;
+
+		// Track frame time variance
+		if (threadSettings.EnableFrameTimeTracking) {
+			const double frameTimeMs = actualDt * 1000.0;
+			frameStats.MinFrameTimeMs = std::min(frameStats.MinFrameTimeMs, frameTimeMs);
+			frameStats.MaxFrameTimeMs = std::max(frameStats.MaxFrameTimeMs, frameTimeMs);
+			// Exponential moving average
+			const double alpha = 0.05; // Smoothing factor
+			if (frameStats.SampleCount == 0) {
+				frameStats.AvgFrameTimeMs = frameTimeMs;
+			} else {
+				frameStats.AvgFrameTimeMs = alpha * frameTimeMs + (1.0 - alpha) * frameStats.AvgFrameTimeMs;
+			}
+			frameStats.SampleCount++;
+		}
 
 		{
 			ZoneScopedN("Game:FixedUpdate");
@@ -97,7 +136,7 @@ void GameThread::RunLoop() {
 			}
 
 			SimulateStep(targetDt); // advance simulation
-			PublishSnapshot(gameState); // publish to SnapshotRing (S -> R)
+			PublishSnapshot(gameState, frameStats); // publish to SnapshotRing (S -> R)
 		}
 
 		const auto workEnd = Clock::now();
@@ -127,6 +166,7 @@ void GameThread::RunLoop() {
 			}
 
 			const auto timeUntilTarget = nextFrameTime - now;
+			const auto spinThreshold = std::chrono::microseconds(threadSettings.SpinThresholdMicros);
 
 			// Coarse sleep: sleep until we're close to the target (within spin threshold)
 			if (timeUntilTarget > spinThreshold) {
@@ -177,7 +217,7 @@ void GameThread::SimulateStep(double dt) {
 	if (m_simX < -1.0f) { m_simX = -1.0f; m_simVX = std::fabs(m_simVX); }
 }
 
-void GameThread::PublishSnapshot(const GameState& state) {
+void GameThread::PublishSnapshot(const GameState& state, const FrameTimeStats& frameStats) {
 	ZoneScopedN("PublishSnapshot");
 	const uint64_t tick = m_TickCounter++;
 
@@ -190,6 +230,7 @@ void GameThread::PublishSnapshot(const GameState& state) {
 	snap.ObjectVX = m_simVX;
 	snap.GameCamera = state.GameCamera;
 	snap.UICamera = state.UICamera;
+	snap.FrameStats = frameStats;
 
 	// Single-writer seqlock publish
 	m_AppContext->LatestSnapshot.store(snap);

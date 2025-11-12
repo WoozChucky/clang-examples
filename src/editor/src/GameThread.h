@@ -47,7 +47,7 @@ private:
 	bool Running() const;
 	// Main loop helpers
 	void SimulateStep(double dt);
-	void PublishSnapshot(const GameState& state);
+	void PublishSnapshot(const GameState& state, const FrameTimeStats& frameStats);
 
 	// GameCode hot-reload helpers
 	void InitHotReload();
