@@ -11,6 +11,21 @@ struct ApplicationSettings {
     bool vsyncEnabled = true;
 };
 
+// Runtime-configurable game thread settings (Render -> Game)
+struct GameThreadSettings {
+    double TargetTPS = 60.0;           // Target ticks per second
+    uint32_t SpinThresholdMicros = 500; // Microseconds to start spinning before target
+    bool EnableFrameTimeTracking = true; // Track min/max/avg frame times
+};
+
+// Frame timing statistics (Game -> Render)
+struct FrameTimeStats {
+    double MinFrameTimeMs = 0.0;
+    double MaxFrameTimeMs = 0.0;
+    double AvgFrameTimeMs = 0.0;
+    uint64_t SampleCount = 0;
+};
+
 struct UiCommand {
     enum Type : uint8_t { SetVelocity = 0, TogglePause = 1 } type{};
     float fval{}; bool bval{};
@@ -19,13 +34,14 @@ struct UiCommand {
 struct SimulationSnapshot {
     uint64_t Tick;      // monotonic tick id
     double Timestamp;   // seconds at tick start
-	double TargetTPS;   // intended tick rate (usually 60.0)
-	double ActualTPS;   // measured actual tick rate (work time only)
+    double TargetTPS;   // intended tick rate (usually 60.0)
+    double ActualTPS;   // measured actual tick rate (work time only)
     // Minimal renderable state: a single float position for demo (x in [-1..1])
     float ObjectX;
     float ObjectVX;     // velocity for possible extrapolation
     PerspectiveCamera3D GameCamera;
     OrthographicCamera2D UICamera;
+    FrameTimeStats FrameStats; // Frame timing statistics
 };
 
 // Small atomic for late-latch (latest input state snapshot)
@@ -45,6 +61,9 @@ struct RendererCommand {
 struct ApplicationContext {
     // Application settings
     ApplicationSettings Settings{};
+
+    // Game thread settings (Render -> Game via seqlock)
+    Seqlock<GameThreadSettings> GameThreadConfig{};
 
     // Shutdown
     std::atomic<bool> ShutdownRequested{false};
