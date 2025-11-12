@@ -19,6 +19,8 @@ struct UiCommand {
 struct SimulationSnapshot {
     uint64_t Tick;      // monotonic tick id
     double Timestamp;   // seconds at tick start
+	double TargetTPS;   // intended tick rate (usually 60.0)
+	double ActualTPS;   // measured actual tick rate (work time only)
     // Minimal renderable state: a single float position for demo (x in [-1..1])
     float ObjectX;
     float ObjectVX;     // velocity for possible extrapolation

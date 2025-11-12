@@ -88,7 +88,7 @@ void RenderThread::RunLoop()
         float green = 0.3f + 0.2f * static_cast<float>(std::fmod(mx / 640.0, 1.0));
         float blue = 0.2f;
 
-        m_Renderer->Render(renderDelta, red, green, blue, nextSnap.UICamera, nextSnap.GameCamera);
+        m_Renderer->Render(renderDelta, red, green, blue, nextSnap.UICamera, nextSnap.GameCamera, nextSnap.TargetTPS, nextSnap.ActualTPS);
 
         // Advance interpolation baseline
         prevSnap = nextSnap;

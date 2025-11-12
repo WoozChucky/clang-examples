@@ -17,7 +17,7 @@ public:
     }
 
     bool Init(GLFWwindow* window, nvrhi::IDevice* device, ApplicationContext* appContext);
-    void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime);
+    void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, double targetTPS, double actualTPS);
     void Shutdown();
 private:
     std::shared_ptr<RegisteredFont> CreateFontFromFile(const char* fontFile, float fontSize);
