@@ -408,6 +408,17 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                             }
                         }
                     }
+
+                    if (!worldSnapshot->HasComponent<TextComponent>(entity)) {
+                        if (ImGui::MenuItem("Add Text Component")) {
+                            TextComponent newText{};
+                            newText.Text = "Sample text";
+                            ECSCommand addCmd = ECSCommand::AddComponent(entity, newText);
+                            if (!m_AppContext->ECSCommandRing.Push(addCmd)) {
+                                SM_WARN("ECS command queue full! Add component command dropped.");
+                            }
+                        }
+                    }
                     
                     ImGui::Separator();
                     
@@ -424,6 +435,15 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                     if (worldSnapshot->HasComponent<MeshComponent>(entity)) {
                         if (ImGui::MenuItem("Remove Mesh Component")) {
                             ECSCommand removeCmd = ECSCommand::RemoveComponent<MeshComponent>(entity);
+                            if (!m_AppContext->ECSCommandRing.Push(removeCmd)) {
+                                SM_WARN("ECS command queue full! Remove component command dropped.");
+                            }
+                        }
+                    }
+
+                    if (worldSnapshot->HasComponent<TextComponent>(entity)) {
+                        if (ImGui::MenuItem("Remove Text Component")) {
+                            ECSCommand removeCmd = ECSCommand::RemoveComponent<TextComponent>(entity);
                             if (!m_AppContext->ECSCommandRing.Push(removeCmd)) {
                                 SM_WARN("ECS command queue full! Remove component command dropped.");
                             }
@@ -578,10 +598,54 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                         }
                     }
                 }
+
+                // Edit Text Component
+                if (worldSnapshot->HasComponent<TextComponent>(selectedEntity)) {
+                    if (ImGui::CollapsingHeader("Text Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto* textComp = worldSnapshot->GetComponent<TextComponent>(selectedEntity);
+                        if (textComp) {
+                            // Create mutable copy for editing
+                            static TextComponent editTextComp{};
+                            static EntityId lastEditedTextEntity = INVALID_ENTITY;
+                            // Reset when switching entities
+                            if (lastEditedTextEntity != selectedEntity) {
+                                editTextComp = *textComp;
+                                lastEditedTextEntity = selectedEntity;
+                            }
+                            bool modified = false;
+                            // Text editor
+                            char buffer[256];
+                            strncpy(buffer, editTextComp.Text.c_str(), sizeof(buffer));
+                            if (ImGui::InputTextMultiline("Text", buffer, sizeof(buffer))) {
+                                editTextComp.Text = std::string(buffer);
+                                modified = true;
+                            }
+                            ImGui::Spacing();
+                            if (modified) {
+                                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "* Modified (not yet saved)");
+                            }
+                            if (ImGui::Button("Apply Changes##Text", ImVec2(150, 0))) {
+                                ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editTextComp);
+                                if (!m_AppContext->ECSCommandRing.Push(modifyCmd)) {
+                                    SM_WARN("ECS command queue full! Modify command dropped.");
+                                }
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Revert##Text", ImVec2(150, 0))) {
+                                editTextComp = *textComp;
+                            }
+                            ImGui::Separator();
+                            // Show original values from snapshot (read-only)
+                            ImGui::TextDisabled("Original values from snapshot:");
+                            ImGui::TextDisabled("Text: %s", textComp->Text.c_str());
+                        }
+                    }
+                }
                 
                 // Show if entity has no components
                 if (!worldSnapshot->HasComponent<TransformComponent>(selectedEntity) && 
-                    !worldSnapshot->HasComponent<MeshComponent>(selectedEntity)) {
+                    !worldSnapshot->HasComponent<MeshComponent>(selectedEntity) &&
+                    !worldSnapshot->HasComponent<TextComponent>(selectedEntity)) {
                     ImGui::TextDisabled("Entity has no components.");
                     ImGui::TextDisabled("Right-click the entity to add components.");
                 }
