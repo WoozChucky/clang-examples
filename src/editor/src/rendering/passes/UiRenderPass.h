@@ -47,7 +47,20 @@ public:
 
     static const FontKey DEFAULT_FONT;
 
-    bool LoadAtlas(const char* filePath, const size_t fontSize, nvrhi::IDevice* device) {
+    ~FontManager() {
+        m_Sampler = nullptr;
+        m_Device = nullptr;
+        m_AtlasMap.clear();
+    }
+
+    bool LoadAtlas(const char* filePath, const size_t fontSize, nvrhi::IDevice* device, nvrhi::CommandListHandle commandList = nullptr) {
+        if (!device) {
+            SM_ERROR("Device is nullptr");
+            return false;
+        }
+
+        m_Device = device;
+
         FT_Library ftLib = nullptr;
         if (FT_Init_FreeType(&ftLib)) {
             SM_ERROR("Could not init FreeType Library");
@@ -121,8 +134,10 @@ public:
         outAtlas.pixelHeight = fontSize;
 
         // 2) Create NVRHI texture (R8_UNORM) and upload atlas
-        auto uploadCL = device->createCommandList();
-        uploadCL->open();
+        bool hasCommandList = (commandList != nullptr);
+        auto uploadCL = (!commandList) ? device->createCommandList() : commandList;
+        if (!hasCommandList)
+            uploadCL->open();
 
         nvrhi::TextureDesc td;
         td.debugName = "FontAtlas";
@@ -144,8 +159,10 @@ public:
                                atlas.data(), rowPitch, 0 /*depthPitch*/);
         uploadCL->setPermanentTextureState(outAtlas.texture, nvrhi::ResourceStates::ShaderResource);
         uploadCL->commitBarriers();
-        uploadCL->close();
-        device->executeCommandList(uploadCL);
+        if (!hasCommandList) {
+            uploadCL->close();
+            device->executeCommandList(uploadCL);
+        }
 
         if (!m_Sampler) {
             // 3) Create sampler (clamp + linear)
@@ -184,14 +201,55 @@ public:
         return m_Sampler;
     }
 
-    FontAtlas* GetAtlas(const FontKey &fontKey) {
+    FontAtlas* GetAtlas(const FontKey &fontKey, nvrhi::IDevice* device = nullptr, const nvrhi::CommandListHandle &commandList = nullptr) {
         const auto it = m_AtlasMap.find(fontKey);
-        return it != m_AtlasMap.end() ? &it->second : nullptr;
+        if (it != m_AtlasMap.end()) {
+            return &it->second;
+        }
+
+        if (LoadAtlas(fontKey.Path.c_str(), fontKey.Size, device, commandList)) {
+            return GetAtlas(fontKey);
+        }
+        return nullptr;
+    }
+
+    void SetUIResources(nvrhi::BindingLayoutHandle bindingLayout, 
+                        nvrhi::BufferHandle perFrameCB, 
+                        nvrhi::BufferHandle instanceBuffer) {
+        m_UIBindingLayout = bindingLayout;
+        m_PerFrameCB = perFrameCB;
+        m_InstanceBuffer = instanceBuffer;
+    }
+
+    void CreateUIBindingSet(FontAtlas& atlas) {
+        if (!m_Device || !m_UIBindingLayout || !m_PerFrameCB || !m_InstanceBuffer) {
+            SM_WARN("Cannot create UI binding set: missing resources");
+            return;
+        }
+        if (!atlas.texture || !m_Sampler) {
+            SM_WARN("Cannot create UI binding set: missing atlas texture or sampler");
+            return;
+        }
+
+        nvrhi::BindingSetDesc bsd;
+        bsd.bindings = {
+            nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameCB),
+            nvrhi::BindingSetItem::Texture_SRV(0, atlas.texture),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_InstanceBuffer),
+            nvrhi::BindingSetItem::Sampler(0, m_Sampler)
+        };
+        atlas.uiBindingSet = m_Device->createBindingSet(bsd, m_UIBindingLayout);
     }
 
 private:
     nvrhi::SamplerHandle    m_Sampler; // clamp + linear
     std::unordered_map<FontKey, FontAtlas, FontKeyHash> m_AtlasMap;
+    nvrhi::IDevice* m_Device = nullptr;
+    
+    // UI rendering resources
+    nvrhi::BindingLayoutHandle m_UIBindingLayout;
+    nvrhi::BufferHandle m_PerFrameCB;
+    nvrhi::BufferHandle m_InstanceBuffer;
 };
 
 class UiRenderPass final : public IRenderPass {

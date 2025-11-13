@@ -31,7 +31,7 @@ struct TextComponent {
     glm::vec4 Color{1.0f};
     // Reserved for future use
     //std::string Font;
-    //float FontSize = 12.0f;
+    size_t FontSize = 12;
 };
 
 // #############################################################################

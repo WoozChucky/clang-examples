@@ -478,7 +478,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                 lastEditedEntity = selectedEntity;
                             }
                             
-                            bool modified = false;
+                            static bool modified = false;
                             
                             // Position editor
                             ImGui::Text("Position:");
@@ -512,6 +512,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                 if (!m_AppContext->ECSCommandRing.Push(modifyCmd)) {
                                     SM_WARN("ECS command queue full! Modify command dropped.");
                                 }
+                                modified = false;
                             }
                             
                             ImGui::SameLine();
@@ -551,7 +552,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                 lastEditedMeshEntity = selectedEntity;
                             }
                             
-                            bool modified = false;
+                            static bool modified = false;
                             
                             // Mesh ID editor
                             if (ImGui::InputScalar("Mesh ID", ImGuiDataType_U32, &editMesh.MeshId)) {
@@ -580,6 +581,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                 if (!m_AppContext->ECSCommandRing.Push(modifyCmd)) {
                                     SM_WARN("ECS command queue full! Modify command dropped.");
                                 }
+                                modified = false;
                             }
                             
                             ImGui::SameLine();
@@ -612,12 +614,26 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                 editTextComp = *textComp;
                                 lastEditedTextEntity = selectedEntity;
                             }
-                            bool modified = false;
+                            static bool modified = false;
                             // Text editor
                             char buffer[256];
-                            strncpy(buffer, editTextComp.Text.c_str(), sizeof(buffer));
+                            strncpy_s(buffer, editTextComp.Text.c_str(), sizeof(buffer));
                             if (ImGui::InputTextMultiline("Text", buffer, sizeof(buffer))) {
                                 editTextComp.Text = std::string(buffer);
+                                modified = true;
+                            }
+                            ImGui::Spacing();
+                            // Text color editor
+                            ImGui::Text("Text Color:");
+                            if (ImGui::ColorEdit4("##TextColor", &editTextComp.Color.r)) {
+                                modified = true;
+                            }
+                            ImGui::Spacing();
+                            // Font size editor
+                            ImGui::Text("Font Size:");
+                            int fontSizeInt = static_cast<int>(editTextComp.FontSize);
+                            if (ImGui::SliderInt("##FontSize", &fontSizeInt, 6, 72, "%d px")) {
+                                editTextComp.FontSize = static_cast<size_t>(fontSizeInt);
                                 modified = true;
                             }
                             ImGui::Spacing();
@@ -629,6 +645,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                 if (!m_AppContext->ECSCommandRing.Push(modifyCmd)) {
                                     SM_WARN("ECS command queue full! Modify command dropped.");
                                 }
+                                modified = false;
                             }
                             ImGui::SameLine();
                             if (ImGui::Button("Revert##Text", ImVec2(150, 0))) {
@@ -643,9 +660,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                 }
                 
                 // Show if entity has no components
-                if (!worldSnapshot->HasComponent<TransformComponent>(selectedEntity) && 
-                    !worldSnapshot->HasComponent<MeshComponent>(selectedEntity) &&
-                    !worldSnapshot->HasComponent<TextComponent>(selectedEntity)) {
+                if (!worldSnapshot->HasComponents<TransformComponent, MeshComponent, TextComponent>(selectedEntity)) {
                     ImGui::TextDisabled("Entity has no components.");
                     ImGui::TextDisabled("Right-click the entity to add components.");
                 }
