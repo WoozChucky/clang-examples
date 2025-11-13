@@ -1,4 +1,5 @@
 #pragma once
+#include "ECS.h"
 
 #ifdef _WIN32
 #define DEBUG_BREAK() __debugbreak()
@@ -34,6 +35,7 @@ struct GameState {
     bool QuitRequested = false;
     PerspectiveCamera3D GameCamera {};
     OrthographicCamera2D UICamera {};
+    ECS World{};
 };
 
 using GameGetVersionFunc = uint32_t(*)();

@@ -8,7 +8,7 @@
 #include "glm/common.hpp"
 
 #include "lib.h"
-#include "input.h"
+#include "input_old.h"
 #include "glm/vec2.hpp"
 #include "glm/vec4.hpp"
 #include "render.h"

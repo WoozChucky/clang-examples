@@ -117,6 +117,12 @@ void GameThread::RunLoop() {
 			// Handle requested reloads
 			ReloadGameLibraryIfRequested();
 
+			// Process ECS commands from RenderThread (ImGui modifications)
+			{
+				ZoneScopedN("Game:ProcessECSCommands");
+				ECSCommandProcessor::ProcessCommands(gameState.World, m_AppContext->ECSCommandRing);
+			}
+
 			gameState.DeltaTime = std::min(actualDt, targetDt * 2.0); // clamp to prevent spiral of death
 
 			if (m_GameLib.IsValid()) {
@@ -221,6 +227,13 @@ void GameThread::PublishSnapshot(const GameState& state, const FrameTimeStats& f
 	ZoneScopedN("PublishSnapshot");
 	const uint64_t tick = m_TickCounter++;
 
+	// Create a read-only snapshot of the ECS world
+	std::shared_ptr<const ECS> worldSnapshot = state.World.CreateSnapshot();
+	
+	// Store the snapshot atomically (C++20 atomic shared_ptr operations)
+	// This keeps the snapshot alive while RenderThread might be reading it
+	std::atomic_store(&m_AppContext->LatestWorldSnapshot, worldSnapshot);
+
 	SimulationSnapshot snap{};
 	snap.Tick = tick;
 	snap.Timestamp = TimeNowSec();
@@ -231,6 +244,10 @@ void GameThread::PublishSnapshot(const GameState& state, const FrameTimeStats& f
 	snap.GameCamera = state.GameCamera;
 	snap.UICamera = state.UICamera;
 	snap.FrameStats = frameStats;
+	
+	// Pass raw pointer through Seqlock (Seqlock requires trivially copyable types)
+	// The shared_ptr above keeps this pointer valid
+	snap.WorldSnapshotPtr = worldSnapshot.get();
 
 	// Single-writer seqlock publish
 	m_AppContext->LatestSnapshot.store(snap);

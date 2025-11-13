@@ -8,6 +8,7 @@
 
 class RegisteredFont;
 struct ApplicationContext;
+struct SimulationSnapshot;
 
 class ImGuiRenderer final {
 public:
@@ -17,7 +18,7 @@ public:
     }
 
     bool Init(GLFWwindow* window, nvrhi::IDevice* device, ApplicationContext* appContext);
-    void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, double targetTPS, double actualTPS);
+    void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, const SimulationSnapshot& snapshot);
     void Shutdown();
 private:
     std::shared_ptr<RegisteredFont> CreateFontFromFile(const char* fontFile, float fontSize);
