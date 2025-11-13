@@ -72,7 +72,7 @@ public:
     bool Init(RendererAPI api);
     void Shutdown(uint32_t timeoutMs = SHUTDOWN_TIMEOUT);
 
-    float Render(double deltaTime, float red, float green, float blue, OrthographicCamera2D& uiCamera, PerspectiveCamera3D& gameCamera, double targetTPS, double actualTPS);
+    float Render(double deltaTime, float red, float green, float blue, OrthographicCamera2D& uiCamera, PerspectiveCamera3D& gameCamera, const SimulationSnapshot& snapshot);
     void Resize(uint32_t width, uint32_t height);
     void ToggleVSync();
 

@@ -51,8 +51,17 @@ void RenderThread::RunLoop()
             }
         }
 
-        // Read latest snapshot from seqlock
+        // IMPORTANT: Load ECS snapshot FIRST to acquire reference and prevent deletion
+        // This must happen before loading SimulationSnapshot to avoid race condition
+        std::shared_ptr<const ECS> worldSnapshot = std::atomic_load(&m_AppContext->LatestWorldSnapshot);
+        
+        // Read latest snapshot from seqlock - retrieved ONCE per render loop
         SimulationSnapshot nextSnap = m_AppContext->LatestSnapshot.load();
+        
+        // Note: nextSnap.WorldSnapshotPtr might point to an older snapshot that's still valid
+        // because we're holding a reference to it via worldSnapshot shared_ptr above.
+        // This is intentional - we use the snapshot we loaded, not necessarily the one in nextSnap.
+        
         if (!havePrev) { prevSnap = nextSnap; havePrev = true; }
 
         // Compute render time / delta
@@ -88,7 +97,8 @@ void RenderThread::RunLoop()
         float green = 0.3f + 0.2f * static_cast<float>(std::fmod(mx / 640.0, 1.0));
         float blue = 0.2f;
 
-        m_Renderer->Render(renderDelta, red, green, blue, nextSnap.UICamera, nextSnap.GameCamera, nextSnap.TargetTPS, nextSnap.ActualTPS);
+        // Pass the snapshot (which now includes WorldSnapshotPtr) to renderer
+        m_Renderer->Render(renderDelta, red, green, blue, nextSnap.UICamera, nextSnap.GameCamera, nextSnap);
 
         // Advance interpolation baseline
         prevSnap = nextSnap;
@@ -97,6 +107,8 @@ void RenderThread::RunLoop()
 
         // Small yield to avoid starving other threads (not strictly necessary)
         std::this_thread::sleep_for(std::chrono::milliseconds(0));
+        
+        // worldSnapshot shared_ptr goes out of scope here, decrementing ref count
     }
 
     Cleanup();

@@ -9,6 +9,7 @@
 static GameState* g_GameState = nullptr;
 static GameDebugBreakFn g_PlatformDebugBreak = nullptr;
 static bool gKeysDown[KEY_LAST + 1] = {};
+static bool gKeysPressedThisFrame[KEY_LAST + 1] = {}; // NEW: Track single-frame presses
 static int32_t gMouseWheel = 0;
 static bool   g_MouseAimEnabled = false;        // toggled by T
 static double g_MouseX = 0.0, g_MouseY = 0.0;   // last mouse position in window coords
@@ -16,7 +17,20 @@ static double g_MouseX = 0.0, g_MouseY = 0.0;   // last mouse position in window
 using namespace Input;
 
 void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRing);
-void HandleFreeLook();
+void HandleFreeLook(GameState* state);
+void HandleCameraMovement(GameState* state);
+
+// Helper function to check if key was pressed this frame (single press, not held)
+inline bool IsKeyPressedThisFrame(int key) {
+    if (key < 0 || key > KEY_LAST) return false;
+    return gKeysPressedThisFrame[key];
+}
+
+// Helper function to check if key is currently held down
+inline bool IsKeyDown(int key) {
+    if (key < 0 || key > KEY_LAST) return false;
+    return gKeysDown[key];
+}
 
 uint32_t GameGetVersion() {
     SM_TRACE("[GAMEDLL] GameGetVersion");
@@ -38,84 +52,21 @@ void GameUpdate(GameState* state) {
 
     if (!g_GameState) return;
 
+	// Clear pressed-this-frame flags at start of each update
+	memset(gKeysPressedThisFrame, 0, sizeof(gKeysPressedThisFrame));
+
 	const auto inputRing = static_cast<SpscRing<InputEvent, ApplicationContext::InputRingSize>*>(g_GameState->PlatformInputHandle);
-	const auto dt = static_cast<float>(state->DeltaTime);
 
 	DrainInput(inputRing);
 
+	HandleCameraMovement(g_GameState);
+
     {
-    	const glm::vec3 rot= state->GameCamera.rotation; // pitch(x), yaw(y), roll(z)
-    	const float cp = cosf(rot.x), sp = sinf(rot.x);
-    	const float cy = cosf(rot.y), sy = sinf(rot.y);
-
-    	// Camera-to-world forward for RH, y-up, default forward = -Z:
-    	// forward = (Rx * Ry * Rz) * (0,0,-1) with roll=0
-    	const glm::vec3 forward = glm::normalize(glm::vec3(
-		  -sy,            // x
-		   sp * cy,       // y
-		  -cp * cy        // z
-		));
-
-    	// Right vector consistent with RH system
-    	const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0,1,0)));
-
-    	float moveSpeed = 7.5f; // units/sec
-
-    	// Movement
-    	if (gKeysDown[KEY_W]) state->GameCamera.position += forward * (moveSpeed * dt);
-    	if (gKeysDown[KEY_S]) state->GameCamera.position -= forward * (moveSpeed * dt);
-    	if (gKeysDown[KEY_A]) state->GameCamera.position -= right   * (moveSpeed * dt);
-    	if (gKeysDown[KEY_D]) state->GameCamera.position += right   * (moveSpeed * dt);
-
-    	// Elevation
-    	if (gKeysDown[KEY_SPACE]) { state->GameCamera.position.y += moveSpeed * dt; state->GameCamera.invalidate(); }
-    	if (gKeysDown[KEY_LEFT_SHIFT]) { state->GameCamera.position.y -= moveSpeed * dt; state->GameCamera.invalidate(); }
-
-    	// Rotation
-    	constexpr float yawSpeed = glm::radians(120.0f);
-    	auto& yaw = state->GameCamera.rotation.y;
-		if (gKeysDown[KEY_Q]) yaw += yawSpeed * dt; state->GameCamera.invalidate();
-		if (gKeysDown[KEY_E]) yaw -= yawSpeed * dt; state->GameCamera.invalidate();
-
-    	//Zoom
-    	const int32_t wheel = std::exchange(gMouseWheel, 0);
-		if (wheel != 0) {
-			if (true) {
-				// Perspective zoom, usually for a 1st-person game ends up in FOV change
-				// decrease FOV to zoom in, increase to zoom out
-				constexpr float step   = glm::radians(2.0f);   // FOV change per notch
-				constexpr float minFov = glm::radians(20.0f);
-				constexpr float maxFov = glm::radians(179.99f);
-				// Adjust the correct FOV field for your camera (e.g., fovY)
-				state->GameCamera.fov = glm::clamp(
-					state->GameCamera.fov - step * static_cast<float>(wheel),
-					minFov, maxFov
-				);
-			}
-			if (false) {
-				// Perspective zoom, usually for a 3rd-person game ends up in camera position change
-				// in relation to the player
-				constexpr float zoomPerNotch = 2.0f; // units per wheel step
-				const float zoomDelta = static_cast<float>(wheel) * zoomPerNotch;
-				state->GameCamera.position += forward * zoomDelta;
-				state->GameCamera.invalidate();
-			}
+	    // Use IsKeyPressedThisFrame to add only ONE entity per key press (not per frame while held)
+		if (IsKeyPressedThisFrame(KEY_1)) {
+			const auto entityId = g_GameState->World.CreateEntity();
+			SM_TRACE("Added new Entity (%llu)", entityId)
 		}
-
-    	if (gKeysDown[KEY_T]) {
-    		gKeysDown[KEY_T] = false;
-    		g_MouseAimEnabled = !g_MouseAimEnabled;
-
-    		if (g_MouseAimEnabled) {
-    			// Reset virtual cursor to center when enabling mouse aim
-    			g_MouseX = state->Settings->windowWidth / 2.0;
-    			g_MouseY = state->Settings->windowHeight / 2.0;
-    		}
-
-    		SM_TRACE("[GAMEDLL] Mouse Aim %s", g_MouseAimEnabled ? "Enabled" : "Disabled")
-		   }
-
-    	HandleFreeLook();
     }
 
     switch (g_GameState->StateId)
@@ -140,11 +91,89 @@ void GameUpdate(GameState* state) {
     }
 }
 
-void HandleFreeLook() {
+void HandleCameraMovement(GameState* state)
+{
+	const auto dt = static_cast<float>(state->DeltaTime);
+
+	const glm::vec3 rot = state->GameCamera.rotation; // pitch(x), yaw(y), roll(z)
+	const float cp = cosf(rot.x), sp = sinf(rot.x);
+	const float cy = cosf(rot.y), sy = sinf(rot.y);
+
+	// Camera-to-world forward for RH, y-up, default forward = -Z:
+	// forward = (Rx * Ry * Rz) * (0,0,-1) with roll=0
+	const glm::vec3 forward = glm::normalize(glm::vec3(
+		-sy,            // x
+		sp * cy,       // y
+		-cp * cy        // z
+	));
+
+	// Right vector consistent with RH system
+	const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0, 1, 0)));
+
+	float moveSpeed = 7.5f; // units/sec
+
+	// Movement - use IsKeyDown for continuous movement
+	if (IsKeyDown(KEY_W)) state->GameCamera.position += forward * (moveSpeed * dt);
+	if (IsKeyDown(KEY_S)) state->GameCamera.position -= forward * (moveSpeed * dt);
+	if (IsKeyDown(KEY_A)) state->GameCamera.position -= right * (moveSpeed * dt);
+	if (IsKeyDown(KEY_D)) state->GameCamera.position += right * (moveSpeed * dt);
+
+	// Elevation
+	if (IsKeyDown(KEY_SPACE)) { state->GameCamera.position.y += moveSpeed * dt; state->GameCamera.invalidate(); }
+	if (IsKeyDown(KEY_LEFT_SHIFT)) { state->GameCamera.position.y -= moveSpeed * dt; state->GameCamera.invalidate(); }
+
+	// Rotation
+	constexpr float yawSpeed = glm::radians(120.0f);
+	auto& yaw = state->GameCamera.rotation.y;
+	if (IsKeyDown(KEY_Q)) { yaw += yawSpeed * dt; state->GameCamera.invalidate(); }
+	if (IsKeyDown(KEY_E)) { yaw -= yawSpeed * dt; state->GameCamera.invalidate(); }
+
+	//Zoom
+	const int32_t wheel = std::exchange(gMouseWheel, 0);
+	if (wheel != 0) {
+		if (true) {
+			// Perspective zoom, usually for a 1st-person game ends up in FOV change
+			// decrease FOV to zoom in, increase to zoom out
+			constexpr float step = glm::radians(2.0f);   // FOV change per notch
+			constexpr float minFov = glm::radians(20.0f);
+			constexpr float maxFov = glm::radians(179.99f);
+			// Adjust the correct FOV field for your camera (e.g., fovY)
+			state->GameCamera.fov = glm::clamp(
+				state->GameCamera.fov - step * static_cast<float>(wheel),
+				minFov, maxFov
+			);
+		}
+		if (false) {
+			// Perspective zoom, usually for a 3rd-person game ends up in camera position change
+			// in relation to the player
+			constexpr float zoomPerNotch = 2.0f; // units per wheel step
+			const float zoomDelta = static_cast<float>(wheel) * zoomPerNotch;
+			state->GameCamera.position += forward * zoomDelta;
+			state->GameCamera.invalidate();
+		}
+	}
+
+	// Toggle mouse aim - use IsKeyPressedThisFrame for toggle action
+	if (IsKeyPressedThisFrame(KEY_T)) {
+		g_MouseAimEnabled = !g_MouseAimEnabled;
+
+		if (g_MouseAimEnabled) {
+			// Reset virtual cursor to center when enabling mouse aim
+			g_MouseX = state->Settings->windowWidth / 2.0;
+			g_MouseY = state->Settings->windowHeight / 2.0;
+		}
+
+		SM_TRACE("[GAMEDLL] Mouse Aim %s", g_MouseAimEnabled ? "Enabled" : "Disabled")
+	}
+
+	HandleFreeLook(state);
+}
+
+void HandleFreeLook(GameState* state) {
 	if (!g_MouseAimEnabled) return;
 
-	static double lastMouseX = g_GameState->Settings->windowWidth / 2.0;
-	static double lastMouseY = g_GameState->Settings->windowHeight / 2.0;
+	static double lastMouseX = state->Settings->windowWidth / 2.0;
+	static double lastMouseY = state->Settings->windowHeight / 2.0;
 
 	// Compute delta from last frame
 	const double dx = g_MouseX - lastMouseX;
@@ -158,20 +187,20 @@ void HandleFreeLook() {
 	constexpr float sensitivity = 0.002f; // radians per pixel
 
 	// Apply deltas directly to yaw/pitch
-	g_GameState->GameCamera.rotation.y -= static_cast<float>(dx) * sensitivity; // yaw (left/right)
-	g_GameState->GameCamera.rotation.x -= static_cast<float>(dy) * sensitivity; // pitch (up/down)
+	state->GameCamera.rotation.y -= static_cast<float>(dx) * sensitivity; // yaw (left/right)
+	state->GameCamera.rotation.x -= static_cast<float>(dy) * sensitivity; // pitch (up/down)
 
 	// Clamp pitch to prevent flipping
 	constexpr float pitchLimit = glm::radians(89.0f);
-	g_GameState->GameCamera.rotation.x = glm::clamp(
-		g_GameState->GameCamera.rotation.x,
+	state->GameCamera.rotation.x = glm::clamp(
+		state->GameCamera.rotation.x,
 		-pitchLimit,
 		pitchLimit
 	);
 
-	g_GameState->GameCamera.rotation.z = 0.0f; // no roll
+	state->GameCamera.rotation.z = 0.0f; // no roll
 
-	g_GameState->GameCamera.invalidate();
+	state->GameCamera.invalidate();
 }
 
 void GameResize(uint32_t width, uint32_t height) {
@@ -203,8 +232,18 @@ void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRi
 		if (ev.Type == InputEventType::Key) {
 			const auto k = static_cast<int>(ev.KeyEvent.Key);
 			if (k >= 0 && k <= KEY_LAST) {
-				if (ev.KeyEvent.Action == PRESS || ev.KeyEvent.Action == REPEAT)   gKeysDown[k] = true;
-				if (ev.KeyEvent.Action == RELEASE) gKeysDown[k] = false;
+				// Track key down state (for continuous checks like movement)
+				if (ev.KeyEvent.Action == PRESS || ev.KeyEvent.Action == REPEAT) {
+					gKeysDown[k] = true;
+				}
+				if (ev.KeyEvent.Action == RELEASE) {
+					gKeysDown[k] = false;
+				}
+				
+				// Track single-frame press (only on PRESS, not REPEAT)
+				if (ev.KeyEvent.Action == PRESS) {
+					gKeysPressedThisFrame[k] = true;
+				}
 			}
 		}
 

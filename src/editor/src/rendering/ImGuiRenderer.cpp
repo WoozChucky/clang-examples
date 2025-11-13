@@ -1,6 +1,7 @@
 ﻿#include "ImGuiRenderer.h"
 
 #include <fstream>
+#include <cstdio>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -174,7 +175,7 @@ bool ImGuiRenderer::Init(GLFWwindow* window, nvrhi::IDevice* device, Application
     return true;
 }
 
-void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, double targetTPS, double actualTPS) {
+void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, const SimulationSnapshot& snapshot) {
     ZoneScopedN("ImGui");
     {
         ZoneScopedN("ImGui_ProcessInput");
@@ -241,7 +242,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, d
 
         ImGui::Begin("Hello, world!");
         ImGui::Text("Renderer average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-        ImGui::Text("Game TPS: %.2f/%.2f", actualTPS, targetTPS);
+        ImGui::Text("Game TPS: %.2f/%.2f", snapshot.ActualTPS, snapshot.TargetTPS);
         
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Game Thread Settings");
@@ -288,13 +289,12 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, d
         ImGui::Separator();
         ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Frame Time Statistics");
         
-        // Get latest snapshot to display frame stats
-        SimulationSnapshot snap = m_AppContext->LatestSnapshot.load();
-        if (settings.EnableFrameTimeTracking && snap.FrameStats.SampleCount > 0) {
-            ImGui::Text("Min: %.3f ms", snap.FrameStats.MinFrameTimeMs);
-            ImGui::Text("Max: %.3f ms", snap.FrameStats.MaxFrameTimeMs);
-            ImGui::Text("Avg: %.3f ms", snap.FrameStats.AvgFrameTimeMs);
-            ImGui::Text("Samples: %llu", snap.FrameStats.SampleCount);
+        // Use snapshot's frame stats (passed from RenderThread, which got it from GameThread)
+        if (settings.EnableFrameTimeTracking && snapshot.FrameStats.SampleCount > 0) {
+            ImGui::Text("Min: %.3f ms", snapshot.FrameStats.MinFrameTimeMs);
+            ImGui::Text("Max: %.3f ms", snapshot.FrameStats.MaxFrameTimeMs);
+            ImGui::Text("Avg: %.3f ms", snapshot.FrameStats.AvgFrameTimeMs);
+            ImGui::Text("Samples: %llu", snapshot.FrameStats.SampleCount);
             
             // Reset button
             if (ImGui::Button("Reset Stats")) {
@@ -306,6 +306,298 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, d
         }
         
         ImGui::Separator();
+        ImGui::End();
+
+        // ECS Inspector Window - demonstrates reading from ECS snapshot AND modifying via commands
+        ImGui::Begin("ECS Inspector & Editor");
+        
+        // Load the ECS world snapshot atomically from ApplicationContext
+        std::shared_ptr<const ECS> worldSnapshot = std::atomic_load(&m_AppContext->LatestWorldSnapshot);
+        
+        if (worldSnapshot) {
+            ImGui::Text("ECS World Snapshot (Tick: %llu)", snapshot.Tick);
+            ImGui::Text("Entity Count: %zu", worldSnapshot->GetEntityCount());
+            ImGui::Separator();
+            
+            // === ENTITY CREATION SECTION ===
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Create New Entity");
+            
+            if (ImGui::Button("Create Entity", ImVec2(200, 0))) {
+                // Create entity command
+                ECSCommand createCmd = ECSCommand::CreateEntity();
+                if (!m_AppContext->ECSCommandRing.Push(createCmd)) {
+                    SM_WARN("ECS command queue full! Create entity command dropped.");
+                }
+                
+                // Note: We don't know the new entity ID yet!
+                // For now, we'll just create the entity and manually add components to "last entity"
+                // This is a limitation of the current one-way command system.
+                ImGui::OpenPopup("Entity Created");
+            }
+            
+            // Popup notification
+            if (ImGui::BeginPopupModal("Entity Created", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::Text("Entity creation command sent!");
+                ImGui::Text("Note: Components will be added to the newest entity.");
+                ImGui::Text("Check the entity list below after next frame.");
+                if (ImGui::Button("OK", ImVec2(120, 0))) {
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
+            }
+            
+            ImGui::Separator();
+            
+            // === ENTITY LIST AND EDITING SECTION ===
+            ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Entity List & Editor");
+            
+            // Track selected entity
+            static EntityId selectedEntity = INVALID_ENTITY;
+            
+            // Display all entities
+            for (EntityId entity : worldSnapshot->GetActiveEntities()) {
+                ImGui::PushID(static_cast<int>(entity));
+                
+                // Selectable entity item
+                bool isSelected = (selectedEntity == entity);
+                char entityLabel[64];
+                snprintf(entityLabel, sizeof(entityLabel), "Entity %llu", entity);
+                if (ImGui::Selectable(entityLabel, isSelected)) {
+                    selectedEntity = entity;
+                }
+                
+                // Right-click context menu
+                if (ImGui::BeginPopupContextItem()) {
+                    if (ImGui::MenuItem("Delete Entity")) {
+                        ECSCommand deleteCmd = ECSCommand::DestroyEntity(entity);
+                        if (!m_AppContext->ECSCommandRing.Push(deleteCmd)) {
+                            SM_WARN("ECS command queue full! Delete command dropped.");
+                        }
+                        if (selectedEntity == entity) {
+                            selectedEntity = INVALID_ENTITY;
+                        }
+                    }
+                    
+                    ImGui::Separator();
+                    
+                    // Add component options
+                    if (!worldSnapshot->HasComponent<TransformComponent>(entity)) {
+                        if (ImGui::MenuItem("Add Transform Component")) {
+                            TransformComponent newTransform{};
+                            newTransform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
+                            newTransform.Rotation = glm::vec3(0.0f, 0.0f, 0.0f);
+                            newTransform.Scale = glm::vec3(1.0f, 1.0f, 1.0f);
+                            
+                            ECSCommand addCmd = ECSCommand::AddComponent(entity, newTransform);
+                            if (!m_AppContext->ECSCommandRing.Push(addCmd)) {
+                                SM_WARN("ECS command queue full! Add component command dropped.");
+                            }
+                        }
+                    }
+                    
+                    if (!worldSnapshot->HasComponent<MeshComponent>(entity)) {
+                        if (ImGui::MenuItem("Add Mesh Component")) {
+                            MeshComponent newMesh{};
+                            newMesh.MeshId = 0;
+                            newMesh.MaterialId = 0;
+                            newMesh.Visible = true;
+                            
+                            ECSCommand addCmd = ECSCommand::AddComponent(entity, newMesh);
+                            if (!m_AppContext->ECSCommandRing.Push(addCmd)) {
+                                SM_WARN("ECS command queue full! Add component command dropped.");
+                            }
+                        }
+                    }
+                    
+                    ImGui::Separator();
+                    
+                    // Remove component options
+                    if (worldSnapshot->HasComponent<TransformComponent>(entity)) {
+                        if (ImGui::MenuItem("Remove Transform Component")) {
+                            ECSCommand removeCmd = ECSCommand::RemoveComponent<TransformComponent>(entity);
+                            if (!m_AppContext->ECSCommandRing.Push(removeCmd)) {
+                                SM_WARN("ECS command queue full! Remove component command dropped.");
+                            }
+                        }
+                    }
+                    
+                    if (worldSnapshot->HasComponent<MeshComponent>(entity)) {
+                        if (ImGui::MenuItem("Remove Mesh Component")) {
+                            ECSCommand removeCmd = ECSCommand::RemoveComponent<MeshComponent>(entity);
+                            if (!m_AppContext->ECSCommandRing.Push(removeCmd)) {
+                                SM_WARN("ECS command queue full! Remove component command dropped.");
+                            }
+                        }
+                    }
+                    
+                    ImGui::EndPopup();
+                }
+                
+                ImGui::PopID();
+            }
+            
+            ImGui::Separator();
+            
+            // === COMPONENT EDITOR FOR SELECTED ENTITY ===
+            if (selectedEntity != INVALID_ENTITY && worldSnapshot->IsValidEntity(selectedEntity)) {
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Editing Entity %llu", selectedEntity);
+                ImGui::Separator();
+                
+                // Edit Transform Component
+                if (worldSnapshot->HasComponent<TransformComponent>(selectedEntity)) {
+                    if (ImGui::CollapsingHeader("Transform Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto* transform = worldSnapshot->GetComponent<TransformComponent>(selectedEntity);
+                        if (transform) {
+                            // Create mutable copy for editing
+                            static TransformComponent editTransform{};
+                            static EntityId lastEditedEntity = INVALID_ENTITY;
+                            
+                            // Reset when switching entities
+                            if (lastEditedEntity != selectedEntity) {
+                                editTransform = *transform;
+                                lastEditedEntity = selectedEntity;
+                            }
+                            
+                            bool modified = false;
+                            
+                            // Position editor
+                            ImGui::Text("Position:");
+                            if (ImGui::DragFloat3("##Position", &editTransform.Position.x, 0.1f)) {
+                                modified = true;
+                            }
+                            
+                            // Rotation editor (in degrees for user-friendliness)
+                            ImGui::Text("Rotation:");
+                            glm::vec3 rotationDegrees = glm::degrees(editTransform.Rotation);
+                            if (ImGui::DragFloat3("##Rotation", &rotationDegrees.x, 1.0f, -180.0f, 180.0f)) {
+                                editTransform.Rotation = glm::radians(rotationDegrees);
+                                modified = true;
+                            }
+                            
+                            // Scale editor
+                            ImGui::Text("Scale:");
+                            if (ImGui::DragFloat3("##Scale", &editTransform.Scale.x, 0.1f, 0.01f, 10.0f)) {
+                                modified = true;
+                            }
+                            
+                            // Buttons to apply or revert changes
+                            ImGui::Spacing();
+                            
+                            if (modified) {
+                                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "* Modified (not yet saved)");
+                            }
+                            
+                            if (ImGui::Button("Apply Changes", ImVec2(150, 0))) {
+                                ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editTransform);
+                                if (!m_AppContext->ECSCommandRing.Push(modifyCmd)) {
+                                    SM_WARN("ECS command queue full! Modify command dropped.");
+                                }
+                            }
+                            
+                            ImGui::SameLine();
+                            
+                            if (ImGui::Button("Revert", ImVec2(150, 0))) {
+                                editTransform = *transform;
+                            }
+                            
+                            ImGui::Separator();
+                            
+                            // Show original values from snapshot (read-only)
+                            ImGui::TextDisabled("Original values from snapshot:");
+                            ImGui::TextDisabled("Pos: (%.2f, %.2f, %.2f)", 
+                                transform->Position.x, transform->Position.y, transform->Position.z);
+                            ImGui::TextDisabled("Rot: (%.2f, %.2f, %.2f) deg", 
+                                glm::degrees(transform->Rotation.x), 
+                                glm::degrees(transform->Rotation.y), 
+                                glm::degrees(transform->Rotation.z));
+                            ImGui::TextDisabled("Scale: (%.2f, %.2f, %.2f)", 
+                                transform->Scale.x, transform->Scale.y, transform->Scale.z);
+                        }
+                    }
+                }
+                
+                // Edit Mesh Component
+                if (worldSnapshot->HasComponent<MeshComponent>(selectedEntity)) {
+                    if (ImGui::CollapsingHeader("Mesh Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto* mesh = worldSnapshot->GetComponent<MeshComponent>(selectedEntity);
+                        if (mesh) {
+                            // Create mutable copy for editing
+                            static MeshComponent editMesh{};
+                            static EntityId lastEditedMeshEntity = INVALID_ENTITY;
+                            
+                            // Reset when switching entities
+                            if (lastEditedMeshEntity != selectedEntity) {
+                                editMesh = *mesh;
+                                lastEditedMeshEntity = selectedEntity;
+                            }
+                            
+                            bool modified = false;
+                            
+                            // Mesh ID editor
+                            if (ImGui::InputScalar("Mesh ID", ImGuiDataType_U32, &editMesh.MeshId)) {
+                                modified = true;
+                            }
+                            
+                            // Material ID editor
+                            if (ImGui::InputScalar("Material ID", ImGuiDataType_U32, &editMesh.MaterialId)) {
+                                modified = true;
+                            }
+                            
+                            // Visibility toggle
+                            if (ImGui::Checkbox("Visible", &editMesh.Visible)) {
+                                modified = true;
+                            }
+                            
+
+                            ImGui::Spacing();
+                            
+                            if (modified) {
+                                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "* Modified (not yet saved)");
+                            }
+                            
+                            if (ImGui::Button("Apply Changes##Mesh", ImVec2(150, 0))) {
+                                ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editMesh);
+                                if (!m_AppContext->ECSCommandRing.Push(modifyCmd)) {
+                                    SM_WARN("ECS command queue full! Modify command dropped.");
+                                }
+                            }
+                            
+                            ImGui::SameLine();
+                            
+                            if (ImGui::Button("Revert##Mesh", ImVec2(150, 0))) {
+                                editMesh = *mesh;
+                            }
+                            
+                            ImGui::Separator();
+                            
+                            // Show original values from snapshot (read-only)
+                            ImGui::TextDisabled("Original values from snapshot:");
+                            ImGui::TextDisabled("Mesh ID: %u", mesh->MeshId);
+                            ImGui::TextDisabled("Material ID: %u", mesh->MaterialId);
+                            ImGui::TextDisabled("Visible: %s", mesh->Visible ? "Yes" : "No");
+                        }
+                    }
+                }
+                
+                // Show if entity has no components
+                if (!worldSnapshot->HasComponent<TransformComponent>(selectedEntity) && 
+                    !worldSnapshot->HasComponent<MeshComponent>(selectedEntity)) {
+                    ImGui::TextDisabled("Entity has no components.");
+                    ImGui::TextDisabled("Right-click the entity to add components.");
+                }
+            } else if (selectedEntity != INVALID_ENTITY) {
+                ImGui::TextDisabled("Selected entity no longer exists.");
+                if (ImGui::Button("Clear Selection")) {
+                    selectedEntity = INVALID_ENTITY;
+                }
+            } else {
+                ImGui::TextDisabled("Select an entity to edit its components.");
+            }
+            
+        } else {
+            ImGui::TextDisabled("No ECS snapshot available");
+        }
+        
         ImGui::End();
 
         ImGui::PopFont();
