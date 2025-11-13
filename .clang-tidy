@@ -1,0 +1,63 @@
+---
+# .clang-tidy for C#-like naming & modern C++23 checks
+# - Enforce modernize, performance, and bugprone checks
+# - Enable readability-identifier-naming to approximate C# conventions:
+#     - Types, enums, methods: PascalCase
+#     - Functions (free funcs) : PascalCase (C# style for public API)
+#     - Variables/local vars: lowerCamelCase
+#     - Private members: m_PascalCase
+
+Checks: >
+    bugprone-*,
+    performance-*,
+    modernize-*,                 # selectively tuned below via CheckOptions
+    readability-identifier-naming,
+    -modernize-use-trailing-return-type,   # opt-out (verbosity / stylistic)
+    -modernize-return-braced-init-list     # opt-out example; adjust to taste
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*'   # run on all headers; adjust to limit checks
+FormatStyle: file
+
+CheckOptions:
+  # Naming conventions (readability-identifier-naming)
+  # Case names: PascalCase, camelBack, lower_case, UPPER_CASE, none
+  - key:             readability-identifier-naming.ClassCase
+    value:           'PascalCase'
+  - key:             readability-identifier-naming.StructCase
+    value:           'PascalCase'
+  - key:             readability-identifier-naming.UnionCase
+    value:           'PascalCase'
+  - key:             readability-identifier-naming.EnumCase
+    value:           'PascalCase'
+  - key:             readability-identifier-naming.EnumConstantCase
+    value:           'PascalCase'
+  - key:             readability-identifier-naming.FunctionCase
+    value:           'PascalCase'           # free functions exposed as API => PascalCase
+  - key:             readability-identifier-naming.MethodCase
+    value:           'PascalCase'           # methods on classes (public API style)
+  - key:             readability-identifier-naming.VariableCase
+    value:           'lowerCamelCase'       # local variables
+  - key:             readability-identifier-naming.ParameterCase
+    value:           'lowerCamelCase'
+  - key:             readability-identifier-naming.StaticVariableCase
+    value:           'lowerCamelCase'
+  - key:             readability-identifier-naming.PrivateMemberCase
+    value:           'lowerCamelCase'
+  - key:             readability-identifier-naming.ProtectedMemberCase
+    value:           'lowerCamelCase'
+  - key:             readability-identifier-naming.PublicMemberCase
+    value:           'PascalCase'           # public members use PascalCase like C# properties
+  - key:             readability-identifier-naming.ConstantCase
+    value:           'UPPER_CASE'
+  # Prefix/suffix rules
+  - key:             readability-identifier-naming.PrivateMemberPrefix
+    value:           'm_'                    # private fields: m_PascalCase
+  - key:             readability-identifier-naming.IgnoreMainLikeFunctions
+    value:           '1'
+
+  # Modernize and performance tweaks (examples)
+  - key:             modernize-use-nullptr.NullMacros
+    value:           'NULL'
+  - key:             modernize-avoid-bind.CheckLambdaCaptureByRef
+    value:           '1'

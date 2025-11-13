@@ -1,0 +1,109 @@
+# top-most EditorConfig file
+root = true
+
+# -------------------------
+# Default / fallback rules
+# -------------------------
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+tab_width = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+max_line_length = 120
+
+# Ensure consistent behaviour for dotfiles, CI scripts, etc.
+[*.{sh,py,bash,ps1}]
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+end_of_line = lf
+
+# -------------------------
+# C / C++ source files
+# -------------------------
+[*.{c,cpp,cc,h,hpp,hxx,hh,inl}]
+# Visual style → match C# choices:
+indent_style = space
+indent_size = 4
+tab_width = 4
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+# Keep code clean: trim whitespace for code files
+trim_trailing_whitespace = true
+# Prefer UNIX-style line endings even on Windows contributors
+end_of_line = lf
+# Editor hint for max column; many editors will use this for wrap guides
+max_line_length = 120
+
+# Editor hints for includes and alignment (editor-specific)
+# Note: EditorConfig cannot control alignment; use clang-format for deterministic layout.
+
+# -------------------------
+# C# files (if present) — keep consistent C# defaults
+# -------------------------
+[*.{cs,sln,csproj}]
+indent_style = space
+indent_size = 4
+tab_width = 4
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 120
+
+# -------------------------
+# JSON, YAML, TOML (configs)
+# -------------------------
+[*.{json,yml,yaml,toml}]
+indent_style = space
+indent_size = 2
+tab_width = 2
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 120
+
+# -------------------------
+# Markdown and text files
+# -------------------------
+[*.{md,markdown,txt}]
+indent_style = space
+indent_size = 2
+tab_width = 2
+charset = utf-8
+end_of_line = lf
+# For markdown we typically preserve trailing whitespace for deliberate two-space line breaks
+trim_trailing_whitespace = false
+insert_final_newline = true
+max_line_length = 120
+
+# -------------------------
+# Binary / images — no edits
+# -------------------------
+[*.{png,jpg,jpeg,gif,ico,zip,tar,gz,7z}]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# -------------------------
+# Generated code — be conservative
+# -------------------------
+# If your repo contains generated code in a known folder, you can avoid
+# auto-trimming or other transformations to reduce churn.
+[generated/**]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# -------------------------
+# Optional: Editor-specific overrides (Visual Studio, VSCode)
+# -------------------------
+# Visual Studio sometimes respects .editorconfig but applies preferences via settings.
+# These hints help VSCode/omnisharp/vs to align with the same style.
+# (Editors ignore unknown keys safely.)
+[*.{cs,cpp,h,hpp}]
+dotnet_sort_system_directives_first = true

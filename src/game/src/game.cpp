@@ -71,11 +71,18 @@ void GameUpdate(GameState* state) {
 
     switch (g_GameState->StateId)
     {
-	    case GameStateId::Uninitialized:
-			SM_TRACE("[GAMEDLL] Initializing game...")
-			g_GameState->StateId = GameStateId::MainMenu;
-    		g_GameState->GameCamera.position = glm::vec3(0.0f, 5.0f, 10.0f);
-		    break;
+	    case GameStateId::Uninitialized: {
+	        SM_TRACE("[GAMEDLL] Initializing game...")
+            g_GameState->StateId = GameStateId::MainMenu;
+	        g_GameState->GameCamera.position = glm::vec3(0.0f, 5.0f, 10.0f);
+
+	        auto entityId = g_GameState->World.CreateEntity();
+	        auto transform = TransformComponent{.Position = glm::vec3{200.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+	        auto text = TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48};
+	        g_GameState->World.AddComponent(entityId, transform);
+	        g_GameState->World.AddComponent(entityId, text);
+	        break;
+	    }
 	    case GameStateId::MainMenu:
 		    break;
 	    case GameStateId::InLevel:
@@ -239,7 +246,7 @@ void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRi
 				if (ev.KeyEvent.Action == RELEASE) {
 					gKeysDown[k] = false;
 				}
-				
+
 				// Track single-frame press (only on PRESS, not REPEAT)
 				if (ev.KeyEvent.Action == PRESS) {
 					gKeysPressedThisFrame[k] = true;

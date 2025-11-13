@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include <typeindex>
 #include <string>
@@ -49,14 +50,14 @@ class IComponentArray {
 public:
     virtual ~IComponentArray() = default;
     virtual void Remove(EntityId entity) = 0;
-    virtual bool Has(EntityId entity) const = 0;
-    virtual size_t Size() const = 0;
+    [[nodiscard]] virtual bool Has(EntityId entity) const = 0;
+    [[nodiscard]] virtual size_t Size() const = 0;
 };
 
 template<typename T>
-class ComponentArray : public IComponentArray {
+class ComponentArray final : public IComponentArray {
 public:
-    void Add(EntityId entity, T component) {
+    void Add(const EntityId entity, T component) {
         if (m_EntityToIndex.contains(entity)) {
             // Update existing component
             size_t index = m_EntityToIndex[entity];
@@ -65,13 +66,13 @@ public:
         }
 
         // Add new component
-        size_t newIndex = m_Components.size();
+        const size_t newIndex = m_Components.size();
         m_EntityToIndex[entity] = newIndex;
         m_IndexToEntity[newIndex] = entity;
         m_Components.push_back(component);
     }
 
-    void Remove(EntityId entity) override {
+    void Remove(const EntityId entity) override {
         if (!m_EntityToIndex.contains(entity)) {
             return; // Entity doesn't have this component
         }
@@ -95,25 +96,25 @@ public:
         m_Components.pop_back();
     }
 
-    T* Get(EntityId entity) {
+    T* Get(const EntityId entity) {
         if (!m_EntityToIndex.contains(entity)) {
             return nullptr;
         }
         return &m_Components[m_EntityToIndex[entity]];
     }
 
-    const T* Get(EntityId entity) const {
+    const T* Get(const EntityId entity) const {
         if (!m_EntityToIndex.contains(entity)) {
             return nullptr;
         }
         return &m_Components[m_EntityToIndex.at(entity)];
     }
 
-    bool Has(EntityId entity) const override {
+    [[nodiscard]] bool Has(const EntityId entity) const override {
         return m_EntityToIndex.contains(entity);
     }
 
-    size_t Size() const override {
+    [[nodiscard]] size_t Size() const override {
         return m_Components.size();
     }
 
@@ -122,7 +123,7 @@ public:
     const std::vector<T>& GetComponents() const { return m_Components; }
 
     // Get entity for a component index (useful for systems iterating components)
-    EntityId GetEntity(size_t index) const {
+    [[nodiscard]] EntityId GetEntity(const size_t index) const {
         auto it = m_IndexToEntity.find(index);
         return (it != m_IndexToEntity.end()) ? it->second : INVALID_ENTITY;
     }
@@ -141,8 +142,8 @@ class ComponentStore {
 public:
     template<typename T>
     void RegisterComponent() {
-        std::type_index typeIndex = std::type_index(typeid(T));
-        
+        const auto typeIndex = std::type_index(typeid(T));
+
         if (m_ComponentArrays.contains(typeIndex)) {
             return; // Already registered
         }
@@ -171,15 +172,15 @@ public:
     }
 
     template<typename T>
-    bool HasComponent(EntityId entity) const {
+    [[nodiscard]] bool HasComponent(EntityId entity) const {
         auto array = GetComponentArray<T>();
         return array && array->Has(entity);
     }
 
     template<typename T>
     ComponentArray<T>* GetComponentArray() {
-        std::type_index typeIndex = std::type_index(typeid(T));
-        
+        const auto typeIndex = std::type_index(typeid(T));
+
         if (!m_ComponentArrays.contains(typeIndex)) {
             RegisterComponent<T>(); // Auto-register on first use
         }
@@ -189,9 +190,9 @@ public:
 
     template<typename T>
     const ComponentArray<T>* GetComponentArray() const {
-        std::type_index typeIndex = std::type_index(typeid(T));
-        
-        auto it = m_ComponentArrays.find(typeIndex);
+        const auto typeIndex = std::type_index(typeid(T));
+
+        const auto it = m_ComponentArrays.find(typeIndex);
         if (it == m_ComponentArrays.end()) {
             return nullptr;
         }
@@ -216,43 +217,35 @@ private:
 class EntityStore {
 public:
     EntityId CreateEntity() {
-        EntityId id;
-        
-        if (!m_FreeEntities.empty()) {
-            // Reuse a freed entity ID
-            id = m_FreeEntities.back();
-            m_FreeEntities.pop_back();
-        } else {
-            // Allocate new ID
-            id = m_NextEntityId++;
-        }
+        const EntityId id = m_FreeEntities.empty() ? m_NextEntityId++ : m_FreeEntities.back();
+        if (!m_FreeEntities.empty()) m_FreeEntities.pop_back();
 
-        m_ActiveEntities.push_back(id);
+        m_ActiveEntities.insert(id); // O(1) insertion
+        m_CacheDirty = true;
         return id;
     }
 
-    void DestroyEntity(EntityId entity) {
-        // Remove from active list
-        auto it = std::find(m_ActiveEntities.begin(), m_ActiveEntities.end(), entity);
-        if (it != m_ActiveEntities.end()) {
-            m_ActiveEntities.erase(it);
+    void DestroyEntity(const EntityId entity) {
+        if (m_ActiveEntities.erase(entity)) {
+            m_FreeEntities.push_back(entity);
+            m_CacheDirty = true;
         }
-
-        // Add to free list for reuse
-        m_FreeEntities.push_back(entity);
     }
 
-    bool IsValid(EntityId entity) const {
-        return std::find(m_ActiveEntities.begin(), m_ActiveEntities.end(), entity)
-               != m_ActiveEntities.end();
+    [[nodiscard]] bool IsValid(const EntityId entity) const {
+        return m_ActiveEntities.contains(entity);
     }
 
-    size_t GetEntityCount() const {
+    [[nodiscard]] size_t GetEntityCount() const {
         return m_ActiveEntities.size();
     }
 
-    const std::vector<EntityId>& GetActiveEntities() const {
-        return m_ActiveEntities;
+    [[nodiscard]] const std::vector<EntityId>& GetActiveEntities() const {
+        if (m_CacheDirty) {
+            m_ActiveEntitiesCache.assign(m_ActiveEntities.begin(), m_ActiveEntities.end());
+            m_CacheDirty = false;
+        }
+        return m_ActiveEntitiesCache;
     }
 
     void Clear() {
@@ -262,9 +255,11 @@ public:
     }
 
 private:
-    EntityId m_NextEntityId = 1; // 0 reserved for INVALID_ENTITY
-    std::vector<EntityId> m_ActiveEntities;
-    std::vector<EntityId> m_FreeEntities; // Recycled entity IDs
+    EntityId                        m_NextEntityId = 1; // 0 reserved for INVALID_ENTITY
+    std::unordered_set<EntityId>    m_ActiveEntities;
+    std::vector<EntityId>           m_FreeEntities; // Recycled entity IDs
+    mutable std::vector<EntityId>   m_ActiveEntitiesCache;
+    mutable bool                    m_CacheDirty = true;
 };
 
 // #############################################################################
@@ -278,12 +273,12 @@ public:
         return m_EntityStore.CreateEntity();
     }
 
-    void DestroyEntity(EntityId entity) {
+    void DestroyEntity(const EntityId entity) {
         m_ComponentStore.RemoveAllComponents(entity);
         m_EntityStore.DestroyEntity(entity);
     }
 
-    [[nodiscard]] bool IsValidEntity(EntityId entity) const {
+    [[nodiscard]] bool IsValidEntity(const EntityId entity) const {
         return m_EntityStore.IsValid(entity);
     }
 
@@ -297,33 +292,33 @@ public:
 
     // Component management
     template<typename T>
-    void AddComponent(EntityId entity, T component) {
+    void AddComponent(const EntityId entity, T component) {
         m_ComponentStore.AddComponent<T>(entity, component);
     }
 
     template<typename T>
-    void RemoveComponent(EntityId entity) {
+    void RemoveComponent(const EntityId entity) {
         m_ComponentStore.RemoveComponent<T>(entity);
     }
 
     template<typename T>
-    T* GetComponent(EntityId entity) {
+    T* GetComponent(const EntityId entity) {
         return m_ComponentStore.GetComponent<T>(entity);
     }
 
     template<typename T>
-    const T* GetComponent(EntityId entity) const {
+    const T* GetComponent(const EntityId entity) const {
         return m_ComponentStore.GetComponent<T>(entity);
     }
 
     template<typename T>
-    [[nodiscard]] bool HasComponent(EntityId entity) const {
+    [[nodiscard]] bool HasComponent(const EntityId entity) const {
         return m_ComponentStore.HasComponent<T>(entity);
     }
 
     // Multi-component queries
     template<typename... Components>
-    [[nodiscard]] bool HasComponents(EntityId entity) const {
+    [[nodiscard]] bool HasComponents(const EntityId entity) const {
         return (HasComponent<Components>(entity) && ...);
     }
 

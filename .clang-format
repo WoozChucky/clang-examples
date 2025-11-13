@@ -1,0 +1,45 @@
+# clang-format for "C# style" applied to modern C++ (C++23)
+# Key goals:
+# - Allman-style braces (opening brace on newline for types, functions, control blocks)
+# - 4-space indentation (no tabs)
+# - 120-column limit (room for long signatures)
+# - Reasonable control over pointer placement and include sorting
+BasedOnStyle: LLVM   # start from LLVM and override
+Language: Cpp
+# Visual style
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+
+# Braces: put opening brace on the next line (C#-like / Allman)
+BreakBeforeBraces: Allman
+
+# Spaces and paren
+SpaceBeforeParens: ControlStatements  # keeps "if (x)" style
+SpacesInParentheses: false
+SpaceAfterCStyleCast: false
+SpaceBeforeAssignmentOperators: true
+
+# Pointer/reference alignment (make pointer bind to type as in 'int* p')
+PointerAlignment: Left
+
+# Includes
+SortIncludes: true
+IncludeBlocks: Preserve
+
+# Alignments and formatting preferences
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+DerivePointerAlignment: false
+
+# Keep comment reflow conservative to avoid surprising changes
+ReflowComments: Never
+
+# Misc
+IndentCaseLabels: true
+MaxEmptyLinesToKeep: 1
