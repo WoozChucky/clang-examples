@@ -120,11 +120,11 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
 
 float Renderer::Render(double deltaTime, float red, float green, float blue, SimulationSnapshot& snapshot) {
 
-if (!m_Backend || !m_Device || !m_CommandList) {
-    SM_ERROR("Failed to render: renderer not fully initialized (backend=%p, device=%p, cmdlist=%p)",
-             (void*)m_Backend, (void*)m_Device.Get(), (void*)m_CommandList.Get());
-    return 0.0f;
-}
+    if (!m_Backend || !m_Device || !m_CommandList) {
+        SM_ERROR("Failed to render: renderer not fully initialized (backend=%p, device=%p, cmdlist=%p)",
+                 (void*)m_Backend, (void*)m_Device.Get(), (void*)m_CommandList.Get());
+        return 0.0f;
+    }
 
     float secs = 0;
     {

@@ -220,13 +220,13 @@ bool PrimitiveRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
 
 void PrimitiveRenderPass::Render(
     nvrhi::ICommandList* commandList,
-    nvrhi::IFramebuffer* framebuffer,
+    nvrhi::IFramebuffer* frameBuffer,
     SimulationSnapshot& snapshot,
     double deltaTime)
 {
     if (!m_Pipeline)
     {
-        const auto fbi = framebuffer->getFramebufferInfo();
+        const auto fbi = frameBuffer->getFramebufferInfo();
         nvrhi::GraphicsPipelineDesc pso;
         pso.VS = m_VS;
         pso.PS = m_PS;
@@ -254,8 +254,8 @@ void PrimitiveRenderPass::Render(
     // State
     nvrhi::GraphicsState primState;
     primState.pipeline = m_Pipeline.Get();
-    primState.framebuffer = framebuffer;
-    primState.viewport.addViewportAndScissorRect(framebuffer->getFramebufferInfo().getViewport());
+    primState.framebuffer = frameBuffer;
+    primState.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
     primState.bindings = { m_BindingSet };
     primState.vertexBuffers = { nvrhi::VertexBufferBinding(m_VertexBuffer, 0, 0) };
     primState.indexBuffer = nvrhi::IndexBufferBinding(m_IndexBuffer, nvrhi::Format::R16_UINT, 0);

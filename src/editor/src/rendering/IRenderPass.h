@@ -17,7 +17,7 @@ public:
     // Render the pass
     virtual void Render(
         nvrhi::ICommandList* commandList,
-        nvrhi::IFramebuffer* framebuffer,
+        nvrhi::IFramebuffer* frameBuffer,
         SimulationSnapshot& snapshot,
         double deltaTime) = 0;
 
