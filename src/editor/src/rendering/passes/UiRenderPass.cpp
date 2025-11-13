@@ -2,6 +2,7 @@
 
 #include "Renderer.h"
 #include "nvrhi/utils.h"
+#include <glm/gtc/matrix_transform.hpp>
 
 inline auto QUAD_VS_HLSL = R"(
 // UI Quad Vertex Shader (instanced)
@@ -220,15 +221,13 @@ bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
         return false;
     }
 
-    if (auto* atlas = m_FontManager.GetAtlas(FontManager::DEFAULT_FONT)) {
-        nvrhi::BindingSetDesc bsd;
-        bsd.bindings = {
-            nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameConstantBuffer),
-            nvrhi::BindingSetItem::Texture_SRV(0, atlas->texture),
-            nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_InstanceBuffer),
-            nvrhi::BindingSetItem::Sampler(0, m_FontManager.GetSampler())
-        };
-        m_BindingSet = m_Device->createBindingSet(bsd, m_BindingLayout);
+    // Provide UI resources to FontManager so it can create binding sets for any atlas
+    m_FontManager.SetUIResources(m_BindingLayout, m_PerFrameConstantBuffer, m_InstanceBuffer);
+
+    // Create UI binding set for the default font atlas
+    if (auto* atlas = m_FontManager.GetAtlas(FontManager::DEFAULT_FONT, m_Device)) {
+        m_FontManager.CreateUIBindingSet(*atlas);
+        m_BindingSet = atlas->uiBindingSet;
     }
 
     return true;
@@ -281,8 +280,6 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
         ortho[0][2] = 0.0f;       ortho[1][2] = 0.0f;       ortho[2][2] = 1.0f; ortho[3][2] =  0.0f;
         ortho[0][3] = 0.0f;       ortho[1][3] = 0.0f;       ortho[2][3] = 0.0f; ortho[3][3] =  1.0f;
 
-
-
         UIFrameCBData uiFrame{};
         uiFrame.Ortho = ortho;
         commandList->writeBuffer(m_PerFrameConstantBuffer, &uiFrame, sizeof(uiFrame));
@@ -297,89 +294,128 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
     if (snapshot.WorldSnapshotPtr) {
 
-        const auto* atlas = m_FontManager.GetAtlas(FontManager::DEFAULT_FONT);
-        if (!atlas || !atlas->texture) return;
-
-        // 1) Count total glyphs needed across all text entities
-        uint32_t glyphCount = 0;
+        // 1) Gather unique font sizes used by text entities
+        std::vector<size_t> usedFontSizes;
         for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, TextComponent>()) {
-            const auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
             const auto* text = snapshot.WorldSnapshotPtr->GetComponent<TextComponent>(entity);
-            if (transform && text) {
-                glyphCount += static_cast<uint32_t>(text->Text.length());
-            }
-        }
-
-        if (glyphCount == 0) return;
-        glyphCount = std::min(glyphCount, m_MaxInstances);
-
-        // 2) Allocate glyph instances array TODO: use a transient allocator
-        auto* glyphInstances = new UIInstanceCPU[glyphCount];
-
-        const auto aw = static_cast<float>(atlas->width);
-        const auto ah = static_cast<float>(atlas->height);
-        uint32_t out = 0;
-
-        // 3) Iterate through each text entity and render glyphs
-        for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, TextComponent>()) {
-            auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
-            auto* text = snapshot.WorldSnapshotPtr->GetComponent<TextComponent>(entity);
-
-            if (transform && text) {
-                const std::string& str = text->Text;
-                glm::vec2 pen = glm::vec2(transform->Position.x, transform->Position.y);
-
-                // 4) Iterate through each character in the text string
-                for (size_t k = 0; k < str.length() && out < glyphCount; ++k) {
-                    const auto c = static_cast<unsigned char>(str[k]);
-                    if (c >= 128u) continue; // Skip non-ASCII characters
-
-                    // 5) Look up glyph from atlas
-                    const Glyph& g = atlas->glyphs[c];
-
-                    // 6) Calculate position using pen + glyph offset
-                    glm::vec2 pos;
-                    pos.x = pen.x + g.offset.x;
-                    pos.y = pen.y - g.offset.y;
-                    const glm::vec2 size = g.size;
-
-                    // 7) Create instance for this glyph
-                    UIInstanceCPU inst{};
-                    inst.Transform = glm::mat4(1.0f);
-                    inst.Transform[0][0] = size.x;
-                    inst.Transform[1][1] = size.y;
-                    inst.Transform[3][0] = pos.x;
-                    inst.Transform[3][1] = pos.y;
-                    inst.Color = text->Color;
-                    inst.Flags = 1u << 0; // SAMPLE_TEXTURE
-
-                    // 8) Calculate UV coordinates from glyph texture coordinates
-                    const auto uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
-                    const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
-                    inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
-
-                    glyphInstances[out++] = inst;
-
-                    // 9) Advance pen by glyph advance
-                    pen.x += g.advance.x;
+            if (text) {
+                const size_t fontSize = text->FontSize;
+                bool found = false;
+                for (size_t fs : usedFontSizes) {
+                    if (fs == fontSize) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    usedFontSizes.push_back(fontSize);
                 }
             }
         }
 
-        // 10) Upload all instances and draw
-        if (out > 0) {
-            commandList->writeBuffer(m_InstanceBuffer, glyphInstances, out * sizeof(UIInstanceCPU));
-            state.bindings = { atlas->uiBindingSet ? atlas->uiBindingSet : m_BindingSet };
-            commandList->setGraphicsState(state);
-            nvrhi::DrawArguments uiDrawArgs;
-            uiDrawArgs.vertexCount = m_IndexCount;
-            uiDrawArgs.instanceCount = out;
-            uiDrawArgs.startIndexLocation = 0;
-            uiDrawArgs.startVertexLocation = 0;
-            commandList->drawIndexed(uiDrawArgs);
-        }
+        // 2) For each unique font size, render all text using that atlas
+        for (size_t fontSize : usedFontSizes) {
+            // Get or load atlas for this font size
+            auto* atlas = m_FontManager.GetAtlas({FontManager::DEFAULT_FONT.Path, fontSize}, m_Device, commandList);
+            if (!atlas || !atlas->texture) continue;
 
-        delete[] glyphInstances;
+            // Ensure this atlas has a UI binding set
+            if (!atlas->uiBindingSet) {
+                m_FontManager.CreateUIBindingSet(*atlas);
+            }
+            if (!atlas->uiBindingSet) continue; // Skip if we couldn't create binding set
+
+            const auto aw = static_cast<float>(atlas->width);
+            const auto ah = static_cast<float>(atlas->height);
+
+            // Count glyphs for this font size
+            uint32_t glyphCount = 0;
+            for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, TextComponent>()) {
+                const auto* text = snapshot.WorldSnapshotPtr->GetComponent<TextComponent>(entity);
+                if (text && text->FontSize == fontSize) {
+                    glyphCount += static_cast<uint32_t>(text->Text.length());
+                }
+            }
+
+            if (glyphCount == 0) continue;
+            glyphCount = std::min(glyphCount, m_MaxInstances);
+
+            // Allocate glyph instances for this font
+            auto* glyphInstances = new UIInstanceCPU[glyphCount];
+            uint32_t out = 0;
+
+            // Generate instances for all text entities using this font size
+            for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, TextComponent>()) {
+                auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
+                auto* text = snapshot.WorldSnapshotPtr->GetComponent<TextComponent>(entity);
+
+                if (transform && text && text->FontSize == fontSize) {
+                    const std::string& str = text->Text;
+                    
+                    // Build entity transform matrix (Translation * Rotation * Scale)
+                    // For 2D UI, we primarily care about Z-axis rotation
+                    glm::mat4 T = glm::translate(glm::mat4(1.0f), transform->Position);
+                    glm::mat4 R = glm::rotate(glm::mat4(1.0f), transform->Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
+                    glm::mat4 S = glm::scale(glm::mat4(1.0f), transform->Scale);
+                    glm::mat4 entityTransform = T * R * S;
+                    
+                    // Start pen at origin (will be transformed by entity transform)
+                    glm::vec2 pen = glm::vec2(0.0f, 0.0f);
+
+                    // Iterate through each character
+                    for (size_t k = 0; k < str.length() && out < glyphCount; ++k) {
+                        const auto c = static_cast<unsigned char>(str[k]);
+                        if (c >= 128u) continue; // Skip non-ASCII characters
+
+                        const Glyph& g = atlas->glyphs[c];
+
+                        // Calculate glyph position in local space (relative to text origin)
+                        glm::vec2 localPos;
+                        localPos.x = pen.x + g.offset.x;
+                        localPos.y = pen.y - g.offset.y;
+                        const glm::vec2 size = g.size;
+
+                        // Create local glyph transform (scale and position in local space)
+                        auto localGlyphTransform = glm::mat4(1.0f);
+                        localGlyphTransform[0][0] = size.x;
+                        localGlyphTransform[1][1] = size.y;
+                        localGlyphTransform[3][0] = localPos.x;
+                        localGlyphTransform[3][1] = localPos.y;
+                        
+                        // Compose: final transform = entity transform * local glyph transform
+                        UIInstanceCPU inst{};
+                        inst.Transform = entityTransform * localGlyphTransform;
+                        inst.Color = text->Color;
+                        inst.Flags = 1u << 0; // SAMPLE_TEXTURE
+
+                        // Calculate UV coordinates
+                        const auto uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
+                        const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
+                        inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
+
+                        glyphInstances[out++] = inst;
+
+                        // Advance pen in local space
+                        pen.x += g.advance.x;
+                    }
+                }
+            }
+
+            // Upload and draw for this font size
+            if (out > 0) {
+                commandList->writeBuffer(m_InstanceBuffer, glyphInstances, out * sizeof(UIInstanceCPU));
+                state.bindings = { atlas->uiBindingSet };
+                commandList->setGraphicsState(state);
+                nvrhi::DrawArguments uiDrawArgs;
+                uiDrawArgs.vertexCount = m_IndexCount;
+                uiDrawArgs.instanceCount = out;
+                uiDrawArgs.startIndexLocation = 0;
+                uiDrawArgs.startVertexLocation = 0;
+                commandList->drawIndexed(uiDrawArgs);
+            }
+
+            delete[] glyphInstances;
+        }
     }
 }
 
