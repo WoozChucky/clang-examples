@@ -268,7 +268,7 @@ namespace filewatch {
 			{ FILE_ACTION_RENAMED_OLD_NAME, Event::renamed_old },
 			{ FILE_ACTION_RENAMED_NEW_NAME, Event::renamed_new }
 		};
-#endif // WIN32
+#endif // _WIN32
 
 #if __unix__
 		struct FolderInfo {
@@ -329,11 +329,11 @@ namespace filewatch {
 		void init()
 		{
 #ifdef _WIN32
-			_close_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+			_close_event = CreateEvent(nullptr, TRUE, FALSE, nullptr);
 			if (!_close_event) {
 				throw std::system_error(GetLastError(), std::system_category());
 			}
-#endif // WIN32
+#endif // _WIN32
 
 			_callback_thread = std::thread([this]() {
 				try {

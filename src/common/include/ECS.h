@@ -234,7 +234,7 @@ public:
     }
 
     bool IsValid(EntityId entity) const {
-        return std::find(m_ActiveEntities.begin(), m_ActiveEntities.end(), entity) 
+        return std::find(m_ActiveEntities.begin(), m_ActiveEntities.end(), entity)
                != m_ActiveEntities.end();
     }
 
@@ -274,15 +274,15 @@ public:
         m_EntityStore.DestroyEntity(entity);
     }
 
-    bool IsValidEntity(EntityId entity) const {
+    [[nodiscard]] bool IsValidEntity(EntityId entity) const {
         return m_EntityStore.IsValid(entity);
     }
 
-    size_t GetEntityCount() const {
+    [[nodiscard]] size_t GetEntityCount() const {
         return m_EntityStore.GetEntityCount();
     }
 
-    const std::vector<EntityId>& GetActiveEntities() const {
+    [[nodiscard]] const std::vector<EntityId>& GetActiveEntities() const {
         return m_EntityStore.GetActiveEntities();
     }
 
@@ -308,13 +308,13 @@ public:
     }
 
     template<typename T>
-    bool HasComponent(EntityId entity) const {
+    [[nodiscard]] bool HasComponent(EntityId entity) const {
         return m_ComponentStore.HasComponent<T>(entity);
     }
 
     // Multi-component queries
     template<typename... Components>
-    bool HasComponents(EntityId entity) const {
+    [[nodiscard]] bool HasComponents(EntityId entity) const {
         return (HasComponent<Components>(entity) && ...);
     }
 
@@ -344,7 +344,7 @@ public:
 
     // Iterate entities with specific components (simple view)
     template<typename... Components>
-    std::vector<EntityId> View() const {
+    [[nodiscard]] std::vector<EntityId> View() const {
         std::vector<EntityId> result;
         for (EntityId entity : m_EntityStore.GetActiveEntities()) {
             if (HasComponents<Components...>(entity)) {
@@ -359,7 +359,7 @@ public:
         // ComponentStore cleanup happens automatically via shared_ptr
     }
 
-    std::shared_ptr<const ECS> CreateSnapshot() const {
+    [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot() const {
         auto snapshot = std::make_shared<ECS>();
         snapshot->m_EntityStore = m_EntityStore;     // Copy entity IDs
         snapshot->m_ComponentStore = m_ComponentStore; // Copy component arrays

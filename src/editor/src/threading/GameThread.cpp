@@ -232,7 +232,7 @@ void GameThread::PublishSnapshot(const GameState& state, const FrameTimeStats& f
 	
 	// Store the snapshot atomically (C++20 atomic shared_ptr operations)
 	// This keeps the snapshot alive while RenderThread might be reading it
-	std::atomic_store(&m_AppContext->LatestWorldSnapshot, worldSnapshot);
+	m_AppContext->LatestWorldSnapshot.store(worldSnapshot, std::memory_order_release);
 
 	SimulationSnapshot snap{};
 	snap.Tick = tick;

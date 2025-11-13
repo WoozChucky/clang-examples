@@ -53,7 +53,7 @@ void RenderThread::RunLoop()
 
         // IMPORTANT: Load ECS snapshot FIRST to acquire reference and prevent deletion
         // This must happen before loading SimulationSnapshot to avoid race condition
-        std::shared_ptr<const ECS> worldSnapshot = std::atomic_load(&m_AppContext->LatestWorldSnapshot);
+        std::shared_ptr<const ECS> worldSnapshot = m_AppContext->LatestWorldSnapshot.load(std::memory_order_acquire);
         
         // Read latest snapshot from seqlock - retrieved ONCE per render loop
         SimulationSnapshot nextSnap = m_AppContext->LatestSnapshot.load();
@@ -97,8 +97,7 @@ void RenderThread::RunLoop()
         float green = 0.3f + 0.2f * static_cast<float>(std::fmod(mx / 640.0, 1.0));
         float blue = 0.2f;
 
-        // Pass the snapshot (which now includes WorldSnapshotPtr) to renderer
-        m_Renderer->Render(renderDelta, red, green, blue, nextSnap.UICamera, nextSnap.GameCamera, nextSnap);
+        m_Renderer->Render(renderDelta, red, green, blue, nextSnap);
 
         // Advance interpolation baseline
         prevSnap = nextSnap;

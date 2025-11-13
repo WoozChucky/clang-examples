@@ -11,13 +11,18 @@ add_executable(editor
     
     # Rendering
     src/rendering/Renderer.cpp
-    src/rendering/RendererBackendDX12.cpp
-    src/rendering/RendererBackendVulkan.cpp
-    src/rendering/PrimitiveRenderPass.cpp
     src/rendering/ImGuiRenderer.cpp
     src/rendering/imgui_nvrhi.cpp
     src/rendering/registered_font.cpp
-    
+
+    # Rendering Backends
+    src/rendering/backends/RendererBackendDX12.cpp
+    src/rendering/backends/RendererBackendVulkan.cpp
+
+    # Rendering Passes
+    src/rendering/passes/UiRenderPass.cpp
+    src/rendering/passes/PrimitiveRenderPass.cpp
+
     # Plugins
     src/plugins/DotNetPluginHost.cpp
     src/plugins/DotNetPluginManager.cpp

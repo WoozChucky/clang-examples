@@ -1,7 +1,7 @@
 #pragma once
 
 #include <nvrhi/nvrhi.h>
-#include "Camera.h"
+#include "ApplicationContext.h"
 
 // Forward declaration
 class Renderer;
@@ -18,7 +18,7 @@ public:
     virtual void Render(
         nvrhi::ICommandList* commandList,
         nvrhi::IFramebuffer* framebuffer,
-        PerspectiveCamera3D& camera,
+        SimulationSnapshot& snapshot,
         double deltaTime) = 0;
 
     // Cleanup resources
