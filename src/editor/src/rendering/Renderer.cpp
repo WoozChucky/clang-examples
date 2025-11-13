@@ -5,11 +5,14 @@
 
 #include <nvrhi/utils.h>
 
-#include "RendererBackendDX12.h"
-#include "RendererBackendVulkan.h"
-#include "PrimitiveRenderPass.h"
+#include "backends/RendererBackendDX12.h"
+#include "backends/RendererBackendVulkan.h"
+
+#include "passes/PrimitiveRenderPass.h"
 
 #include <tracy/Tracy.hpp>
+
+#include "passes/UiRenderPass.h"
 
 bool Renderer::Init(const RendererAPI api) {
     switch (api) {
@@ -74,6 +77,13 @@ bool Renderer::Init(const RendererAPI api) {
     }
     AddRenderPass(std::move(primitivePass));
 
+    auto uiPass = std::make_unique<UiRenderPass>();
+    if (!uiPass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize UiRenderPass");
+        return false;
+    }
+    AddRenderPass(std::move(uiPass));
+
     return true;
 }
 
@@ -108,7 +118,7 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     }
 }
 
-float Renderer::Render(double deltaTime, float red, float green, float blue, OrthographicCamera2D& uiCamera, PerspectiveCamera3D& gameCamera, const SimulationSnapshot& snapshot) {
+float Renderer::Render(double deltaTime, float red, float green, float blue, SimulationSnapshot& snapshot) {
 
 if (!m_Backend || !m_Device || !m_CommandList) {
     SM_ERROR("Failed to render: renderer not fully initialized (backend=%p, device=%p, cmdlist=%p)",
@@ -148,7 +158,7 @@ if (!m_Backend || !m_Device || !m_CommandList) {
                 // Render all passes
                 for (auto& pass : m_RenderPasses) {
                     if (pass) {
-                        pass->Render(m_CommandList, frameBuffer, gameCamera, deltaTime);
+                        pass->Render(m_CommandList, frameBuffer, snapshot, deltaTime);
                     }
                 }
             }

@@ -110,5 +110,5 @@ struct ApplicationContext {
     // GameThread: worldSnapshot = state.World.CreateSnapshot(); 
     //             std::atomic_store(&LatestWorldSnapshot, worldSnapshot);
     // RenderThread: auto worldSnapshot = std::atomic_load(&LatestWorldSnapshot);
-    std::shared_ptr<const ECS> LatestWorldSnapshot;
+    std::atomic<std::shared_ptr<const ECS>> LatestWorldSnapshot;
 };
