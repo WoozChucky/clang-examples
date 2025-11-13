@@ -112,6 +112,8 @@ struct UIInstanceCPU
 };
 static_assert(sizeof(UIInstanceCPU) % 16 == 0);
 
+const FontManager::FontKey FontManager::DEFAULT_FONT = {"assets/LiberationSans-Regular.ttf", 16};
+
 bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
     m_Device = device;
     m_Renderer = renderer;
@@ -213,31 +215,133 @@ bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
     cl->close();
     m_Device->executeCommandList(cl);
 
-    // Create per-font binding sets using the UI layout
-    auto createFontUIBinding = [&](FontAtlas& fa)
-    {
-        if (!fa.texture || !fa.sampler) return;
+    if (!m_FontManager.LoadAtlas(FontManager::DEFAULT_FONT.Path.c_str(), FontManager::DEFAULT_FONT.Size, m_Device)) {
+        SM_ERROR("Failed to default font");
+        return false;
+    }
+
+    if (auto* atlas = m_FontManager.GetAtlas(FontManager::DEFAULT_FONT)) {
         nvrhi::BindingSetDesc bsd;
         bsd.bindings = {
-            nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameConstantBuffer),        // b0
-            nvrhi::BindingSetItem::Texture_SRV(0, fa.texture),                                         // t0
-            nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_InstanceBuffer), // t1 SRV
-            nvrhi::BindingSetItem::Sampler(0, fa.sampler)                                              // s0
+            nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameConstantBuffer),
+            nvrhi::BindingSetItem::Texture_SRV(0, atlas->texture),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_InstanceBuffer),
+            nvrhi::BindingSetItem::Sampler(0, m_FontManager.GetSampler())
         };
-        fa.uiBindingSet = m_Device->createBindingSet(bsd, m_BindingLayout);
-    };
-
-    // Default font
-    createFontUIBinding(m_FontAtlas);
-
-    // Default UI binding set is font 0
-    m_BindingSet = m_FontAtlas.uiBindingSet;
+        m_BindingSet = m_Device->createBindingSet(bsd, m_BindingLayout);
+    }
 
     return true;
 }
 
-void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer *framebuffer,
+void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer *frameBuffer,
     SimulationSnapshot &snapshot, double deltaTime) {
+
+    if (!m_Pipeline) {
+        const auto fbi = frameBuffer->getFramebufferInfo();
+        nvrhi::GraphicsPipelineDesc uiDesc;
+        uiDesc.VS = m_VS;
+        uiDesc.PS = m_PS;
+        uiDesc.inputLayout = m_InputLayout;
+        uiDesc.bindingLayouts = { m_BindingLayout };
+        uiDesc.primType = nvrhi::PrimitiveType::TriangleList;
+        // UI states
+        uiDesc.renderState.depthStencilState.depthTestEnable = false;
+        uiDesc.renderState.depthStencilState.stencilEnable = false;
+        // Enable straight alpha blending for UI/text using setter API
+        nvrhi::BlendState::RenderTarget rt;
+        rt.setBlendEnable(true)
+          .setSrcBlend(nvrhi::BlendFactor::SrcAlpha)
+          .setDestBlend(nvrhi::BlendFactor::InvSrcAlpha)
+          .setBlendOp(nvrhi::BlendOp::Add)
+          .setSrcBlendAlpha(nvrhi::BlendFactor::One)
+          .setDestBlendAlpha(nvrhi::BlendFactor::InvSrcAlpha)
+          .setBlendOpAlpha(nvrhi::BlendOp::Add)
+          .setColorWriteMask(nvrhi::ColorMask::All);
+        uiDesc.renderState.blendState.setRenderTarget(0, rt);
+
+        m_Pipeline = m_Device->createGraphicsPipeline(uiDesc, fbi);
+    }
+
+    if (m_PerFrameConstantBuffer) {
+        const auto vp = frameBuffer->getFramebufferInfo().getViewport();
+        const float w = vp.width();
+        const float h = vp.height();
+
+        // In the near future use the snapshot UICamera parameters to build the ortho matrix
+        // snapshot.UICamera.position
+        // snapshot.UICamera.dimensions
+        // snapshot.UICamera.zoom
+
+        // Map (0,0) top-left to (-1,+1), (w,h) to (+1,-1)
+        // Matrix that does: x' = 2/w*x - 1, y' = 1 - 2/h*y
+        glm::mat4 ortho(1.0f);
+        ortho[0][0] = 2.0f / w;  ortho[1][0] = 0.0f;       ortho[2][0] = 0.0f; ortho[3][0] = -1.0f; // column 0..3
+        ortho[0][1] = 0.0f;       ortho[1][1] = -2.0f / h; ortho[2][1] = 0.0f; ortho[3][1] =  1.0f;
+        ortho[0][2] = 0.0f;       ortho[1][2] = 0.0f;       ortho[2][2] = 1.0f; ortho[3][2] =  0.0f;
+        ortho[0][3] = 0.0f;       ortho[1][3] = 0.0f;       ortho[2][3] = 0.0f; ortho[3][3] =  1.0f;
+
+
+
+        UIFrameCBData uiFrame{};
+        uiFrame.Ortho = ortho;
+        commandList->writeBuffer(m_PerFrameConstantBuffer, &uiFrame, sizeof(uiFrame));
+    }
+
+    nvrhi::GraphicsState state;
+    state.pipeline = m_Pipeline;
+    state.framebuffer = frameBuffer;
+    state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+    state.vertexBuffers = { nvrhi::VertexBufferBinding(m_VertexBuffer, 0, 0) };
+    state.indexBuffer = nvrhi::IndexBufferBinding(m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+
+    if (snapshot.WorldSnapshotPtr) {
+
+        size_t totalInstances = 0;
+        size_t glyphCount = 0;
+        UIInstanceCPU* glyphInstances = nullptr;
+
+        const auto atlas = m_FontManager.GetAtlas(FontManager::DEFAULT_FONT);
+
+        // TODO: Calculate total ammount of glyph instances required
+        // .. malloc glyphInstances accordingly
+        // .. fill glyphInstances in the loop below
+        // .. upload all glyphInstances at once
+
+        for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, TextComponent>()) {
+            auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
+            auto* text = snapshot.WorldSnapshotPtr->GetComponent<TextComponent>(entity);
+
+            if (transform && text) {
+                // Prepare instance data
+                UIInstanceCPU instance{};
+                instance.Transform = glm::mat4(1.0f);
+                instance.Transform[0][0] = transform->Scale.x; // scaleX
+                instance.Transform[1][1] = transform->Scale.y; // scaleY
+                instance.Transform[3][0] = transform->Position.x; // posX
+                instance.Transform[3][1] = transform->Position.y; // posY
+                instance.Color = text->Color;
+                instance.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f); // full texture
+                instance.Flags = 1u << 0; // SAMPLE_TEXTURE
+
+                //text->Text is an std::string
+
+                glyphInstances[totalInstances++] = instance;
+            }
+        }
+
+        if (totalInstances > 0) {
+            commandList->writeBuffer(m_InstanceBuffer, glyphInstances, totalInstances * sizeof(UIInstanceCPU));
+            state.bindings = { atlas->uiBindingSet ? atlas->uiBindingSet : m_BindingSet };
+            commandList->setGraphicsState(state);
+            nvrhi::DrawArguments uiDrawArgs;
+            uiDrawArgs.vertexCount = m_IndexCount;
+            uiDrawArgs.instanceCount = totalInstances;
+            uiDrawArgs.startIndexLocation = 0;
+            uiDrawArgs.startVertexLocation = 0;
+            commandList->drawIndexed(uiDrawArgs);
+        }
+    }
 }
 
 void UiRenderPass::Shutdown() {

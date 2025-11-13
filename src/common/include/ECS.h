@@ -4,10 +4,11 @@
 #include <unordered_map>
 #include <memory>
 #include <typeindex>
-#include <optional>
+#include <string>
 #include <algorithm>
 
 #include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 
 // #############################################################################
 //                           Component Types (Examples)
@@ -23,6 +24,14 @@ struct MeshComponent {
     uint32_t MeshId = 0;
     uint32_t MaterialId = 0;
     bool Visible = true;
+};
+
+struct TextComponent {
+    std::string Text;
+    glm::vec4 Color{1.0f};
+    // Reserved for future use
+    //std::string Font;
+    //float FontSize = 12.0f;
 };
 
 // #############################################################################

@@ -16,7 +16,7 @@ public:
     bool Initialize(nvrhi::IDevice* device, Renderer* renderer) override;
     void Render(
         nvrhi::ICommandList* commandList,
-        nvrhi::IFramebuffer* framebuffer,
+        nvrhi::IFramebuffer* frameBuffer,
         SimulationSnapshot& snapshot,
         double deltaTime) override;
     void Shutdown() override;
