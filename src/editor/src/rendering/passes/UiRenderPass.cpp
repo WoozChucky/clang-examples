@@ -297,50 +297,89 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
     if (snapshot.WorldSnapshotPtr) {
 
-        size_t totalInstances = 0;
-        size_t glyphCount = 0;
-        UIInstanceCPU* glyphInstances = nullptr;
+        const auto* atlas = m_FontManager.GetAtlas(FontManager::DEFAULT_FONT);
+        if (!atlas || !atlas->texture) return;
 
-        const auto atlas = m_FontManager.GetAtlas(FontManager::DEFAULT_FONT);
+        // 1) Count total glyphs needed across all text entities
+        uint32_t glyphCount = 0;
+        for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, TextComponent>()) {
+            const auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
+            const auto* text = snapshot.WorldSnapshotPtr->GetComponent<TextComponent>(entity);
+            if (transform && text) {
+                glyphCount += static_cast<uint32_t>(text->Text.length());
+            }
+        }
 
-        // TODO: Calculate total ammount of glyph instances required
-        // .. malloc glyphInstances accordingly
-        // .. fill glyphInstances in the loop below
-        // .. upload all glyphInstances at once
+        if (glyphCount == 0) return;
+        glyphCount = std::min(glyphCount, m_MaxInstances);
 
+        // 2) Allocate glyph instances array TODO: use a transient allocator
+        auto* glyphInstances = new UIInstanceCPU[glyphCount];
+
+        const auto aw = static_cast<float>(atlas->width);
+        const auto ah = static_cast<float>(atlas->height);
+        uint32_t out = 0;
+
+        // 3) Iterate through each text entity and render glyphs
         for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, TextComponent>()) {
             auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
             auto* text = snapshot.WorldSnapshotPtr->GetComponent<TextComponent>(entity);
 
             if (transform && text) {
-                // Prepare instance data
-                UIInstanceCPU instance{};
-                instance.Transform = glm::mat4(1.0f);
-                instance.Transform[0][0] = transform->Scale.x; // scaleX
-                instance.Transform[1][1] = transform->Scale.y; // scaleY
-                instance.Transform[3][0] = transform->Position.x; // posX
-                instance.Transform[3][1] = transform->Position.y; // posY
-                instance.Color = text->Color;
-                instance.UVRect = glm::vec4(1.f, 1.f, 0.f, 0.f); // full texture
-                instance.Flags = 1u << 0; // SAMPLE_TEXTURE
+                const std::string& str = text->Text;
+                glm::vec2 pen = glm::vec2(transform->Position.x, transform->Position.y);
 
-                //text->Text is an std::string
+                // 4) Iterate through each character in the text string
+                for (size_t k = 0; k < str.length() && out < glyphCount; ++k) {
+                    const auto c = static_cast<unsigned char>(str[k]);
+                    if (c >= 128u) continue; // Skip non-ASCII characters
 
-                glyphInstances[totalInstances++] = instance;
+                    // 5) Look up glyph from atlas
+                    const Glyph& g = atlas->glyphs[c];
+
+                    // 6) Calculate position using pen + glyph offset
+                    glm::vec2 pos;
+                    pos.x = pen.x + g.offset.x;
+                    pos.y = pen.y - g.offset.y;
+                    const glm::vec2 size = g.size;
+
+                    // 7) Create instance for this glyph
+                    UIInstanceCPU inst{};
+                    inst.Transform = glm::mat4(1.0f);
+                    inst.Transform[0][0] = size.x;
+                    inst.Transform[1][1] = size.y;
+                    inst.Transform[3][0] = pos.x;
+                    inst.Transform[3][1] = pos.y;
+                    inst.Color = text->Color;
+                    inst.Flags = 1u << 0; // SAMPLE_TEXTURE
+
+                    // 8) Calculate UV coordinates from glyph texture coordinates
+                    const auto uvScale = glm::vec2(g.size.x / aw, g.size.y / ah);
+                    const auto uvOffset = glm::vec2(g.textureCoords.x / aw, g.textureCoords.y / ah);
+                    inst.UVRect = glm::vec4(uvScale.x, uvScale.y, uvOffset.x, uvOffset.y);
+
+                    glyphInstances[out++] = inst;
+
+                    // 9) Advance pen by glyph advance
+                    pen.x += g.advance.x;
+                }
             }
         }
 
-        if (totalInstances > 0) {
-            commandList->writeBuffer(m_InstanceBuffer, glyphInstances, totalInstances * sizeof(UIInstanceCPU));
+        // 10) Upload all instances and draw
+        if (out > 0) {
+            commandList->writeBuffer(m_InstanceBuffer, glyphInstances, out * sizeof(UIInstanceCPU));
             state.bindings = { atlas->uiBindingSet ? atlas->uiBindingSet : m_BindingSet };
             commandList->setGraphicsState(state);
             nvrhi::DrawArguments uiDrawArgs;
             uiDrawArgs.vertexCount = m_IndexCount;
-            uiDrawArgs.instanceCount = totalInstances;
+            uiDrawArgs.instanceCount = out;
             uiDrawArgs.startIndexLocation = 0;
             uiDrawArgs.startVertexLocation = 0;
             commandList->drawIndexed(uiDrawArgs);
         }
+
+        delete[] glyphInstances;
     }
 }
 

@@ -210,6 +210,10 @@ private:
             if (auto* mesh = componentData.Get<MeshComponent>()) {
                 world.AddComponent(entity, *mesh);
             }
+        } else if (componentData.Type == std::type_index(typeid(TextComponent))) {
+            if (auto* text = componentData.Get<TextComponent>()) {
+                world.AddComponent(entity, *text);
+            }
         }
         // Add more component types as needed
     }
@@ -220,6 +224,8 @@ private:
             world.RemoveComponent<TransformComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(MeshComponent))) {
             world.RemoveComponent<MeshComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(TextComponent))) {
+            world.RemoveComponent<TextComponent>(entity);
         }
         // Add more component types as needed
     }
