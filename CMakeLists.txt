@@ -8,10 +8,6 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Common Windows system libs
-set(WINDOWS_LIBS user32 gdi32 ole32 kernel32)
-
-# Output layout: put binaries in bin/<Config>
 set(RUNTIME_DIR "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 
 # third-party libraries

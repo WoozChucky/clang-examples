@@ -7,7 +7,6 @@
 #include <glm/gtc/quaternion.hpp>
 
 static GameState* g_GameState = nullptr;
-static GameDebugBreakFn g_PlatformDebugBreak = nullptr;
 static bool gKeysDown[KEY_LAST + 1] = {};
 static bool gKeysPressedThisFrame[KEY_LAST + 1] = {}; // NEW: Track single-frame presses
 static int32_t gMouseWheel = 0;
@@ -37,13 +36,6 @@ uint32_t GameGetVersion() {
     return 0;
 }
 
-void GameSetPlatformDebugBreak(const GameDebugBreakFn fn) {
-    SM_TRACE("[GAMEDLL] GameSetPlatformDebugBreak");
-	if (fn) {
-		g_PlatformDebugBreak = fn;
-	}
-}
-
 void GameUpdate(GameState* state) {
     if (g_GameState != state) {
         g_GameState = state;
@@ -55,9 +47,7 @@ void GameUpdate(GameState* state) {
 	// Clear pressed-this-frame flags at start of each update
 	memset(gKeysPressedThisFrame, 0, sizeof(gKeysPressedThisFrame));
 
-	const auto inputRing = static_cast<SpscRing<InputEvent, ApplicationContext::InputRingSize>*>(g_GameState->PlatformInputHandle);
-
-	DrainInput(inputRing);
+	DrainInput(g_GameState->PlatformInput);
 
 	HandleCameraMovement(g_GameState);
 
@@ -215,17 +205,11 @@ void GameResize(uint32_t width, uint32_t height) {
 }
 
 void GameExit(GameState* state) {
-
-	if (g_PlatformDebugBreak) {
-		g_PlatformDebugBreak = nullptr;
-	}
-
     if (state && g_GameState == state)
     {
         g_GameState->World.Clear();
         g_GameState = nullptr;
     }
-
     SM_TRACE("[GAMEDLL] GameExit")
 }
 
@@ -322,21 +306,4 @@ inline int EncodeUTF8(unsigned int codepoint, char* out) {
 		return 4;
 	}
 	return 0; // Invalid codepoint
-}
-
-// Assertion handler entry point used inside the game DLL.
-// If the host EXE provided a platform-specific handler via GameSetPlatformDebugBreak,
-// we forward to it; otherwise, we use a minimal fallback (log + debugbreak).
-void platform_debug_break(const char* expr, const char* file, int line, const char* message)
-{
-	if (g_PlatformDebugBreak)
-	{
-		g_PlatformDebugBreak(expr, file, line, message);
-		return;
-	}
-
-	// Fallback when no platform callback has been set yet
-	_log("ASSERT:", "Expression: %s | File: %s | Line: %d | %s", TEXT_COLOR_RED,
-		(expr ? expr : "<none>"), (file ? file : "<unknown>"), line, (message ? message : ""));
-	DEBUG_BREAK();
 }

@@ -150,7 +150,7 @@ bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
     nvrhi::BufferDesc vbDesc;
     vbDesc.byteSize = sizeof(quadVerts);
     vbDesc.isVertexBuffer = true;
-    vbDesc.debugName = "UIQuadVB";
+    vbDesc.debugName = "UIRenderPass VertexBuffer";
     vbDesc.initialState = nvrhi::ResourceStates::CopyDest;
     m_VertexBuffer = m_Device->createBuffer(vbDesc);
 
@@ -162,7 +162,7 @@ bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
     nvrhi::BufferDesc ibDesc;
     ibDesc.byteSize = sizeof(quadIdx);
     ibDesc.isIndexBuffer = true;
-    ibDesc.debugName = "UIQuadIB";
+    ibDesc.debugName = "UIRenderPass IndexBuffer";
     ibDesc.initialState = nvrhi::ResourceStates::CopyDest;
     m_IndexBuffer = m_Device->createBuffer(ibDesc);
 
@@ -174,13 +174,13 @@ bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
 
     // Per-frame CB (uOrtho)
     m_PerFrameConstantBuffer = m_Device->createBuffer(
-        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(UIFrameCBData), "UIFrameCB")
+        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(UIFrameCBData), "UIRenderPass FrameConstantBuffer")
             .setInitialState(nvrhi::ResourceStates::ConstantBuffer).setKeepInitialState(true));
 
     // Instance buffer (StructuredBuffer SRV)
     {
         nvrhi::BufferDesc instDesc;
-        instDesc.debugName = "UIInstanceBuffer";
+        instDesc.debugName = "UIRenderPass InstanceBuffer";
         instDesc.byteSize = m_MaxInstances * sizeof(UIInstanceCPU);
         instDesc.structStride = sizeof(UIInstanceCPU);
         instDesc.initialState = nvrhi::ResourceStates::CopyDest; // upload then use as SRV

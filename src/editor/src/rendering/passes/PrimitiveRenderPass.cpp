@@ -133,13 +133,13 @@ bool PrimitiveRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
 
     // Create constant buffers
     m_PerFrameConstantBuffer = m_Device->createBuffer(
-        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(PerFrameCBData), "PerFrameCBData")
+        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(PerFrameCBData), "PrimitiveRenderPass PerFrameConstantBuffer")
             .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
             .setKeepInitialState(true)
     );
 
     m_PerDrawCB = m_Device->createBuffer(
-        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(PrimPerDrawCB), "PrimPerDrawCB")
+        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(PrimPerDrawCB), "PrimitiveRenderPass PerDrawConstantBuffer")
             .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
             .setKeepInitialState(true)
     );
@@ -165,7 +165,7 @@ bool PrimitiveRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     nvrhi::BufferDesc vbDesc;
     vbDesc.byteSize = sizeof(verts);
     vbDesc.isVertexBuffer = true;
-    vbDesc.debugName = "PrimPlaneVB";
+    vbDesc.debugName = "PrimitiveRenderPass VertexBuffer";
     vbDesc.initialState = nvrhi::ResourceStates::CopyDest;
     m_VertexBuffer = m_Device->createBuffer(vbDesc);
 
@@ -176,7 +176,7 @@ bool PrimitiveRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     nvrhi::BufferDesc ibDesc;
     ibDesc.byteSize = sizeof(inds);
     ibDesc.isIndexBuffer = true;
-    ibDesc.debugName = "PrimPlaneIB";
+    ibDesc.debugName = "PrimitiveRenderPass IndexBuffer";
     ibDesc.initialState = nvrhi::ResourceStates::CopyDest;
     m_IndexBuffer = m_Device->createBuffer(ibDesc);
 
