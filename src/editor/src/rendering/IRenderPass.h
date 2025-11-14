@@ -3,8 +3,9 @@
 #include <nvrhi/nvrhi.h>
 #include "ApplicationContext.h"
 
-// Forward declaration
+// Forward declarations
 class Renderer;
+class FrameAllocator;
 
 // Abstract base class for render passes
 class IRenderPass {
@@ -19,7 +20,8 @@ public:
         nvrhi::ICommandList* commandList,
         nvrhi::IFramebuffer* frameBuffer,
         SimulationSnapshot& snapshot,
-        double deltaTime) = 0;
+        double deltaTime,
+        FrameAllocator* frameAllocator) = 0;
 
     // Cleanup resources
     virtual void Shutdown() = 0;

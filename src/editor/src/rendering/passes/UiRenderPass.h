@@ -213,8 +213,8 @@ public:
         return nullptr;
     }
 
-    void SetUIResources(nvrhi::BindingLayoutHandle bindingLayout, 
-                        nvrhi::BufferHandle perFrameCB, 
+    void SetUIResources(nvrhi::BindingLayoutHandle bindingLayout,
+                        nvrhi::BufferHandle perFrameCB,
                         nvrhi::BufferHandle instanceBuffer) {
         m_UIBindingLayout = bindingLayout;
         m_PerFrameCB = perFrameCB;
@@ -245,7 +245,7 @@ private:
     nvrhi::SamplerHandle    m_Sampler; // clamp + linear
     std::unordered_map<FontKey, FontAtlas, FontKeyHash> m_AtlasMap;
     nvrhi::IDevice* m_Device = nullptr;
-    
+
     // UI rendering resources
     nvrhi::BindingLayoutHandle m_UIBindingLayout;
     nvrhi::BufferHandle m_PerFrameCB;
@@ -262,7 +262,8 @@ public:
         nvrhi::ICommandList* commandList,
         nvrhi::IFramebuffer* frameBuffer,
         SimulationSnapshot& snapshot,
-        double deltaTime) override;
+        double deltaTime,
+        FrameAllocator* frameAllocator) override;
     void Shutdown() override;
     void OnResize(uint32_t width, uint32_t height) override;
 

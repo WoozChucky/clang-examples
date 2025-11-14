@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
@@ -206,6 +207,10 @@ public:
         }
     }
 
+    void Cleanup() {
+        m_ComponentArrays.clear();
+    }
+
 private:
     std::unordered_map<std::type_index, std::shared_ptr<IComponentArray>> m_ComponentArrays;
 };
@@ -220,20 +225,20 @@ public:
         const EntityId id = m_FreeEntities.empty() ? m_NextEntityId++ : m_FreeEntities.back();
         if (!m_FreeEntities.empty()) m_FreeEntities.pop_back();
 
-        m_ActiveEntities.insert(id); // O(1) insertion
-        m_CacheDirty = true;
+        m_ActiveEntities.push_back(id);
         return id;
     }
 
     void DestroyEntity(const EntityId entity) {
-        if (m_ActiveEntities.erase(entity)) {
-            m_FreeEntities.push_back(entity);
-            m_CacheDirty = true;
+        const auto it = std::ranges::find(m_ActiveEntities, entity);
+        if (it != m_ActiveEntities.end()) {
+            m_ActiveEntities.erase(it);
+            m_FreeEntities.push_back(entity); // Recycle ID
         }
     }
 
     [[nodiscard]] bool IsValid(const EntityId entity) const {
-        return m_ActiveEntities.contains(entity);
+        return std::ranges::find(m_ActiveEntities, entity) != m_ActiveEntities.end();
     }
 
     [[nodiscard]] size_t GetEntityCount() const {
@@ -241,11 +246,7 @@ public:
     }
 
     [[nodiscard]] const std::vector<EntityId>& GetActiveEntities() const {
-        if (m_CacheDirty) {
-            m_ActiveEntitiesCache.assign(m_ActiveEntities.begin(), m_ActiveEntities.end());
-            m_CacheDirty = false;
-        }
-        return m_ActiveEntitiesCache;
+        return m_ActiveEntities;
     }
 
     void Clear() {
@@ -256,10 +257,8 @@ public:
 
 private:
     EntityId                        m_NextEntityId = 1; // 0 reserved for INVALID_ENTITY
-    std::unordered_set<EntityId>    m_ActiveEntities;
+    std::vector<EntityId>           m_ActiveEntities;
     std::vector<EntityId>           m_FreeEntities; // Recycled entity IDs
-    mutable std::vector<EntityId>   m_ActiveEntitiesCache;
-    mutable bool                    m_CacheDirty = true;
 };
 
 // #############################################################################
@@ -360,7 +359,7 @@ public:
 
     void Clear() {
         m_EntityStore.Clear();
-        // ComponentStore cleanup happens automatically via shared_ptr
+        m_ComponentStore.Cleanup();
     }
 
     [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot() const {

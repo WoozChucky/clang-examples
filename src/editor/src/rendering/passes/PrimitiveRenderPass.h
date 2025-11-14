@@ -18,7 +18,8 @@ public:
         nvrhi::ICommandList* commandList,
         nvrhi::IFramebuffer* frameBuffer,
         SimulationSnapshot& snapshot,
-        double deltaTime) override;
+        double deltaTime,
+        FrameAllocator* frameAllocator) override;
     void Shutdown() override;
     void OnResize(uint32_t width, uint32_t height) override;
 

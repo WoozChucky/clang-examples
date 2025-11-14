@@ -39,7 +39,7 @@
 
 # New game library definition
 
-add_library(game SHARED
+add_library(game STATIC
     src/Game.cpp
 )
 
