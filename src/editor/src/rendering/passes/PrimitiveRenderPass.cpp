@@ -222,7 +222,8 @@ void PrimitiveRenderPass::Render(
     nvrhi::ICommandList* commandList,
     nvrhi::IFramebuffer* frameBuffer,
     SimulationSnapshot& snapshot,
-    double deltaTime)
+    double deltaTime,
+    FrameAllocator* frameAllocator)
 {
     if (!m_Pipeline)
     {
@@ -297,7 +298,7 @@ void PrimitiveRenderPass::Shutdown() {
     m_IndexBuffer = nullptr;
     m_VS = nullptr;
     m_PS = nullptr;
-    
+
     m_Device = nullptr;
 }
 

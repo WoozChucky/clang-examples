@@ -33,15 +33,19 @@ void Application::Run() {
 
     m_AppContext->ShutdownRequested.store(true, std::memory_order_relaxed);
 
-    m_GameThread->Stop();
-    m_RenderThread->Stop();
 
-    if (m_ThreadGame.joinable()) {
-        m_ThreadGame.join();
-    }
+    m_RenderThread->Stop();
     if (m_ThreadRender.joinable()) {
         m_ThreadRender.join();
     }
+
+    m_GameThread->Stop();
+    if (m_ThreadGame.joinable()) {
+        m_ThreadGame.join();
+    }
+
+    // Clear any remaining snapshot references
+    m_AppContext->LatestWorldSnapshot.store(nullptr);
 
     m_GameThread.reset();
     m_RenderThread.reset();

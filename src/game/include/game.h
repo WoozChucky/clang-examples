@@ -43,7 +43,7 @@ using GameDebugBreakFn = void(*)(const char* expr, const char* file, int line, c
 using GameSetPlatformDebugBreakFunc = void(*)(GameDebugBreakFn);
 using GameUpdateFunc = void(*)(GameState* state);
 using GameResizeFunc = void(*)(uint32_t width, uint32_t height);
-using GameExitFunc = void(*)();
+using GameExitFunc = void(*)(GameState* state);
 
 extern "C"
 {
@@ -55,5 +55,5 @@ extern "C"
 
     EXPORT_FN void GameResize(uint32_t width, uint32_t height);
 
-    EXPORT_FN void GameExit();
+    EXPORT_FN void GameExit(GameState* state);
 }

@@ -158,7 +158,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 // Render all passes
                 for (auto& pass : m_RenderPasses) {
                     if (pass) {
-                        pass->Render(m_CommandList, frameBuffer, snapshot, deltaTime);
+                        pass->Render(m_CommandList, frameBuffer, snapshot, deltaTime, &m_FrameAllocator);
                     }
                 }
             }
@@ -186,6 +186,9 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
         }
     }
 
+    // Reset frame allocator for next frame
+    m_FrameAllocator.Reset();
+
     m_Device->runGarbageCollection();
 
     ++*frameIndex;
@@ -200,7 +203,7 @@ void Renderer::Resize(const uint32_t width, const uint32_t height) {
             pass->OnResize(width, height);
         }
     }
-    
+
     if (m_Backend) {
         m_Backend->ResizeSwapChain(width, height);
     }
@@ -235,7 +238,7 @@ void Renderer::AddRenderPass(std::unique_ptr<IRenderPass> pass) {
 
 void Renderer::RemoveRenderPass(IRenderPass* pass) {
     if (!pass) return;
-    
+
     auto it = std::find_if(m_RenderPasses.begin(), m_RenderPasses.end(),
         [pass](const std::unique_ptr<IRenderPass>& ptr) { return ptr.get() == pass; });
     if (it != m_RenderPasses.end()) {

@@ -234,7 +234,7 @@ bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
 }
 
 void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer *frameBuffer,
-    SimulationSnapshot &snapshot, double deltaTime) {
+    SimulationSnapshot &snapshot, double deltaTime, FrameAllocator* frameAllocator) {
 
     if (!m_Pipeline) {
         const auto fbi = frameBuffer->getFramebufferInfo();
@@ -341,7 +341,7 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
             glyphCount = std::min(glyphCount, m_MaxInstances);
 
             // Allocate glyph instances for this font
-            auto* glyphInstances = new UIInstanceCPU[glyphCount];
+            auto* glyphInstances = frameAllocator->AllocateArray<UIInstanceCPU>(glyphCount);
             uint32_t out = 0;
 
             // Generate instances for all text entities using this font size
@@ -351,14 +351,14 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
                 if (transform && text && text->FontSize == fontSize) {
                     const std::string& str = text->Text;
-                    
+
                     // Build entity transform matrix (Translation * Rotation * Scale)
                     // For 2D UI, we primarily care about Z-axis rotation
                     glm::mat4 T = glm::translate(glm::mat4(1.0f), transform->Position);
                     glm::mat4 R = glm::rotate(glm::mat4(1.0f), transform->Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
                     glm::mat4 S = glm::scale(glm::mat4(1.0f), transform->Scale);
                     glm::mat4 entityTransform = T * R * S;
-                    
+
                     // Start pen at origin (will be transformed by entity transform)
                     glm::vec2 pen = glm::vec2(0.0f, 0.0f);
 
@@ -381,7 +381,7 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
                         localGlyphTransform[1][1] = size.y;
                         localGlyphTransform[3][0] = localPos.x;
                         localGlyphTransform[3][1] = localPos.y;
-                        
+
                         // Compose: final transform = entity transform * local glyph transform
                         UIInstanceCPU inst{};
                         inst.Transform = entityTransform * localGlyphTransform;
@@ -414,7 +414,7 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
                 commandList->drawIndexed(uiDrawArgs);
             }
 
-            delete[] glyphInstances;
+            // Note: No need to delete glyphInstances - frame allocator owns memory and will reset at end of frame
         }
     }
 }

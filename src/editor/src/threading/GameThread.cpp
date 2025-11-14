@@ -53,6 +53,12 @@ void GameThread::RunLoop() {
 	 gameState.PlatformInputHandle = &m_AppContext->InputRing;
 	 gameState.Settings = &m_AppContext->Settings;
 
+    auto entityId = gameState.World.CreateEntity();
+    auto transform = TransformComponent{.Position = glm::vec3{200.f, 550.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+    auto text = TextComponent{.Text = "Hello, Thread!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48};
+    gameState.World.AddComponent(entityId, transform);
+    gameState.World.AddComponent(entityId, text);
+
 	 // Initialize default settings
 	 GameThreadSettings threadSettings{};
 	 threadSettings.TargetTPS = 60.0;
@@ -82,7 +88,7 @@ void GameThread::RunLoop() {
 	 {
 		// Read latest settings from render thread
 		const GameThreadSettings currentSettings = m_AppContext->GameThreadConfig.load();
-		
+
 		// Update target if changed
 		if (currentSettings.TargetTPS != threadSettings.TargetTPS) {
 			threadSettings = currentSettings;
@@ -164,7 +170,7 @@ void GameThread::RunLoop() {
 		{
 			ZoneScopedN("FramePacing");
 			const auto now = Clock::now();
-			
+
 			// If we're already late, skip sleep entirely
 			if (now >= nextFrameTime) {
 				nextFrameTime = now;
@@ -192,8 +198,10 @@ void GameThread::RunLoop() {
 	}
 
 	if (m_GameLib.IsValid()) {
-		m_GameLib.ExitGame();
+		m_GameLib.ExitGame(&gameState);
 	}
+
+    gameState.World.Clear();
 
 	if (m_PluginManager) {
 		m_PluginManager->ShutdownAll();
@@ -229,7 +237,7 @@ void GameThread::PublishSnapshot(const GameState& state, const FrameTimeStats& f
 
 	// Create a read-only snapshot of the ECS world
 	std::shared_ptr<const ECS> worldSnapshot = state.World.CreateSnapshot();
-	
+
 	// Store the snapshot atomically (C++20 atomic shared_ptr operations)
 	// This keeps the snapshot alive while RenderThread might be reading it
 	m_AppContext->LatestWorldSnapshot.store(worldSnapshot, std::memory_order_release);
@@ -244,7 +252,7 @@ void GameThread::PublishSnapshot(const GameState& state, const FrameTimeStats& f
 	snap.GameCamera = state.GameCamera;
 	snap.UICamera = state.UICamera;
 	snap.FrameStats = frameStats;
-	
+
 	// Pass raw pointer through Seqlock (Seqlock requires trivially copyable types)
 	// The shared_ptr above keeps this pointer valid
 	snap.WorldSnapshotPtr = worldSnapshot.get();
@@ -320,7 +328,7 @@ bool GameThread::LoadTempGameLibrary() {
 }
 
 void GameThread::UnloadGameLibrary() {
-	FreeGameLibrary();	
+	FreeGameLibrary();
 }
 
 void GameThread::ReloadGameLibraryIfRequested() {

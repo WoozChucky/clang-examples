@@ -206,6 +206,10 @@ public:
         }
     }
 
+    void Cleanup() {
+        m_ComponentArrays.clear();
+    }
+
 private:
     std::unordered_map<std::type_index, std::shared_ptr<IComponentArray>> m_ComponentArrays;
 };
@@ -360,7 +364,7 @@ public:
 
     void Clear() {
         m_EntityStore.Clear();
-        // ComponentStore cleanup happens automatically via shared_ptr
+        m_ComponentStore.Cleanup();
     }
 
     [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot() const {

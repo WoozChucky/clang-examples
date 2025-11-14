@@ -9,6 +9,7 @@
 #include "IRenderPass.h"
 
 #include "Camera.h"
+#include "FrameAllocator.h"
 #include "ImGuiRenderer.h"
 
 struct GpuTimer
@@ -98,6 +99,7 @@ private:
     nvrhi::CommandListHandle    m_CommandList = nullptr;
 
     GpuTimer                    m_GpuTimer {};
+    FrameAllocator              m_FrameAllocator;
 
     GLFWwindow*                 m_Window;
     ApplicationContext*         m_AppContext;

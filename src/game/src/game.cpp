@@ -214,11 +214,19 @@ void GameResize(uint32_t width, uint32_t height) {
     SM_TRACE("[GAMEDLL] GameResize: %ux%u", width, height);
 }
 
-void GameExit() {
+void GameExit(GameState* state) {
+
 	if (g_PlatformDebugBreak) {
 		g_PlatformDebugBreak = nullptr;
 	}
-    SM_TRACE("[GAMEDLL] GameExit");
+
+    if (state && g_GameState == state)
+    {
+        g_GameState->World.Clear();
+        g_GameState = nullptr;
+    }
+
+    SM_TRACE("[GAMEDLL] GameExit")
 }
 
 
