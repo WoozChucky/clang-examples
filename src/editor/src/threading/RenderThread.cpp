@@ -36,7 +36,8 @@ void RenderThread::RunLoop()
     {
         ZoneScopedN("Render");
         RendererCommand cmd{};
-        while (m_AppContext->RendererCommandRing.Pop(cmd)) {
+        // Platform -> Render commands
+        while (m_AppContext->PRCommandRing.Pop(cmd)) {
             switch (cmd.Type) {
                 case RendererCommandType::ToggleVSync:
                     m_Renderer->ToggleVSync();
@@ -51,17 +52,54 @@ void RenderThread::RunLoop()
             }
         }
 
+        // Game -> Render commands
+        while (m_AppContext->GRCommandRing.Pop(cmd)) {
+            switch (cmd.Type) {
+                case RendererCommandType::RequestMesh:
+                    SM_TRACE("Mesh Requested");
+                    break;
+                case RendererCommandType::RequestMaterial:
+                    SM_TRACE("Material Requested");
+                    break;
+                case RendererCommandType::RequestModel: {
+                    SM_TRACE("Model Requested");
+
+                    const auto handle = m_Renderer->AddModel(
+                        cmd.ModelRequest.Vertices, cmd.ModelRequest.VertexCount,
+                        cmd.ModelRequest.Indices, cmd.ModelRequest.IndexCount,
+                        cmd.ModelRequest.UseTexture,
+                        cmd.ModelRequest.Texture,
+                        cmd.ModelRequest.Width, cmd.ModelRequest.Height
+                    );
+
+                    RendererResponse response{};
+                    response.Type = RendererResponseType::ModelUpload;
+                    response.TicketId = cmd.TicketId;
+                    response.Model.Valid = handle.Index != UINT32_MAX;
+                    response.Model.Handle = handle;
+                    if (!m_AppContext->RGCommandRing.Push(response)) {
+                        SM_ERROR("RenderThread: Failed to push RendererResponse to ring");
+                    }
+
+                    break;
+                }
+                default:
+                    SM_WARN("RenderThread: Unknown command type: %d", static_cast<int>(cmd.Type));
+                    break;
+            }
+        }
+
         // IMPORTANT: Load ECS snapshot FIRST to acquire reference and prevent deletion
         // This must happen before loading SimulationSnapshot to avoid race condition
         std::shared_ptr<const ECS> worldSnapshot = m_AppContext->LatestWorldSnapshot.load(std::memory_order_acquire);
-        
+
         // Read latest snapshot from seqlock - retrieved ONCE per render loop
         SimulationSnapshot nextSnap = m_AppContext->LatestSnapshot.load();
-        
+
         // Note: nextSnap.WorldSnapshotPtr might point to an older snapshot that's still valid
         // because we're holding a reference to it via worldSnapshot shared_ptr above.
         // This is intentional - we use the snapshot we loaded, not necessarily the one in nextSnap.
-        
+
         if (!havePrev) { prevSnap = nextSnap; havePrev = true; }
 
         // Compute render time / delta
@@ -86,15 +124,10 @@ void RenderThread::RunLoop()
         // Simple linear interpolation of the object position
         const auto interpX = static_cast<float>((1.0 - interpAlpha) * prevSnap.ObjectX + interpAlpha * nextSnap.ObjectX);
 
-        // Late-latch: sample latest atomic input state (if any)
-        InputState* s = m_AppContext->LatestInputStatePtr.load(std::memory_order_acquire);
-        double mx = 0.0;
-        double my = 0.0;
-        if (s) { mx = s->MouseX; my = s->MouseY; }
 
         // Render a clear color depending on interpX and mouse X:
         float red = 0.5f + 0.5f * interpX;
-        float green = 0.3f + 0.2f * static_cast<float>(std::fmod(mx / 640.0, 1.0));
+        float green = 0.3f + 0.2f * static_cast<float>(std::fmod(1.0 / 640.0, 1.0));
         float blue = 0.2f;
 
         m_Renderer->Render(renderDelta, red, green, blue, nextSnap);
@@ -106,7 +139,7 @@ void RenderThread::RunLoop()
 
         // Small yield to avoid starving other threads (not strictly necessary)
         std::this_thread::sleep_for(std::chrono::milliseconds(0));
-        
+
         // worldSnapshot shared_ptr goes out of scope here, decrementing ref count
     }
 

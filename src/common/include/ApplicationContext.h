@@ -55,17 +55,89 @@ struct SimulationSnapshot {
     const ECS* WorldSnapshotPtr = nullptr;
 };
 
-// Small atomic for late-latch (latest input state snapshot)
-struct InputState {
-    double Time;
-    double MouseX, MouseY;
+struct MeshVertex
+{
+    float px, py, pz;   // POSITION
+    uint32_t rgba;      // COLOR (RGBA8)
+    float u, v;         // TEXCOORD0
 };
 
-enum class RendererCommandType : uint8_t { ToggleVSync = 0, TogglePause = 1, Resize = 2 };
+enum class RendererCommandType : uint8_t {
+    Invalid = 0,
+    ToggleVSync = 1,
+    TogglePause = 2,
+    Resize = 3,
+    RequestMesh = 4,
+    RequestMaterial = 5,
+    RequestModel = 6
+};
 struct RendererCommand {
-    RendererCommandType Type;
+    RendererCommandType Type{};
+    uint64_t TicketId{0};
     union {
-        struct { uint32_t Width; uint32_t Height; } ResizeParams;
+        struct {
+            uint32_t Width;
+            uint32_t Height;
+        } ResizeParams;
+
+        struct {
+            MeshVertex* Vertices;
+            size_t VertexCount;
+            uint32_t* Indices;
+            size_t IndexCount;
+        } MeshRequest;
+
+        struct {
+            uint32_t Width;
+            uint32_t Height;
+            uint32_t* Texture; // optional RGBA8 pixels (w*h entries)
+            size_t TextureSize;
+        } MaterialRequest;
+
+        struct {
+            MeshVertex* Vertices;
+            size_t VertexCount;
+            uint32_t* Indices;
+            size_t IndexCount;
+            bool UseTexture;
+            uint32_t Width;
+            uint32_t Height;
+            uint32_t* Texture; // optional RGBA8 pixels (w*h entries)
+            size_t TextureSize;
+        } ModelRequest;
+    };
+};
+
+struct ModelHandle { uint32_t Index; };
+struct MeshHandle { uint32_t Index; };
+struct MaterialHandle { uint32_t Index; };
+
+enum class RendererResponseType : uint8_t {
+    Invalid = 0,
+    MeshUpload = 1,
+    MaterialUpload = 2,
+    ModelUpload = 3
+};
+struct RendererResponse {
+    RendererResponseType Type{};
+    uint64_t TicketId{};
+    union {
+        struct {
+            bool Valid;
+            MeshHandle Handle;
+        } Mesh;
+
+        struct {
+            bool Valid;
+            MaterialHandle Handle;
+        } Material;
+
+        struct {
+            bool Valid;
+            ModelHandle Handle;
+            //MeshHandle Mesh;
+            //MaterialHandle Material;
+        } Model;
     };
 };
 
@@ -87,27 +159,24 @@ struct ApplicationContext {
     static constexpr int ImGuiInputRingSize = 256;
     SpscRing<InputEvent, ImGuiInputRingSize> ImGuiInputRing{};
 
-    // UI: Render -> Game (For future use with Immediate mode UI)
-    static constexpr int UiRingSize = 128;
-    SpscRing<UiCommand, UiRingSize> UiRing{};
-
     // ECS Commands: Render -> Game (For entity/component modifications from ImGui)
     static constexpr int ECSCommandRingSize = 128;
     SpscRing<ECSCommand, ECSCommandRingSize> ECSCommandRing{};
 
-    // Platform -> Render (Stuff like pause, vsync, resize)
-    static constexpr int RendererCommandRingSize = 16;
-    SpscRing<RendererCommand, RendererCommandRingSize> RendererCommandRing{};
 
-    // Late-latched input sample: Platform -> Render
-    std::atomic<InputState*> LatestInputStatePtr{nullptr};
-    InputState InputStateA{}, InputStateB{};
+    static constexpr int RendererCommandRingSize = 64;
+    // Platform -> Render (Stuff like pause, vsync, resize)
+    SpscRing<RendererCommand, RendererCommandRingSize> PRCommandRing{};
+    // Game -> Render (request meshes, texture handles, uploads, etc)
+    SpscRing<RendererCommand, RendererCommandRingSize> GRCommandRing{};
+    // Render -> Game (responses to mesh/model requests)
+    SpscRing<RendererResponse, RendererCommandRingSize> RGCommandRing{};
 
     // Game -> Render latest snapshot (seqlocked)
     Seqlock<SimulationSnapshot> LatestSnapshot{};
-    
+
     // ECS World snapshot lifetime management (C++20 atomic shared_ptr operations)
-    // GameThread: worldSnapshot = state.World.CreateSnapshot(); 
+    // GameThread: worldSnapshot = state.World.CreateSnapshot();
     //             std::atomic_store(&LatestWorldSnapshot, worldSnapshot);
     // RenderThread: auto worldSnapshot = std::atomic_load(&LatestWorldSnapshot);
     std::atomic<std::shared_ptr<const ECS>> LatestWorldSnapshot;

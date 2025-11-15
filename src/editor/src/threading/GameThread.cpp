@@ -50,11 +50,83 @@ void GameThread::RunLoop() {
 	gameState.PlatformInput = &m_AppContext->InputRing;
 	gameState.Settings = &m_AppContext->Settings;
 
-    auto entityId = gameState.World.CreateEntity();
+    auto textEntityId = gameState.World.CreateEntity();
     auto transform = TransformComponent{.Position = glm::vec3{200.f, 550.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
     auto text = TextComponent{.Text = "Hello, Thread!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48};
-    gameState.World.AddComponent(entityId, transform);
-    gameState.World.AddComponent(entityId, text);
+    gameState.World.AddComponent(textEntityId, transform);
+    gameState.World.AddComponent(textEntityId, text);
+
+    auto cubeEntityId = gameState.World.CreateEntity();
+    auto cubeTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+    auto cubeMesh = MeshComponent{ .MeshId = 0, .Visible = false };
+    gameState.World.AddComponent(cubeEntityId, cubeTransform);
+    gameState.World.AddComponent(cubeEntityId, cubeMesh);
+
+    static const MeshVertex cubeVertices[24] = {
+        // Front (+Z)
+        {-1.f,-1.f, 1.f, 0xFFFFFFFF, 0.f,0.f},
+        { 1.f,-1.f, 1.f, 0xFFFFFFFF, 1.f,0.f},
+        { 1.f, 1.f, 1.f, 0xFFFFFFFF, 1.f,1.f},
+        {-1.f, 1.f, 1.f, 0xFFFFFFFF, 0.f,1.f},
+        // Back (-Z)
+        { 1.f,-1.f,-1.f, 0xFFFFFFFF, 0.f,0.f},
+        {-1.f,-1.f,-1.f, 0xFFFFFFFF, 1.f,0.f},
+        {-1.f, 1.f,-1.f, 0xFFFFFFFF, 1.f,1.f},
+        { 1.f, 1.f,-1.f, 0xFFFFFFFF, 0.f,1.f},
+        // Left (-X)
+        {-1.f,-1.f,-1.f, 0xFFFFFFFF, 0.f,0.f},
+        {-1.f,-1.f, 1.f, 0xFFFFFFFF, 1.f,0.f},
+        {-1.f, 1.f, 1.f, 0xFFFFFFFF, 1.f,1.f},
+        {-1.f, 1.f,-1.f, 0xFFFFFFFF, 0.f,1.f},
+        // Right (+X)
+        { 1.f,-1.f, 1.f, 0xFFFFFFFF, 0.f,0.f},
+        { 1.f,-1.f,-1.f, 0xFFFFFFFF, 1.f,0.f},
+        { 1.f, 1.f,-1.f, 0xFFFFFFFF, 1.f,1.f},
+        { 1.f, 1.f, 1.f, 0xFFFFFFFF, 0.f,1.f},
+        // Top (+Y)
+        {-1.f, 1.f, 1.f, 0xFFFFFFFF, 0.f,0.f},
+        { 1.f, 1.f, 1.f, 0xFFFFFFFF, 1.f,0.f},
+        { 1.f, 1.f,-1.f, 0xFFFFFFFF, 1.f,1.f},
+        {-1.f, 1.f,-1.f, 0xFFFFFFFF, 0.f,1.f},
+        // Bottom (-Y)
+        {-1.f,-1.f,-1.f, 0xFFFFFFFF, 0.f,0.f},
+        { 1.f,-1.f,-1.f, 0xFFFFFFFF, 1.f,0.f},
+        { 1.f,-1.f, 1.f, 0xFFFFFFFF, 1.f,1.f},
+        {-1.f,-1.f, 1.f, 0xFFFFFFFF, 0.f,1.f},
+    };
+
+    static const uint32_t cubeIndices[36] = {
+        0,1,2, 2,3,0,        // Front
+        4,5,6, 6,7,4,        // Back
+        8,9,10, 10,11,8,     // Left
+        12,13,14, 14,15,12,  // Right
+        16,17,18, 18,19,16,  // Top
+        20,21,22, 22,23,20   // Bottom
+    };
+
+    RendererCommand cmd{};
+    cmd.Type = RendererCommandType::RequestModel;
+    cmd.TicketId = cubeEntityId;
+    // Vertices
+    cmd.ModelRequest.VertexCount = std::size(cubeVertices);
+    cmd.ModelRequest.Vertices = static_cast<MeshVertex*>(
+        std::malloc(cmd.ModelRequest.VertexCount * sizeof(MeshVertex)));
+    std::memcpy(cmd.ModelRequest.Vertices, cubeVertices,
+                cmd.ModelRequest.VertexCount * sizeof(MeshVertex));
+
+    // Indices
+    cmd.ModelRequest.IndexCount = std::size(cubeIndices);
+    cmd.ModelRequest.Indices = static_cast<uint32_t*>(
+        std::malloc(cmd.ModelRequest.IndexCount * sizeof(uint32_t)));
+    std::memcpy(cmd.ModelRequest.Indices, cubeIndices,
+                cmd.ModelRequest.IndexCount * sizeof(uint32_t));
+
+    cmd.ModelRequest.UseTexture = false;
+    cmd.ModelRequest.Width = 0;
+    cmd.ModelRequest.Height = 0;
+    cmd.ModelRequest.Texture = nullptr;
+    cmd.ModelRequest.TextureSize = 0;
+    m_AppContext->GRCommandRing.Push(cmd);
 
 	// Initialize default settings
 	GameThreadSettings threadSettings{};
@@ -121,6 +193,28 @@ void GameThread::RunLoop() {
 			{
 				ZoneScopedN("Game:ProcessECSCommands");
 				ECSCommandProcessor::ProcessCommands(gameState.World, m_AppContext->ECSCommandRing);
+			}
+
+			{
+			    ZoneScopedN("Game:ProcessRenderResponses");
+			    RendererResponse response;
+			    while (m_AppContext->RGCommandRing.Pop(response)) {
+			        switch (response.Type) {
+			            case RendererResponseType::ModelUpload: {
+                            if (response.Model.Valid) {
+                                auto meshComponent = gameState.World.GetComponent<MeshComponent>(response.TicketId);
+                                if (!meshComponent) continue;
+                                meshComponent->MeshId = response.Model.Handle.Index;
+                                meshComponent->Visible = true;
+                            }
+                            break;
+                        }
+                        default: {
+			                SM_WARN("GameThread: Unhandled RendererResponseType %d", static_cast<int>(response.Type));
+			                break;
+			            }
+                    }
+			    }
 			}
 
 			gameState.DeltaTime = std::min(actualDt, targetDt * 2.0); // clamp to prevent spiral of death

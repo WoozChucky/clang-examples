@@ -24,8 +24,17 @@ struct TransformComponent {
 
 struct MeshComponent {
     uint32_t MeshId = 0;
+    bool Visible = false;
+};
+
+struct MaterialComponent {
     uint32_t MaterialId = 0;
-    bool Visible = true;
+    uint32_t TextureId = 0;
+    glm::vec4 BaseColor{1.0f};
+    // Bit flags controlling material behavior
+    // bit 0 (1): UseTexture — if set, renderer should sample a texture
+    // Additional bits reserved for future use
+    uint32_t Flags = 0;
 };
 
 struct TextComponent {

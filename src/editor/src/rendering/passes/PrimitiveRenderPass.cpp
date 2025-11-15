@@ -214,7 +214,6 @@ bool PrimitiveRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         return false;
     }
 
-    SM_TRACE("PrimitiveRenderPass initialized successfully");
     return true;
 }
 

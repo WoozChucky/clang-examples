@@ -11,8 +11,6 @@ bool Application::Init() {
         return false;
     }
 
-    m_AppContext->LatestInputStatePtr.store(&m_AppContext->InputStateA, std::memory_order_release);
-
     m_GameThread = std::make_unique<GameThread>(m_AppContext);
     m_RenderThread = std::make_unique<RenderThread>(m_AppContext, m_PlatformThread->GetWindow(), RendererAPI::DirectX12);
     return true;

@@ -22,6 +22,7 @@ add_executable(editor
     # Rendering Passes
     src/rendering/passes/UiRenderPass.cpp
     src/rendering/passes/PrimitiveRenderPass.cpp
+    src/rendering/passes/MeshRenderPass.cpp
 
     # Plugins
     src/plugins/DotNetPluginHost.cpp

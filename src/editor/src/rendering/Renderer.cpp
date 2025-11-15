@@ -9,10 +9,21 @@
 #include "backends/RendererBackendVulkan.h"
 
 #include "passes/PrimitiveRenderPass.h"
+#include "passes/MeshRenderPass.h"
 
 #include <tracy/Tracy.hpp>
 
 #include "passes/UiRenderPass.h"
+
+struct ModelRequest
+{
+    std::vector<MeshVertex> vertices;
+    std::vector<uint32_t> indices;
+    bool useTexture = false;
+    std::vector<uint32_t> textureRgba8; // optional RGBA8 pixels (w*h entries)
+    uint32_t texWidth = 0, texHeight = 0;
+    uint64_t ticketId = 0; // assigned on enqueue
+};
 
 bool Renderer::Init(const RendererAPI api) {
     switch (api) {
@@ -76,6 +87,16 @@ bool Renderer::Init(const RendererAPI api) {
         return false;
     }
     AddRenderPass(std::move(primitivePass));
+
+    // Mesh render pass (3D models)
+    {
+        auto meshPass = std::make_unique<MeshRenderPass>();
+        if (!meshPass->Initialize(m_Device, this)) {
+            SM_ERROR("Failed to initialize MeshRenderPass");
+            return false;
+        }
+        AddRenderPass(std::move(meshPass));
+    }
 
     auto uiPass = std::make_unique<UiRenderPass>();
     if (!uiPass->Initialize(m_Device, this)) {
@@ -244,4 +265,43 @@ void Renderer::RemoveRenderPass(IRenderPass* pass) {
     if (it != m_RenderPasses.end()) {
         m_RenderPasses.erase(it);
     }
+}
+
+ModelHandle Renderer::AddModel(const MeshVertex* v, uint32_t vc,
+                  const uint32_t* i, uint32_t ic,
+                  bool useTex,
+                  const uint32_t* rgba8, uint32_t w, uint32_t h) {
+    ModelRequest req{};
+    if (v && vc)
+        req.vertices.assign(v, v + vc);
+    if (i && ic)
+        req.indices.assign(i, i + ic);
+    req.useTexture = useTex;
+    if (useTex && rgba8 && w > 0 && h > 0)
+    {
+        // textureRgba8 vector holds w*h uint32 pixels (RGBA8 packed)
+        req.textureRgba8.assign(rgba8, rgba8 + (static_cast<size_t>(w) * static_cast<size_t>(h)));
+        req.texWidth = w; req.texHeight = h;
+    }
+
+    MeshRenderPass* meshPass = nullptr;
+    for (auto& p : m_RenderPasses)
+    {
+        meshPass = dynamic_cast<MeshRenderPass*>(p.get());
+        if (meshPass) break;
+    }
+
+    if (!meshPass) {
+        SM_ERROR("Failed to add model: MeshRenderPass not found");
+        return ModelHandle{ UINT32_MAX };
+    }
+
+    const auto handle = meshPass->AddModel(
+            req.vertices.data(), static_cast<uint32_t>(req.vertices.size()),
+            req.indices.data(),  static_cast<uint32_t>(req.indices.size()),
+            req.useTexture,
+            req.textureRgba8.empty() ? nullptr : req.textureRgba8.data(),
+            req.texWidth, req.texHeight);
+
+    return handle;
 }

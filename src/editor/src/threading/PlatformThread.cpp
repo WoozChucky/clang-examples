@@ -107,16 +107,6 @@ void PlatformThread::OnCursorPositionCallback(double x, double y) {
     if (!m_AppContext->ImGuiInputRing.Push(ev)) {
         SM_WARN("ImGuiInputRing full, dropping evt");
     }
-
-    // also update atomic latest input state for late-latch
-    const InputState* s = m_AppContext->LatestInputStatePtr.load(std::memory_order_acquire);
-    if (!s) s = &m_AppContext->InputStateA; // default
-    // Avoid writing to the currently published object: use the spare one pattern
-    InputState* spare = (s == &m_AppContext->InputStateA) ? &m_AppContext->InputStateB : &m_AppContext->InputStateA;
-    spare->Time = ev.Time;
-    spare->MouseX = ev.MouseMoveEvent.X;
-    spare->MouseY = ev.MouseMoveEvent.Y;
-    m_AppContext->LatestInputStatePtr.store(spare, std::memory_order_release);
 }
 
 void PlatformThread::OnMouseButtonCallback(int button, int action, int mods) {
@@ -188,7 +178,7 @@ void PlatformThread::OnKeyCallback(int key, int scancode, int action, int mods) 
     if (key == GLFW_KEY_F5 && action == GLFW_PRESS) {
         SM_TRACE("F5 pressed - toggling VSync");
         RendererCommand cmd{RendererCommandType::ToggleVSync};
-        if (!m_AppContext->RendererCommandRing.Push(cmd)) {
+        if (!m_AppContext->PRCommandRing.Push(cmd)) {
             SM_WARN("RendererCommandRing full, dropping cmd");
         }
     }
@@ -216,7 +206,7 @@ void PlatformThread::OnWindowResizeCallback(int width, int height) {
     RendererCommand cmd{RendererCommandType::Resize};
     cmd.ResizeParams.Width = width;
     cmd.ResizeParams.Height = height;
-    if (!m_AppContext->RendererCommandRing.Push(cmd)) {
+    if (!m_AppContext->PRCommandRing.Push(cmd)) {
         SM_WARN("RendererCommandRing full, dropping cmd");
     }
 }

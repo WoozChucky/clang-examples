@@ -3,6 +3,8 @@
 #include <nvrhi/nvrhi.h>
 #include <GLFW/glfw3.h>
 #include <vector>
+#include <cstdint>
+#include <mutex>
 
 #include "ApplicationContext.h"
 #include "RendererBackend.h"
@@ -11,6 +13,9 @@
 #include "Camera.h"
 #include "FrameAllocator.h"
 #include "ImGuiRenderer.h"
+
+// For mesh upload request/response API
+#include "passes/MeshRenderPass.h"
 
 struct GpuTimer
 {
@@ -88,6 +93,11 @@ public:
     // Render pass management
     void AddRenderPass(std::unique_ptr<IRenderPass> pass);
     void RemoveRenderPass(IRenderPass* pass);
+
+    ModelHandle AddModel(const MeshVertex* v, uint32_t vc,
+                      const uint32_t* i, uint32_t ic,
+                      bool useTex,
+                      const uint32_t* rgba8, uint32_t w, uint32_t h);
 
 private:
 

@@ -37,7 +37,7 @@ public:
      * Constructor
      * @param capacity Size of the pre-allocated buffer in bytes (default: 16MB)
      */
-    explicit FrameAllocator(size_t capacity = 16 * 1024 * 1024)
+    explicit FrameAllocator(const size_t capacity = MB(16))
         : m_Capacity(capacity)
     {
         m_Buffer = static_cast<uint8_t*>(std::malloc(capacity));

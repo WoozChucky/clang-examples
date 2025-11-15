@@ -399,8 +399,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                         if (ImGui::MenuItem("Add Mesh Component")) {
                             MeshComponent newMesh{};
                             newMesh.MeshId = 0;
-                            newMesh.MaterialId = 0;
-                            newMesh.Visible = true;
+                            newMesh.Visible = false;
 
                             ECSCommand addCmd = ECSCommand::AddComponent(entity, newMesh);
                             if (!m_AppContext->ECSCommandRing.Push(addCmd)) {
@@ -567,11 +566,6 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                 modified = true;
                             }
 
-                            // Material ID editor
-                            if (ImGui::InputScalar("Material ID", ImGuiDataType_U32, &editMesh.MaterialId)) {
-                                modified = true;
-                            }
-
                             // Visibility toggle
                             if (ImGui::Checkbox("Visible", &editMesh.Visible)) {
                                 modified = true;
@@ -603,7 +597,6 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                             // Show original values from snapshot (read-only)
                             ImGui::TextDisabled("Original values from snapshot:");
                             ImGui::TextDisabled("Mesh ID: %u", mesh->MeshId);
-                            ImGui::TextDisabled("Material ID: %u", mesh->MaterialId);
                             ImGui::TextDisabled("Visible: %s", mesh->Visible ? "Yes" : "No");
                         }
                     }
