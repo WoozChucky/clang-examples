@@ -26,17 +26,17 @@ struct ComponentData {
     size_t Size;
 
     // Default constructor - initializes Type with typeid(void)
-    ComponentData() 
+    ComponentData()
         : Type(typeid(void))
         , Data(nullptr)
-        , Size(0) 
+        , Size(0)
     {}
 
     // Full constructor
     ComponentData(std::type_index type, std::shared_ptr<void> data, size_t size)
         : Type(type)
         , Data(std::move(data))
-        , Size(size) 
+        , Size(size)
     {}
 
     template<typename T>
@@ -73,11 +73,11 @@ struct ECSCommand {
     std::type_index ComponentType; // For Remove operations
 
     // Default constructor
-    ECSCommand() 
+    ECSCommand()
         : Type(ECSCommandType::CreateEntity)
         , TargetEntity(INVALID_ENTITY)
         , Component()
-        , ComponentType(typeid(void)) 
+        , ComponentType(typeid(void))
     {}
 
     // Constructor with type only
@@ -85,7 +85,7 @@ struct ECSCommand {
         : Type(type)
         , TargetEntity(INVALID_ENTITY)
         , Component()
-        , ComponentType(typeid(void)) 
+        , ComponentType(typeid(void))
     {}
 
     // Constructor with type and entity
@@ -93,7 +93,7 @@ struct ECSCommand {
         : Type(type)
         , TargetEntity(entity)
         , Component()
-        , ComponentType(typeid(void)) 
+        , ComponentType(typeid(void))
     {}
 
     // Constructor with type, entity, and component data
@@ -101,7 +101,7 @@ struct ECSCommand {
         : Type(type)
         , TargetEntity(entity)
         , Component(std::move(component))
-        , ComponentType(typeid(void)) 
+        , ComponentType(typeid(void))
     {}
 
     // Constructor with type, entity, empty component, and component type (for RemoveComponent)
@@ -109,7 +109,7 @@ struct ECSCommand {
         : Type(type)
         , TargetEntity(entity)
         , Component(std::move(component))
-        , ComponentType(componentType) 
+        , ComponentType(componentType)
     {}
 
     // Factory methods for type-safe command creation
@@ -210,6 +210,10 @@ private:
             if (auto* mesh = componentData.Get<MeshComponent>()) {
                 world.AddComponent(entity, *mesh);
             }
+        } else if (componentData.Type == std::type_index(typeid(MaterialComponent))) {
+            if (auto* material = componentData.Get<MaterialComponent>()) {
+                world.AddComponent(entity, *material);
+            }
         } else if (componentData.Type == std::type_index(typeid(TextComponent))) {
             if (auto* text = componentData.Get<TextComponent>()) {
                 world.AddComponent(entity, *text);
@@ -217,13 +221,15 @@ private:
         }
         // Add more component types as needed
     }
-    
+
     // Remove a component by type index
     static void RemoveComponentByType(ECS& world, EntityId entity, std::type_index typeIndex) {
         if (typeIndex == std::type_index(typeid(TransformComponent))) {
             world.RemoveComponent<TransformComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(MeshComponent))) {
             world.RemoveComponent<MeshComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(MaterialComponent))) {
+            world.RemoveComponent<MaterialComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(TextComponent))) {
             world.RemoveComponent<TextComponent>(entity);
         }

@@ -1,6 +1,6 @@
 #include "GameThread.h"
 
-#include <Windows.h>
+#include <windows.h>
 #include <filesystem>
 #include <thread>
 #include <chrono>
@@ -14,6 +14,7 @@
 
 #include <GLFW/glfw3.h>
 #include <tracy/Tracy.hpp>
+#include "tiny_obj_loader.h"
 
 #include "lib.h"
 #include "Timing.h"
@@ -62,37 +63,111 @@ void GameThread::RunLoop() {
     gameState.World.AddComponent(cubeEntityId, cubeTransform);
     gameState.World.AddComponent(cubeEntityId, cubeMesh);
 
+	tinyobj::attrib_t attrib;
+	std::vector<tinyobj::shape_t> shapes;
+	std::vector<tinyobj::material_t> materials;
+	std::string warn;
+	std::string err;
+	tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "assets/models/cube.obj", "assets/models");
+	if (!warn.empty()) {
+	    SM_WARN("TinyObjLoader warning: %s", warn.c_str());
+	}
+	if (!err.empty()) {
+	    SM_ERROR("TinyObjLoader error: %s", err.c_str());
+	}
+
+    // Prepare vertices and indices
+    std::vector<MeshVertex> vertices;
+    std::vector<uint32_t> indices;
+    uint32_t indexBase = 0;
+
+    for (const auto& shape : shapes) {
+        for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
+            const int fv = shape.mesh.num_face_vertices[f];
+            if (fv != 3) {
+                SM_WARN("Non-triangle face (fv=%d), skipping", fv);
+                continue;
+            }
+
+            for (int v = 0; v < 3; ++v) {
+                const tinyobj::index_t idx = shape.mesh.indices[f * 3 + v];
+
+                MeshVertex vert{};
+                // Position
+                vert.px = attrib.vertices[3 * idx.vertex_index + 0];
+                vert.py = attrib.vertices[3 * idx.vertex_index + 1];
+                vert.pz = attrib.vertices[3 * idx.vertex_index + 2];
+
+                // UV (if available)
+                if (idx.texcoord_index >= 0 && !attrib.texcoords.empty()) {
+                    vert.u = attrib.texcoords[2 * idx.texcoord_index + 0];
+                    vert.v = 1.0f - attrib.texcoords[2 * idx.texcoord_index + 1]; // flip Y if needed
+                } else {
+                    vert.u = 0.0f;
+                    vert.v = 0.0f;
+                }
+
+                vertices.push_back(vert);
+                indices.push_back(indexBase++);
+            }
+        }
+        if (!shape.mesh.material_ids.empty()) {
+            const int mat_id = shape.mesh.material_ids[0];
+            if (mat_id >= 0 && mat_id < static_cast<int>(materials.size())) {
+                const auto& mat = materials[mat_id];
+                SM_TRACE("Material: %s", mat.name.c_str());
+
+                auto baseColor = glm::vec4(1.0f);
+                baseColor.r = mat.diffuse[0];
+                baseColor.g = mat.diffuse[1];
+                baseColor.b = mat.diffuse[2];
+                baseColor.a = 1.0f;
+
+                auto cubeMaterial = MaterialComponent{
+                    .MaterialId = 0,
+                    .TextureId = 0,
+                    .BaseColor = baseColor,
+                    .Flags = 0
+                };
+                gameState.World.AddComponent(cubeEntityId, cubeMaterial);
+            } else {
+                SM_WARN("Invalid material_id %d", mat_id);
+            }
+        }
+    }
+
+    /*
     static const MeshVertex cubeVertices[24] = {
         // Front (+Z)
-        {-1.f,-1.f, 1.f, 0xFFFFFFFF, 0.f,0.f},
-        { 1.f,-1.f, 1.f, 0xFFFFFFFF, 1.f,0.f},
-        { 1.f, 1.f, 1.f, 0xFFFFFFFF, 1.f,1.f},
-        {-1.f, 1.f, 1.f, 0xFFFFFFFF, 0.f,1.f},
+        {-1.f,-1.f, 1.f, 0.f,0.f},
+        { 1.f,-1.f, 1.f, 1.f,0.f},
+        { 1.f, 1.f, 1.f, 1.f,1.f},
+        {-1.f, 1.f, 1.f, 0.f,1.f},
         // Back (-Z)
-        { 1.f,-1.f,-1.f, 0xFFFFFFFF, 0.f,0.f},
-        {-1.f,-1.f,-1.f, 0xFFFFFFFF, 1.f,0.f},
-        {-1.f, 1.f,-1.f, 0xFFFFFFFF, 1.f,1.f},
-        { 1.f, 1.f,-1.f, 0xFFFFFFFF, 0.f,1.f},
+        { 1.f,-1.f,-1.f, 0.f,0.f},
+        {-1.f,-1.f,-1.f, 1.f,0.f},
+        {-1.f, 1.f,-1.f, 1.f,1.f},
+        { 1.f, 1.f,-1.f, 0.f,1.f},
         // Left (-X)
-        {-1.f,-1.f,-1.f, 0xFFFFFFFF, 0.f,0.f},
-        {-1.f,-1.f, 1.f, 0xFFFFFFFF, 1.f,0.f},
-        {-1.f, 1.f, 1.f, 0xFFFFFFFF, 1.f,1.f},
-        {-1.f, 1.f,-1.f, 0xFFFFFFFF, 0.f,1.f},
+        {-1.f,-1.f,-1.f, 0.f,0.f},
+        {-1.f,-1.f, 1.f, 1.f,0.f},
+        {-1.f, 1.f, 1.f, 1.f,1.f},
+        {-1.f, 1.f,-1.f, 0.f,1.f},
         // Right (+X)
-        { 1.f,-1.f, 1.f, 0xFFFFFFFF, 0.f,0.f},
-        { 1.f,-1.f,-1.f, 0xFFFFFFFF, 1.f,0.f},
-        { 1.f, 1.f,-1.f, 0xFFFFFFFF, 1.f,1.f},
-        { 1.f, 1.f, 1.f, 0xFFFFFFFF, 0.f,1.f},
+        { 1.f,-1.f, 1.f, 0.f,0.f},
+        { 1.f,-1.f,-1.f, 1.f,0.f},
+        { 1.f, 1.f,-1.f, 1.f,1.f},
+        { 1.f, 1.f, 1.f, 0.f,1.f},
         // Top (+Y)
-        {-1.f, 1.f, 1.f, 0xFFFFFFFF, 0.f,0.f},
-        { 1.f, 1.f, 1.f, 0xFFFFFFFF, 1.f,0.f},
-        { 1.f, 1.f,-1.f, 0xFFFFFFFF, 1.f,1.f},
-        {-1.f, 1.f,-1.f, 0xFFFFFFFF, 0.f,1.f},
+        {-1.f, 1.f, 1.f, 0.f,0.f},
+        { 1.f, 1.f, 1.f, 1.f,0.f},
+        { 1.f, 1.f,-1.f, 1.f,1.f},
+        {-1.f, 1.f,-1.f, 0.f,1.f},
         // Bottom (-Y)
-        {-1.f,-1.f,-1.f, 0xFFFFFFFF, 0.f,0.f},
-        { 1.f,-1.f,-1.f, 0xFFFFFFFF, 1.f,0.f},
-        { 1.f,-1.f, 1.f, 0xFFFFFFFF, 1.f,1.f},
-        {-1.f,-1.f, 1.f, 0xFFFFFFFF, 0.f,1.f},
+        {-1.f,-1.f,-1.f, 0.f,0.f},
+        { 1.f,-1.f,-1.f, 1.f,0.f},
+        { 1.f,-1.f, 1.f, 1.f,1.f},
+        {-1.f,-1.f, 1.f, 0.f,1.f},
     };
 
     static const uint32_t cubeIndices[36] = {
@@ -103,10 +178,12 @@ void GameThread::RunLoop() {
         16,17,18, 18,19,16,  // Top
         20,21,22, 22,23,20   // Bottom
     };
+    */
 
     RendererCommand cmd{};
     cmd.Type = RendererCommandType::RequestModel;
     cmd.TicketId = cubeEntityId;
+    /*
     // Vertices
     cmd.ModelRequest.VertexCount = std::size(cubeVertices);
     cmd.ModelRequest.Vertices = static_cast<MeshVertex*>(
@@ -119,6 +196,20 @@ void GameThread::RunLoop() {
     cmd.ModelRequest.Indices = static_cast<uint32_t*>(
         std::malloc(cmd.ModelRequest.IndexCount * sizeof(uint32_t)));
     std::memcpy(cmd.ModelRequest.Indices, cubeIndices,
+                cmd.ModelRequest.IndexCount * sizeof(uint32_t));
+
+    */
+
+    cmd.ModelRequest.VertexCount = vertices.size();
+    cmd.ModelRequest.Vertices = static_cast<MeshVertex*>(
+        std::malloc(cmd.ModelRequest.VertexCount * sizeof(MeshVertex)));
+    std::memcpy(cmd.ModelRequest.Vertices, vertices.data(),
+                cmd.ModelRequest.VertexCount * sizeof(MeshVertex));
+
+    cmd.ModelRequest.IndexCount = indices.size();
+    cmd.ModelRequest.Indices = static_cast<uint32_t*>(
+        std::malloc(cmd.ModelRequest.IndexCount * sizeof(uint32_t)));
+    std::memcpy(cmd.ModelRequest.Indices, indices.data(),
                 cmd.ModelRequest.IndexCount * sizeof(uint32_t));
 
     cmd.ModelRequest.UseTexture = false;

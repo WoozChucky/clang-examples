@@ -24,14 +24,12 @@ cbuffer PerDraw : register(b1)
 struct VSIn
 {
     float3 Position : POSITION;
-    float4 Color    : COLOR0;    // from RGBA8_UNORM
     float2 UV       : TEXCOORD0;
 };
 
 struct VSOut
 {
     float4 PosH  : SV_POSITION;
-    float4 Color : COLOR0;
     float2 UV    : TEXCOORD0;
 };
 
@@ -41,7 +39,6 @@ VSOut main_vs(VSIn vin)
     float4 lp = float4(vin.Position, 1.0);
     float4 wp = mul(uModel, lp);
     o.PosH = mul(uVP, wp);
-    o.Color = vin.Color;
     o.UV = vin.UV;
     return o;
 }
@@ -64,7 +61,6 @@ static const uint OPT_SAMPLE_TEXTURE = 1u << 0;
 struct PSIn
 {
     float4 PosH  : SV_POSITION;
-    float4 Color : COLOR0;
     float2 UV    : TEXCOORD0;
 };
 
@@ -106,15 +102,13 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     if (!m_VS || !m_PS)
         return false;
 
-    // Input layout: POSITION (RGB32F), COLOR (RGBA8_UNORM), TEXCOORD (RG32F)
-    nvrhi::VertexAttributeDesc attrs[3];
+    // Input layout: POSITION (RGB32F), TEXCOORD (RG32F)
+    nvrhi::VertexAttributeDesc attrs[2];
     attrs[0].setName("POSITION").setFormat(nvrhi::Format::RGB32_FLOAT)
         .setOffset(offsetof(MeshVertex, px)).setBufferIndex(0).setElementStride(sizeof(MeshVertex));
-    attrs[1].setName("COLOR").setFormat(nvrhi::Format::RGBA8_UNORM)
-        .setOffset(offsetof(MeshVertex, rgba)).setBufferIndex(0).setElementStride(sizeof(MeshVertex));
-    attrs[2].setName("TEXCOORD").setFormat(nvrhi::Format::RG32_FLOAT)
+    attrs[1].setName("TEXCOORD").setFormat(nvrhi::Format::RG32_FLOAT)
         .setOffset(offsetof(MeshVertex, u)).setBufferIndex(0).setElementStride(sizeof(MeshVertex));
-    m_InputLayout = m_Device->createInputLayout(attrs, 3, m_VS);
+    m_InputLayout = m_Device->createInputLayout(attrs, 2, m_VS);
 
     // Binding layout: b0 (PerFrame), b1 (PerDraw), t0 (Texture), s0 (Sampler)
     nvrhi::BindingLayoutDesc layoutDesc;
@@ -251,6 +245,17 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         // Depth disabled for now (no depth buffer in target)
         pso.renderState.depthStencilState.depthTestEnable = false;
         pso.renderState.rasterState.cullMode = nvrhi::RasterCullMode::Back;
+        pso.renderState.rasterState.setFrontCounterClockwise(true);
+        nvrhi::BlendState::RenderTarget rt;
+        rt.setBlendEnable(true)
+          .setSrcBlend(nvrhi::BlendFactor::SrcAlpha)
+          .setDestBlend(nvrhi::BlendFactor::InvSrcAlpha)
+          .setBlendOp(nvrhi::BlendOp::Add)
+          .setSrcBlendAlpha(nvrhi::BlendFactor::One)
+          .setDestBlendAlpha(nvrhi::BlendFactor::InvSrcAlpha)
+          .setBlendOpAlpha(nvrhi::BlendOp::Add)
+          .setColorWriteMask(nvrhi::ColorMask::All);
+        pso.renderState.blendState.setRenderTarget(0, rt);
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
     }
 

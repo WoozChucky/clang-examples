@@ -58,7 +58,6 @@ struct SimulationSnapshot {
 struct MeshVertex
 {
     float px, py, pz;   // POSITION
-    uint32_t rgba;      // COLOR (RGBA8)
     float u, v;         // TEXCOORD0
 };
 

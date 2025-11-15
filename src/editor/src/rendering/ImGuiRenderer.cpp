@@ -408,6 +408,21 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                         }
                     }
 
+                    if (!worldSnapshot->HasComponent<MaterialComponent>(entity)) {
+                        if (ImGui::MenuItem("Add Material Component")) {
+                            MaterialComponent newMaterial{};
+                            newMaterial.MaterialId = 0;
+                            newMaterial.TextureId = 0;
+                            newMaterial.BaseColor = glm::vec4(1.0f);
+                            newMaterial.Flags = 0;
+
+                            ECSCommand addCmd = ECSCommand::AddComponent(entity, newMaterial);
+                            if (!m_AppContext->ECSCommandRing.Push(addCmd)) {
+                                SM_WARN("ECS command queue full! Add component command dropped.");
+                            }
+                        }
+                    }
+
                     if (!worldSnapshot->HasComponent<TextComponent>(entity)) {
                         if (ImGui::MenuItem("Add Text Component")) {
                             TextComponent newText{};
@@ -434,6 +449,15 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                     if (worldSnapshot->HasComponent<MeshComponent>(entity)) {
                         if (ImGui::MenuItem("Remove Mesh Component")) {
                             ECSCommand removeCmd = ECSCommand::RemoveComponent<MeshComponent>(entity);
+                            if (!m_AppContext->ECSCommandRing.Push(removeCmd)) {
+                                SM_WARN("ECS command queue full! Remove component command dropped.");
+                            }
+                        }
+                    }
+
+                    if (worldSnapshot->HasComponent<MaterialComponent>(entity)) {
+                        if (ImGui::MenuItem("Remove Material Component")) {
+                            ECSCommand removeCmd = ECSCommand::RemoveComponent<MaterialComponent>(entity);
                             if (!m_AppContext->ECSCommandRing.Push(removeCmd)) {
                                 SM_WARN("ECS command queue full! Remove component command dropped.");
                             }
@@ -512,14 +536,6 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                 if (!m_AppContext->ECSCommandRing.Push(modifyCmd)) {
                                     SM_WARN("ECS command queue full! Modify command dropped.");
                                 }
-                            }
-
-                            if (ImGui::Button("Apply Changes", ImVec2(150, 0))) {
-                                ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editTransform);
-                                if (!m_AppContext->ECSCommandRing.Push(modifyCmd)) {
-                                    SM_WARN("ECS command queue full! Modify command dropped.");
-                                }
-                                modified = false;
                             }
 
                             ImGui::SameLine();
@@ -602,6 +618,55 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                     }
                 }
 
+                // Edit Material Component
+                if (worldSnapshot->HasComponent<MaterialComponent>(selectedEntity)) {
+                    if (ImGui::CollapsingHeader("Material Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto* material = worldSnapshot->GetComponent<MaterialComponent>(selectedEntity);
+                        if (material) {
+                            // Create mutable copy for editing
+                            static MaterialComponent editMaterial{};
+                            static EntityId lastEditedMaterialEntity = INVALID_ENTITY;
+                            // Reset when switching entities
+                            if (lastEditedMaterialEntity != selectedEntity) {
+                                editMaterial = *material;
+                                lastEditedMaterialEntity = selectedEntity;
+                            }
+                            static bool modified = false;
+                            // Material ID editor
+                            if (ImGui::InputScalar("Material ID", ImGuiDataType_U32, &editMaterial.MaterialId)) {
+                                modified = true;
+                            }
+                            // Texture ID editor
+                            if (ImGui::InputScalar("Texture ID", ImGuiDataType_U32, &editMaterial.TextureId)) {
+                                modified = true;
+                            }
+                            // Base color editor
+                            ImGui::Text("Base Color:");
+                            if (ImGui::ColorEdit4("##BaseColor", &editMaterial.BaseColor.r)) {
+                                modified = true;
+                            }
+                            ImGui::Spacing();
+
+                            if (modified) {
+                                ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editMaterial);
+                                if (!m_AppContext->ECSCommandRing.Push(modifyCmd)) {
+                                    SM_WARN("ECS command queue full! Modify command dropped.");
+                                }
+                                modified = false;
+                            }
+
+                            ImGui::Separator();
+                            // Show original values from snapshot (read-only)
+                            ImGui::TextDisabled("Original values from snapshot:");
+                            ImGui::TextDisabled("Material ID: %u", material->MaterialId);
+                            ImGui::TextDisabled("Texture ID: %u", material->TextureId);
+                            ImGui::TextDisabled("Base Color: (%.2f, %.2f, %.2f, %.2f)",
+                                material->BaseColor.r, material->BaseColor.g,
+                                material->BaseColor.b, material->BaseColor.a);
+                        }
+                    }
+                }
+
                 // Edit Text Component
                 if (worldSnapshot->HasComponent<TextComponent>(selectedEntity)) {
                     if (ImGui::CollapsingHeader("Text Component", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -661,7 +726,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                 }
 
                 // Show if entity has no components
-                if (!worldSnapshot->HasComponents<TransformComponent, MeshComponent, TextComponent>(selectedEntity)) {
+                if (!worldSnapshot->HasComponents<TransformComponent, MeshComponent, MaterialComponent, TextComponent>(selectedEntity)) {
                     ImGui::TextDisabled("Entity has no components.");
                     ImGui::TextDisabled("Right-click the entity to add components.");
                 }

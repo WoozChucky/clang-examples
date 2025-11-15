@@ -1,5 +1,6 @@
 add_executable(editor
     src/main.cpp
+    src/tiny_obj_loader.cpp
 
     # Core
     src/core/Application.cpp
@@ -34,6 +35,7 @@ add_executable(editor
 
 # Add all subdirectories to include paths for cleaner includes
 target_include_directories(editor PRIVATE 
+    src
     src/core
     src/threading
     src/rendering
