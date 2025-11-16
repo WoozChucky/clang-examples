@@ -58,6 +58,7 @@ struct SimulationSnapshot {
 struct MeshVertex
 {
     float px, py, pz;   // POSITION
+    float nx, ny, nz;   // NORMAL
     float u, v;         // TEXCOORD0
 };
 

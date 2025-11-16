@@ -2,6 +2,12 @@
 
 #include <memory>
 #include <atomic>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <vector>
+#include <string>
 
 #include "ApplicationContext.h"
 #include "DotNetPluginManager.h"
@@ -10,23 +16,51 @@
 
 class GameThread {
 public:
-	explicit GameThread(const std::shared_ptr<ApplicationContext> &appContext);
+    explicit GameThread(const std::shared_ptr<ApplicationContext> &appContext);
 
-	void RunLoop();
+    void RunLoop();
 
-	void Stop();
+    void Stop();
 
 private:
-	bool Running() const;
-	// Main loop helpers
-	void SimulateStep(double dt);
-	void PublishSnapshot(const GameState& state, const FrameTimeStats& frameStats);
+    bool Running() const;
+    // Main loop helpers
+    void SimulateStep(double dt);
+    void PublishSnapshot(const GameState& state, const FrameTimeStats& frameStats);
 
-	std::unique_ptr<DotNetPluginManager> m_PluginManager{nullptr};
+    // Background job system (minimal): single worker for model loading
+    struct ModelLoadJob
+    {
+        uint64_t ticketId{0};
+        std::string objPath;
+        std::string mtlBaseDir;
+    };
 
-	std::shared_ptr<ApplicationContext> m_AppContext;
-	std::atomic<bool> m_Running;
-	uint64_t m_TickCounter;
-	float m_simX{0.0f};
-	float m_simVX{0.5f};
+    struct ModelLoadResult
+    {
+        uint64_t ticketId{0};
+        bool success{false};
+        std::string error;
+        std::vector<MeshVertex> vertices;
+        std::vector<uint32_t> indices;
+    };
+
+    void WorkerThreadFunc();
+    void EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir);
+
+    std::unique_ptr<DotNetPluginManager> m_PluginManager{nullptr};
+
+    std::shared_ptr<ApplicationContext> m_AppContext;
+    std::atomic<bool> m_Running;
+    uint64_t m_TickCounter;
+    float m_simX{0.0f};
+    float m_simVX{0.5f};
+
+    // Worker thread & queues
+    std::thread m_Worker;
+    std::atomic<bool> m_WorkerStop{false};
+    std::mutex m_JobMutex;
+    std::condition_variable m_JobCv;
+    std::queue<ModelLoadJob> m_PendingJobs;
+    std::queue<ModelLoadResult> m_CompletedJobs;
 };

@@ -33,7 +33,7 @@ GameThread::GameThread(const std::shared_ptr<ApplicationContext> &appContext)
 }
 
 void GameThread::RunLoop() {
-	tracy::SetThreadName("GameThread");
+    tracy::SetThreadName("GameThread");
 
 	// Increase Windows timer resolution for more accurate sleep
 	// This improves sleep_for/sleep_until from ~15ms to ~1ms granularity
@@ -47,9 +47,13 @@ void GameThread::RunLoop() {
 		m_PluginManager->LoadPluginsFromDirectory("assets/plugins");
 	}
 
-	GameState gameState{};
-	gameState.PlatformInput = &m_AppContext->InputRing;
-	gameState.Settings = &m_AppContext->Settings;
+    GameState gameState{};
+    gameState.PlatformInput = &m_AppContext->InputRing;
+    gameState.Settings = &m_AppContext->Settings;
+
+    // Start background worker for model loading
+    m_WorkerStop.store(false, std::memory_order_relaxed);
+    m_Worker = std::thread(&GameThread::WorkerThreadFunc, this);
 
     auto textEntityId = gameState.World.CreateEntity();
     auto transform = TransformComponent{.Position = glm::vec3{200.f, 550.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
@@ -60,81 +64,22 @@ void GameThread::RunLoop() {
     auto cubeEntityId = gameState.World.CreateEntity();
     auto cubeTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
     auto cubeMesh = MeshComponent{ .MeshId = 0, .Visible = false };
+    auto cubeMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 0.25} };
     gameState.World.AddComponent(cubeEntityId, cubeTransform);
+    gameState.World.AddComponent(cubeEntityId, cubeMaterial);
     gameState.World.AddComponent(cubeEntityId, cubeMesh);
 
-	tinyobj::attrib_t attrib;
-	std::vector<tinyobj::shape_t> shapes;
-	std::vector<tinyobj::material_t> materials;
-	std::string warn;
-	std::string err;
-	tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "assets/models/cube.obj", "assets/models");
-	if (!warn.empty()) {
-	    SM_WARN("TinyObjLoader warning: %s", warn.c_str());
-	}
-	if (!err.empty()) {
-	    SM_ERROR("TinyObjLoader error: %s", err.c_str());
-	}
+    // Enqueue model loading job to background worker
+    EnqueueModelLoadJob(cubeEntityId, "assets/models/cube.obj", "assets/models"); // stanford-bunny
 
-    // Prepare vertices and indices
-    std::vector<MeshVertex> vertices;
-    std::vector<uint32_t> indices;
-    uint32_t indexBase = 0;
-
-    for (const auto& shape : shapes) {
-        for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
-            const int fv = shape.mesh.num_face_vertices[f];
-            if (fv != 3) {
-                SM_WARN("Non-triangle face (fv=%d), skipping", fv);
-                continue;
-            }
-
-            for (int v = 0; v < 3; ++v) {
-                const tinyobj::index_t idx = shape.mesh.indices[f * 3 + v];
-
-                MeshVertex vert{};
-                // Position
-                vert.px = attrib.vertices[3 * idx.vertex_index + 0];
-                vert.py = attrib.vertices[3 * idx.vertex_index + 1];
-                vert.pz = attrib.vertices[3 * idx.vertex_index + 2];
-
-                // UV (if available)
-                if (idx.texcoord_index >= 0 && !attrib.texcoords.empty()) {
-                    vert.u = attrib.texcoords[2 * idx.texcoord_index + 0];
-                    vert.v = 1.0f - attrib.texcoords[2 * idx.texcoord_index + 1]; // flip Y if needed
-                } else {
-                    vert.u = 0.0f;
-                    vert.v = 0.0f;
-                }
-
-                vertices.push_back(vert);
-                indices.push_back(indexBase++);
-            }
-        }
-        if (!shape.mesh.material_ids.empty()) {
-            const int mat_id = shape.mesh.material_ids[0];
-            if (mat_id >= 0 && mat_id < static_cast<int>(materials.size())) {
-                const auto& mat = materials[mat_id];
-                SM_TRACE("Material: %s", mat.name.c_str());
-
-                auto baseColor = glm::vec4(1.0f);
-                baseColor.r = mat.diffuse[0];
-                baseColor.g = mat.diffuse[1];
-                baseColor.b = mat.diffuse[2];
-                baseColor.a = 1.0f;
-
-                auto cubeMaterial = MaterialComponent{
-                    .MaterialId = 0,
-                    .TextureId = 0,
-                    .BaseColor = baseColor,
-                    .Flags = 0
-                };
-                gameState.World.AddComponent(cubeEntityId, cubeMaterial);
-            } else {
-                SM_WARN("Invalid material_id %d", mat_id);
-            }
-        }
-    }
+    auto lightningEntityId = gameState.World.CreateEntity();
+    auto lightning = LightningComponent{
+        .Type = LightningType::Directional,
+        .Direction = glm::vec4(0.5f, -1.0f, 0.3f, 0.0f)
+    };
+    auto lightningTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+    gameState.World.AddComponent(lightningEntityId, lightningTransform);
+    gameState.World.AddComponent(lightningEntityId, lightning);
 
     /*
     static const MeshVertex cubeVertices[24] = {
@@ -180,44 +125,7 @@ void GameThread::RunLoop() {
     };
     */
 
-    RendererCommand cmd{};
-    cmd.Type = RendererCommandType::RequestModel;
-    cmd.TicketId = cubeEntityId;
-    /*
-    // Vertices
-    cmd.ModelRequest.VertexCount = std::size(cubeVertices);
-    cmd.ModelRequest.Vertices = static_cast<MeshVertex*>(
-        std::malloc(cmd.ModelRequest.VertexCount * sizeof(MeshVertex)));
-    std::memcpy(cmd.ModelRequest.Vertices, cubeVertices,
-                cmd.ModelRequest.VertexCount * sizeof(MeshVertex));
-
-    // Indices
-    cmd.ModelRequest.IndexCount = std::size(cubeIndices);
-    cmd.ModelRequest.Indices = static_cast<uint32_t*>(
-        std::malloc(cmd.ModelRequest.IndexCount * sizeof(uint32_t)));
-    std::memcpy(cmd.ModelRequest.Indices, cubeIndices,
-                cmd.ModelRequest.IndexCount * sizeof(uint32_t));
-
-    */
-
-    cmd.ModelRequest.VertexCount = vertices.size();
-    cmd.ModelRequest.Vertices = static_cast<MeshVertex*>(
-        std::malloc(cmd.ModelRequest.VertexCount * sizeof(MeshVertex)));
-    std::memcpy(cmd.ModelRequest.Vertices, vertices.data(),
-                cmd.ModelRequest.VertexCount * sizeof(MeshVertex));
-
-    cmd.ModelRequest.IndexCount = indices.size();
-    cmd.ModelRequest.Indices = static_cast<uint32_t*>(
-        std::malloc(cmd.ModelRequest.IndexCount * sizeof(uint32_t)));
-    std::memcpy(cmd.ModelRequest.Indices, indices.data(),
-                cmd.ModelRequest.IndexCount * sizeof(uint32_t));
-
-    cmd.ModelRequest.UseTexture = false;
-    cmd.ModelRequest.Width = 0;
-    cmd.ModelRequest.Height = 0;
-    cmd.ModelRequest.Texture = nullptr;
-    cmd.ModelRequest.TextureSize = 0;
-    m_AppContext->GRCommandRing.Push(cmd);
+    // Actual GPU upload will be requested when the background job completes
 
 	// Initialize default settings
 	GameThreadSettings threadSettings{};
@@ -277,19 +185,84 @@ void GameThread::RunLoop() {
 			frameStats.SampleCount++;
 		}
 
-		{
-			ZoneScopedN("Game:FixedUpdate");
+  {
+            ZoneScopedN("Game:FixedUpdate");
 
-			// Process ECS commands from RenderThread (ImGui modifications)
-			{
-				ZoneScopedN("Game:ProcessECSCommands");
-				ECSCommandProcessor::ProcessCommands(gameState.World, m_AppContext->ECSCommandRing);
-			}
+            // Process ECS commands from RenderThread (ImGui modifications)
+            {
+                ZoneScopedN("Game:ProcessECSCommands");
+                ECSCommandProcessor::ProcessCommands(gameState.World, m_AppContext->ECSCommandRing);
+            }
 
-			{
-			    ZoneScopedN("Game:ProcessRenderResponses");
-			    RendererResponse response;
-			    while (m_AppContext->RGCommandRing.Pop(response)) {
+            // Drain completed background model loads and forward to Render via GR ring
+            {
+                ZoneScopedN("Game:ProcessCompletedModelLoads");
+                // Move completed results to a local queue to minimize lock time
+                std::queue<ModelLoadResult> local;
+                {
+                    std::lock_guard<std::mutex> lg(m_JobMutex);
+                    while (!m_CompletedJobs.empty()) {
+                        local.push(std::move(m_CompletedJobs.front()));
+                        m_CompletedJobs.pop();
+                    }
+                }
+
+                while (!local.empty())
+                {
+                    ModelLoadResult res = std::move(local.front());
+                    local.pop();
+
+                    if (!res.success)
+                    {
+                        SM_ERROR("Model load failed for ticket %llu: %s", (unsigned long long)res.ticketId, res.error.c_str());
+                        continue;
+                    }
+
+                    // Prepare a RendererCommand but only allocate buffers if we can push
+                    RendererCommand cmd{};
+                    cmd.Type = RendererCommandType::RequestModel;
+                    cmd.TicketId = res.ticketId;
+                    cmd.ModelRequest.UseTexture = false;
+                    cmd.ModelRequest.Width = 0;
+                    cmd.ModelRequest.Height = 0;
+                    cmd.ModelRequest.Texture = nullptr;
+                    cmd.ModelRequest.TextureSize = 0;
+
+                    // Allocate and copy data
+                    cmd.ModelRequest.VertexCount = res.vertices.size();
+                    cmd.ModelRequest.IndexCount = res.indices.size();
+                    cmd.ModelRequest.Vertices = nullptr;
+                    cmd.ModelRequest.Indices = nullptr;
+
+                    if (cmd.ModelRequest.VertexCount > 0)
+                    {
+                        cmd.ModelRequest.Vertices = static_cast<MeshVertex*>(std::malloc(cmd.ModelRequest.VertexCount * sizeof(MeshVertex)));
+                        std::memcpy(cmd.ModelRequest.Vertices, res.vertices.data(), cmd.ModelRequest.VertexCount * sizeof(MeshVertex));
+                    }
+                    if (cmd.ModelRequest.IndexCount > 0)
+                    {
+                        cmd.ModelRequest.Indices = static_cast<uint32_t*>(std::malloc(cmd.ModelRequest.IndexCount * sizeof(uint32_t)));
+                        std::memcpy(cmd.ModelRequest.Indices, res.indices.data(), cmd.ModelRequest.IndexCount * sizeof(uint32_t));
+                    }
+
+                    if (!m_AppContext->GRCommandRing.Push(cmd))
+                    {
+                        SM_WARN("GRCommandRing full, retrying model upload next frame (ticket %llu)", (unsigned long long)res.ticketId);
+                        // Free allocated memory to avoid leaks; requeue the result for retry
+                        if (cmd.ModelRequest.Vertices) std::free(cmd.ModelRequest.Vertices);
+                        if (cmd.ModelRequest.Indices) std::free(cmd.ModelRequest.Indices);
+                        std::lock_guard<std::mutex> lg(m_JobMutex);
+                        m_CompletedJobs.push(std::move(res));
+                        // Break to avoid tight loop; leave remaining in 'local' for next frame
+                        break;
+                    }
+                }
+            }
+
+            {
+                ZoneScopedN("Game:ProcessRenderResponses");
+                RendererResponse response;
+                while (m_AppContext->RGCommandRing.Pop(response)) {
 			        switch (response.Type) {
 			            case RendererResponseType::ModelUpload: {
                             if (response.Model.Valid) {
@@ -373,7 +346,7 @@ void GameThread::RunLoop() {
 		}
 	}
 
-	GameExit(&gameState);
+    GameExit(&gameState);
 
     gameState.World.Clear();
 
@@ -381,14 +354,22 @@ void GameThread::RunLoop() {
 		m_PluginManager->ShutdownAll();
 	}
 
-	// Restore Windows timer resolution
-	#ifdef _WIN32
-	timeEndPeriod(1);
-	#endif
+    // Restore Windows timer resolution
+    #ifdef _WIN32
+    timeEndPeriod(1);
+    #endif
+
+    // Stop and join worker thread
+    m_WorkerStop.store(true, std::memory_order_relaxed);
+    m_JobCv.notify_all();
+    if (m_Worker.joinable())
+        m_Worker.join();
 }
 
 void GameThread::Stop() {
-	m_Running.store(false, std::memory_order_relaxed);
+    m_Running.store(false, std::memory_order_relaxed);
+    m_WorkerStop.store(true, std::memory_order_relaxed);
+    m_JobCv.notify_all();
 }
 
 bool GameThread::Running() const {
@@ -430,5 +411,153 @@ void GameThread::PublishSnapshot(const GameState& state, const FrameTimeStats& f
 	snap.WorldSnapshotPtr = worldSnapshot.get();
 
 	// Single-writer seqlock publish
-	m_AppContext->LatestSnapshot.store(snap);
+    m_AppContext->LatestSnapshot.store(snap);
+}
+
+void GameThread::EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir)
+{
+    ModelLoadJob job;
+    job.ticketId = ticketId;
+    job.objPath = objPath;
+    job.mtlBaseDir = mtlBaseDir;
+    {
+        std::lock_guard<std::mutex> lg(m_JobMutex);
+        m_PendingJobs.push(std::move(job));
+    }
+    m_JobCv.notify_one();
+}
+
+void GameThread::WorkerThreadFunc()
+{
+    tracy::SetThreadName("ModelWorker");
+    for (;;)
+    {
+        ModelLoadJob job;
+        {
+            std::unique_lock<std::mutex> ul(m_JobMutex);
+            m_JobCv.wait(ul, [&]{ return m_WorkerStop.load(std::memory_order_relaxed) || !m_PendingJobs.empty(); });
+            if (m_WorkerStop.load(std::memory_order_relaxed) && m_PendingJobs.empty())
+                break;
+            job = std::move(m_PendingJobs.front());
+            m_PendingJobs.pop();
+        }
+
+        ModelLoadResult result;
+        result.ticketId = job.ticketId;
+
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string warn;
+        std::string err;
+
+        const auto now = Clock::now();
+
+        bool ok = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, job.objPath.c_str(), job.mtlBaseDir.c_str());
+        if (!warn.empty()) {
+            SM_WARN("TinyObjLoader warning: %s", warn.c_str());
+        }
+
+        const auto loadDuration = std::chrono::duration<double>(Clock::now() - now).count();
+        SM_TRACE("Loaded OBJ '%s' in %.3f seconds: %zu vertices, %zu shapes, %zu materials",
+                job.objPath.c_str(), loadDuration,
+                attrib.vertices.size() / 3, shapes.size(), materials.size());
+
+        if (!ok || !err.empty()) {
+            if (!err.empty()) SM_ERROR("TinyObjLoader error: %s", err.c_str());
+            result.success = false;
+            result.error = err.empty() ? std::string("Failed to load OBJ") : err;
+        } else {
+            // Build vertices & indices with deduplication
+            std::vector<MeshVertex> vertices;
+            std::vector<uint32_t> indices;
+            std::unordered_map<size_t, uint32_t> vertexMap;  // hash -> index
+
+            auto hashVertex = [](const MeshVertex& v) -> size_t {
+                size_t h = 0;
+                h ^= std::hash<float>{}(v.px) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                h ^= std::hash<float>{}(v.py) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                h ^= std::hash<float>{}(v.pz) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                h ^= std::hash<float>{}(v.nx) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                h ^= std::hash<float>{}(v.ny) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                h ^= std::hash<float>{}(v.nz) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                h ^= std::hash<float>{}(v.u) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                h ^= std::hash<float>{}(v.v) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                return h;
+            };
+
+            // Count total triangles across all shapes first
+            size_t totalTris = 0;
+            for (const auto& shape : shapes) {
+                for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
+                    if (shape.mesh.num_face_vertices[f] == 3) ++totalTris;
+                }
+            }
+
+            vertices.reserve(totalTris * 3);  // Exact size
+            indices.reserve(totalTris * 3);
+
+            for (const auto& shape : shapes) {
+                for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
+                    const int fv = shape.mesh.num_face_vertices[f];
+                    if (fv != 3) continue;
+
+                    for (int v = 0; v < 3; ++v) {
+                        const tinyobj::index_t idx = shape.mesh.indices[f * 3 + v];
+                        MeshVertex vert{};
+
+                        // Position
+                        vert.px = attrib.vertices[3 * idx.vertex_index + 0];
+                        vert.py = attrib.vertices[3 * idx.vertex_index + 1];
+                        vert.pz = attrib.vertices[3 * idx.vertex_index + 2];
+
+                        // Normal
+                        if (idx.normal_index >= 0 && !attrib.normals.empty()) {
+                            vert.nx = attrib.normals[3 * idx.normal_index + 0];
+                            vert.ny = attrib.normals[3 * idx.normal_index + 1];
+                            vert.nz = attrib.normals[3 * idx.normal_index + 2];
+                        } else {
+                            // Default up normal if not provided
+                            vert.nx = 0.0f;
+                            vert.ny = 1.0f;
+                            vert.nz = 0.0f;
+                        }
+
+                        // UV
+                        if (idx.texcoord_index >= 0 && !attrib.texcoords.empty()) {
+                            vert.u = attrib.texcoords[2 * idx.texcoord_index + 0];
+                            vert.v = 1.0f - attrib.texcoords[2 * idx.texcoord_index + 1];
+                        } else {
+                            vert.u = 0.0f;
+                            vert.v = 0.0f;
+                        }
+
+                        const size_t hash = hashVertex(vert);
+                        auto it = vertexMap.find(hash);
+                        if (it != vertexMap.end()) {
+                            indices.push_back(it->second);  // Reuse existing vertex
+                        } else {
+                            uint32_t newIdx = static_cast<uint32_t>(vertices.size());
+                            vertices.push_back(vert);
+                            vertexMap[hash] = newIdx;
+                            indices.push_back(newIdx);
+                        }
+                    }
+                }
+            }
+
+            const auto processDuration = std::chrono::duration<double>(Clock::now() - now).count();
+            SM_TRACE("Processed model '%s': %zu unique vertices, %zu indices in %.3f seconds",
+                    job.objPath.c_str(), vertices.size(), indices.size(), processDuration);
+
+            result.success = true;
+            result.vertices = std::move(vertices);
+            result.indices = std::move(indices);
+        }
+
+        {
+            std::lock_guard<std::mutex> lg(m_JobMutex);
+            m_CompletedJobs.push(std::move(result));
+        }
+    }
 }

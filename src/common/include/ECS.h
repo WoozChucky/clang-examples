@@ -45,6 +45,19 @@ struct TextComponent {
     size_t FontSize = 12;
 };
 
+enum class LightningType : uint8_t {
+    Directional = 0,
+    Point = 1,
+    Spot = 2
+};
+
+struct LightningComponent {
+    LightningType Type = LightningType::Directional;
+    glm::vec4 Direction{0.0f, -1.0f, 0.0f, 0.0f}; // for directional lights
+    glm::vec4 Color{1.0f};
+    float Intensity = 1.0f;
+};
+
 // #############################################################################
 //                           Entity & Component IDs
 // #############################################################################

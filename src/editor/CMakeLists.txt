@@ -53,7 +53,7 @@ if(ENABLE_ALLOC_TRACKER STREQUAL "ON")
     target_compile_definitions(editor PRIVATE ALLOC_TRACKER_ENABLED)
 elseif(ENABLE_ALLOC_TRACKER STREQUAL "AUTO")
     # Default: enable in Debug builds only
-    target_compile_definitions(editor PRIVATE $<$<CONFIG:Debug>:ALLOC_TRACKER_ENABLED>)
+    # target_compile_definitions(editor PRIVATE $<$<CONFIG:Debug>:ALLOC_TRACKER_ENABLED>)
 endif()
 
 target_link_libraries(editor PRIVATE CommonHeaders GameHeaders freetype Tracy::TracyClient glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi dxcompiler nvrhi_vk imgui game)

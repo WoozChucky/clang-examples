@@ -206,6 +206,10 @@ private:
             if (auto* transform = componentData.Get<TransformComponent>()) {
                 world.AddComponent(entity, *transform); // AddComponent handles both add and update
             }
+        } else if (componentData.Type == std::type_index(typeid(LightningComponent))) {
+            if (auto* lightning = componentData.Get<LightningComponent>()) {
+                world.AddComponent(entity, *lightning);
+            }
         } else if (componentData.Type == std::type_index(typeid(MeshComponent))) {
             if (auto* mesh = componentData.Get<MeshComponent>()) {
                 world.AddComponent(entity, *mesh);
@@ -226,6 +230,8 @@ private:
     static void RemoveComponentByType(ECS& world, EntityId entity, std::type_index typeIndex) {
         if (typeIndex == std::type_index(typeid(TransformComponent))) {
             world.RemoveComponent<TransformComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(LightningComponent))) {
+            world.RemoveComponent<LightningComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(MeshComponent))) {
             world.RemoveComponent<MeshComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(MaterialComponent))) {

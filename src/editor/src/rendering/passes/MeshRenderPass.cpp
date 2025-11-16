@@ -11,6 +11,7 @@ cbuffer PerFrame : register(b0)
 {
     float4x4 uP;   // Projection
     float4x4 uVP;  // ViewProjection P * V on CPU
+    float4   uLightDir; // xyz = light direction
 };
 
 cbuffer PerDraw : register(b1)
@@ -24,13 +25,15 @@ cbuffer PerDraw : register(b1)
 struct VSIn
 {
     float3 Position : POSITION;
+    float3 Normal   : NORMAL;
     float2 UV       : TEXCOORD0;
 };
 
 struct VSOut
 {
-    float4 PosH  : SV_POSITION;
-    float2 UV    : TEXCOORD0;
+    float4 PosH   : SV_POSITION;
+    float3 Normal : NORMAL;
+    float2 UV     : TEXCOORD0;
 };
 
 VSOut main_vs(VSIn vin)
@@ -39,12 +42,20 @@ VSOut main_vs(VSIn vin)
     float4 lp = float4(vin.Position, 1.0);
     float4 wp = mul(uModel, lp);
     o.PosH = mul(uVP, wp);
+    o.Normal = mul((float3x3)uModel, vin.Normal);
     o.UV = vin.UV;
     return o;
 }
 )";
 
 static const char* MESH_PS_HLSL = R"(
+cbuffer PerFrame : register(b0)
+{
+    float4x4 uP;
+    float4x4 uVP;
+    float4   uLightDir; // xyz = light direction
+};
+
 cbuffer PerDraw : register(b1)
 {
     float4x4 uModel;
@@ -60,21 +71,35 @@ static const uint OPT_SAMPLE_TEXTURE = 1u << 0;
 
 struct PSIn
 {
-    float4 PosH  : SV_POSITION;
-    float2 UV    : TEXCOORD0;
+    float4 PosH   : SV_POSITION;
+    float3 Normal : NORMAL;
+    float2 UV     : TEXCOORD0;
 };
 
 float4 main_ps(PSIn i) : SV_Target
 {
+    // Use dynamic light direction from constant buffer
+    float3 lightDir = normalize(uLightDir.xyz);
+
+    float3 N = normalize(i.Normal);
+    float diffuse = max(dot(N, -lightDir), 0.0);
+
+    float ambient = 0.2;
+    float lighting = ambient + diffuse * 0.8;
+
+    // Get base color (from texture or material)
+    float4 albedo;
     if ((uFlags & OPT_SAMPLE_TEXTURE) != 0u)
     {
-        float4 texel = uTexture.Sample(uSampler, i.UV);
-        return texel * uBaseColor;
+        albedo = uTexture.Sample(uSampler, i.UV) * uBaseColor;
     }
     else
     {
-        return uBaseColor;
+        albedo = uBaseColor;
     }
+
+    // Apply lighting to albedo
+    return float4(albedo.rgb * lighting, albedo.a);
 }
 )";
 
@@ -103,12 +128,14 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         return false;
 
     // Input layout: POSITION (RGB32F), TEXCOORD (RG32F)
-    nvrhi::VertexAttributeDesc attrs[2];
+    nvrhi::VertexAttributeDesc attrs[3];
     attrs[0].setName("POSITION").setFormat(nvrhi::Format::RGB32_FLOAT)
         .setOffset(offsetof(MeshVertex, px)).setBufferIndex(0).setElementStride(sizeof(MeshVertex));
-    attrs[1].setName("TEXCOORD").setFormat(nvrhi::Format::RG32_FLOAT)
+    attrs[1].setName("NORMAL").setFormat(nvrhi::Format::RGB32_FLOAT)
+        .setOffset(offsetof(MeshVertex, nx)).setBufferIndex(0).setElementStride(sizeof(MeshVertex));
+    attrs[2].setName("TEXCOORD").setFormat(nvrhi::Format::RG32_FLOAT)
         .setOffset(offsetof(MeshVertex, u)).setBufferIndex(0).setElementStride(sizeof(MeshVertex));
-    m_InputLayout = m_Device->createInputLayout(attrs, 2, m_VS);
+    m_InputLayout = m_Device->createInputLayout(attrs, 3, m_VS);
 
     // Binding layout: b0 (PerFrame), b1 (PerDraw), t0 (Texture), s0 (Sampler)
     nvrhi::BindingLayoutDesc layoutDesc;
@@ -259,22 +286,36 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
     }
 
-    // Update per-frame CB
-    PerFrameCB perFrame{};
-    const glm::mat4 V = snapshot.GameCamera.get_view_matrix();
-    const glm::mat4 P = snapshot.GameCamera.get_projection_matrix();
-    perFrame.P  = P;
-    perFrame.VP = P * V;
-    commandList->writeBuffer(m_PerFrameCB, &perFrame, sizeof(perFrame));
-
-    nvrhi::GraphicsState state;
-    state.pipeline = m_Pipeline;
-    state.framebuffer = frameBuffer;
-    state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
-
     // ECS-driven rendering: TransformComponent + MeshComponent are required; MaterialComponent is optional
     if (snapshot.WorldSnapshotPtr)
     {
+        // Try to find the LightningComponent to get the light direction
+
+        glm::vec4 lightningDirection(0.5f, -1.0f, 0.3f, 0.0f); // default arbitrary direction
+
+        for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, LightningComponent>()) {
+            const auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
+            const auto* lightning = snapshot.WorldSnapshotPtr->GetComponent<LightningComponent>(entity);
+            if (transform && lightning) {
+                lightningDirection = lightning->Direction;
+                break; // Use the first found light
+            }
+        }
+
+        // Update per-frame CB
+        PerFrameCB perFrame{};
+        const glm::mat4 V = snapshot.GameCamera.get_view_matrix();
+        const glm::mat4 P = snapshot.GameCamera.get_projection_matrix();
+        perFrame.P  = P;
+        perFrame.VP = P * V;
+        perFrame.LightDir = lightningDirection;
+        commandList->writeBuffer(m_PerFrameCB, &perFrame, sizeof(perFrame));
+
+        nvrhi::GraphicsState state;
+        state.pipeline = m_Pipeline;
+        state.framebuffer = frameBuffer;
+        state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+
         for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, MeshComponent>())
         {
             const auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);

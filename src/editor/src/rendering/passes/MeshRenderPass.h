@@ -39,6 +39,7 @@ private:
     {
         glm::mat4 P;   // Projection
         glm::mat4 VP;  // View-Projection
+        glm::vec4 LightDir; // xyz = light direction
     };
 
     struct PerDrawCB

@@ -72,6 +72,12 @@ void RenderThread::RunLoop()
                         cmd.ModelRequest.Width, cmd.ModelRequest.Height
                     );
 
+                    // The incoming pointers are heap-allocated by the GameThread; Renderer copies data.
+                    // Free them here to avoid leaks.
+                    if (cmd.ModelRequest.Vertices) std::free(cmd.ModelRequest.Vertices);
+                    if (cmd.ModelRequest.Indices) std::free(cmd.ModelRequest.Indices);
+                    if (cmd.ModelRequest.Texture) std::free(cmd.ModelRequest.Texture);
+
                     RendererResponse response{};
                     response.Type = RendererResponseType::ModelUpload;
                     response.TicketId = cmd.TicketId;

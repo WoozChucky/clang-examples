@@ -395,6 +395,20 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                         }
                     }
 
+                    if (!worldSnapshot->HasComponent<LightningComponent>(entity)) {
+                        if (ImGui::MenuItem("Add Lightning Component")) {
+                            LightningComponent newLightning{};
+                            newLightning.Type = LightningType::Directional;
+                            newLightning.Direction = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f);
+                            newLightning.Color = glm::vec4(1.0f);
+                            newLightning.Intensity = 1.0f;
+                            ECSCommand addCmd = ECSCommand::AddComponent(entity, newLightning);
+                            if (!m_AppContext->ECSCommandRing.Push(addCmd)) {
+                                SM_WARN("ECS command queue full! Add component command dropped.");
+                            }
+                        }
+                    }
+
                     if (!worldSnapshot->HasComponent<MeshComponent>(entity)) {
                         if (ImGui::MenuItem("Add Mesh Component")) {
                             MeshComponent newMesh{};
@@ -440,6 +454,15 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                     if (worldSnapshot->HasComponent<TransformComponent>(entity)) {
                         if (ImGui::MenuItem("Remove Transform Component")) {
                             ECSCommand removeCmd = ECSCommand::RemoveComponent<TransformComponent>(entity);
+                            if (!m_AppContext->ECSCommandRing.Push(removeCmd)) {
+                                SM_WARN("ECS command queue full! Remove component command dropped.");
+                            }
+                        }
+                    }
+
+                    if (worldSnapshot->HasComponent<LightningComponent>(entity)) {
+                        if (ImGui::MenuItem("Remove Lightning Component")) {
+                            ECSCommand removeCmd = ECSCommand::RemoveComponent<LightningComponent>(entity);
                             if (!m_AppContext->ECSCommandRing.Push(removeCmd)) {
                                 SM_WARN("ECS command queue full! Remove component command dropped.");
                             }
@@ -537,25 +560,54 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                     SM_WARN("ECS command queue full! Modify command dropped.");
                                 }
                             }
+                        }
+                    }
+                }
 
-                            ImGui::SameLine();
-
-                            if (ImGui::Button("Revert", ImVec2(150, 0))) {
-                                editTransform = *transform;
+                // Edit Lightning Component
+                if (worldSnapshot->HasComponent<LightningComponent>(selectedEntity)) {
+                    if (ImGui::CollapsingHeader("Lightning Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto* lightning = worldSnapshot->GetComponent<LightningComponent>(selectedEntity);
+                        if (lightning) {
+                            // Create mutable copy for editing
+                            static LightningComponent editLightning{};
+                            static EntityId lastEditedLightningEntity = INVALID_ENTITY;
+                            // Reset when switching entities
+                            if (lastEditedLightningEntity != selectedEntity) {
+                                editLightning = *lightning;
+                                lastEditedLightningEntity = selectedEntity;
                             }
+                            static bool modified = false;
+                            // Type editor
+                            const char* types[] = { "Directional", "Point", "Spot" };
+                            int currentType = static_cast<int>(editLightning.Type);
+                            if (ImGui::Combo("Type", &currentType, types, IM_ARRAYSIZE(types))) {
+                                editLightning.Type = static_cast<LightningType>(currentType);
+                                modified = true;
+                            }
+                            // Direction editor
+                            ImGui::Text("Direction:");
+                            if (ImGui::DragFloat3("##Direction", &editLightning.Direction.x, 0.1f, -1.0f, 1.0f)) {
+                                modified = true;
+                            }
+                            // Color editor
+                            ImGui::Text("Color:");
+                            if (ImGui::ColorEdit4("##Color", &editLightning.Color.r)) {
+                                modified = true;
+                            }
+                            // Intensity editor
+                            if (ImGui::DragFloat("Intensity", &editLightning.Intensity, 0.1f, 0.0f, 100.0f)) {
+                                modified = true;
+                            }
+                            ImGui::Spacing();
 
-                            ImGui::Separator();
-
-                            // Show original values from snapshot (read-only)
-                            ImGui::TextDisabled("Original values from snapshot:");
-                            ImGui::TextDisabled("Pos: (%.2f, %.2f, %.2f)",
-                                transform->Position.x, transform->Position.y, transform->Position.z);
-                            ImGui::TextDisabled("Rot: (%.2f, %.2f, %.2f) deg",
-                                glm::degrees(transform->Rotation.x),
-                                glm::degrees(transform->Rotation.y),
-                                glm::degrees(transform->Rotation.z));
-                            ImGui::TextDisabled("Scale: (%.2f, %.2f, %.2f)",
-                                transform->Scale.x, transform->Scale.y, transform->Scale.z);
+                            if (modified) {
+                                ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editLightning);
+                                if (!m_AppContext->ECSCommandRing.Push(modifyCmd)) {
+                                    SM_WARN("ECS command queue full! Modify command dropped.");
+                                }
+                                modified = false;
+                            }
                         }
                     }
                 }
@@ -601,19 +653,6 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                 }
                                 modified = false;
                             }
-
-                            ImGui::SameLine();
-
-                            if (ImGui::Button("Revert##Mesh", ImVec2(150, 0))) {
-                                editMesh = *mesh;
-                            }
-
-                            ImGui::Separator();
-
-                            // Show original values from snapshot (read-only)
-                            ImGui::TextDisabled("Original values from snapshot:");
-                            ImGui::TextDisabled("Mesh ID: %u", mesh->MeshId);
-                            ImGui::TextDisabled("Visible: %s", mesh->Visible ? "Yes" : "No");
                         }
                     }
                 }
@@ -654,15 +693,6 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                                 }
                                 modified = false;
                             }
-
-                            ImGui::Separator();
-                            // Show original values from snapshot (read-only)
-                            ImGui::TextDisabled("Original values from snapshot:");
-                            ImGui::TextDisabled("Material ID: %u", material->MaterialId);
-                            ImGui::TextDisabled("Texture ID: %u", material->TextureId);
-                            ImGui::TextDisabled("Base Color: (%.2f, %.2f, %.2f, %.2f)",
-                                material->BaseColor.r, material->BaseColor.g,
-                                material->BaseColor.b, material->BaseColor.a);
                         }
                     }
                 }
@@ -726,7 +756,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
                 }
 
                 // Show if entity has no components
-                if (!worldSnapshot->HasComponents<TransformComponent, MeshComponent, MaterialComponent, TextComponent>(selectedEntity)) {
+                if (!worldSnapshot->HasComponents<TransformComponent, LightningComponent, MeshComponent, MaterialComponent, TextComponent>(selectedEntity)) {
                     ImGui::TextDisabled("Entity has no components.");
                     ImGui::TextDisabled("Right-click the entity to add components.");
                 }
