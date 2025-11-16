@@ -153,10 +153,10 @@ if (!m_DxgiAdapter) {
 void RendererBackendDX12::CreateSwapChain(const uint32_t width, const uint32_t height) {
     UINT windowStyle = (WS_OVERLAPPEDWINDOW | WS_VISIBLE);
 
-    m_Settings.backBufferWidth = width;
-    m_Settings.backBufferHeight = height;
+    m_Settings->backBufferWidth = width;
+    m_Settings->backBufferHeight = height;
 
-    RECT rect = { 0, 0, LONG(m_Settings.backBufferWidth), LONG(m_Settings.backBufferHeight) };
+    RECT rect = { 0, 0, LONG(m_Settings->backBufferWidth), LONG(m_Settings->backBufferHeight) };
     AdjustWindowRect(&rect, windowStyle, FALSE);
 
     if (MoveWindowOntoAdapter(m_DxgiAdapter, rect))
@@ -176,13 +176,13 @@ void RendererBackendDX12::CreateSwapChain(const uint32_t width, const uint32_t h
     ZeroMemory(&m_SwapChainDesc, sizeof(m_SwapChainDesc));
     m_SwapChainDesc.Width = calculatedWidth;
     m_SwapChainDesc.Height = calculatedHeight;
-    m_SwapChainDesc.SampleDesc.Count = m_Settings.swapChainSampleCount;
-    m_SwapChainDesc.SampleDesc.Quality = m_Settings.swapChainSampleQuality;
+    m_SwapChainDesc.SampleDesc.Count = m_Settings->swapChainSampleCount;
+    m_SwapChainDesc.SampleDesc.Quality = m_Settings->swapChainSampleQuality;
     m_SwapChainDesc.BufferUsage = DXGI_USAGE_SHADER_INPUT | DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    m_SwapChainDesc.BufferCount = m_Settings.swapChainBufferCount;
+    m_SwapChainDesc.BufferCount = m_Settings->swapChainBufferCount;
     m_SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     m_SwapChainDesc.Flags = 0;
-    switch (m_Settings.swapChainFormat)
+    switch (m_Settings->swapChainFormat)
     {
         case nvrhi::Format::SRGBA8_UNORM:
             m_SwapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -191,7 +191,7 @@ void RendererBackendDX12::CreateSwapChain(const uint32_t width, const uint32_t h
             m_SwapChainDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
             break;
         default:
-            m_SwapChainDesc.Format = nvrhi::d3d12::convertFormat(m_Settings.swapChainFormat);
+            m_SwapChainDesc.Format = nvrhi::d3d12::convertFormat(m_Settings->swapChainFormat);
             break;
     }
 
@@ -209,7 +209,7 @@ void RendererBackendDX12::CreateSwapChain(const uint32_t width, const uint32_t h
     }
 
     m_FullScreenDesc = {};
-    m_FullScreenDesc.RefreshRate.Numerator = m_Settings.refreshRate;
+    m_FullScreenDesc.RefreshRate.Numerator = m_Settings->refreshRate;
     m_FullScreenDesc.RefreshRate.Denominator = 1;
     m_FullScreenDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_PROGRESSIVE;
     m_FullScreenDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
@@ -235,22 +235,9 @@ void RendererBackendDX12::CreateSwapChain(const uint32_t width, const uint32_t h
     BackBufferResized();
 }
 
-nvrhi::CommandListHandle RendererBackendDX12::CreateCommandList() {
-    if (!m_Device) {
-        SM_ERROR("CreateCommandList called with null Device");
-        return nullptr;
-    }
-
-    if (!m_CommandList) {
-        m_CommandList = m_Device->createCommandList();
-    }
-
-    return m_CommandList;
-}
-
 void RendererBackendDX12::ResizeSwapChain(const uint32_t width, const uint32_t height) {
-    m_Settings.backBufferWidth = width;
-    m_Settings.backBufferHeight = height;
+    m_Settings->backBufferWidth = width;
+    m_Settings->backBufferHeight = height;
     m_ResizeRequested = true;
 }
 
@@ -270,17 +257,6 @@ uint32_t RendererBackendDX12::GetCurrentBackBufferIndex() {
 
 uint32_t RendererBackendDX12::GetBackBufferCount() {
     return m_SwapChainDesc.BufferCount;
-}
-
-uint32_t * RendererBackendDX12::GetFrameIndexPtr() {
-    return &m_FrameIndex;
-}
-
-nvrhi::IFramebuffer * RendererBackendDX12::GetFrameBuffer(int32_t index) {
-    if (index < 0) {
-        index = static_cast<int32_t>(GetCurrentBackBufferIndex());
-    }
-    return m_SwapChainFramebuffers[index];
 }
 
 bool RendererBackendDX12::BeginFrame() {
@@ -303,7 +279,7 @@ if (SUCCEEDED(m_SwapChain->GetDesc1(&newSwapChainDesc)) && SUCCEEDED(m_SwapChain
 
             ResizeSwapChain();
             BackBufferResized();
-            SM_TRACE("Swap chain resized: %ux%u", m_Settings.backBufferWidth, m_Settings.backBufferHeight);
+            SM_TRACE("Swap chain resized: %ux%u", m_Settings->backBufferWidth, m_Settings->backBufferHeight);
         }
 
     }
@@ -318,10 +294,10 @@ bool RendererBackendDX12::Present() {
     auto bufferIndex = m_SwapChain->GetCurrentBackBufferIndex();
 
     UINT presentFlags = 0;
-    if (!m_Settings.vsyncEnabled && m_FullScreenDesc.Windowed && m_TearingSupported)
+    if (!m_Settings->vsyncEnabled && m_FullScreenDesc.Windowed && m_TearingSupported)
         presentFlags |= DXGI_PRESENT_ALLOW_TEARING;
 
-    HRESULT result = m_SwapChain->Present(m_Settings.vsyncEnabled ? 1 : 0, presentFlags);
+    HRESULT result = m_SwapChain->Present(m_Settings->vsyncEnabled ? 1 : 0, presentFlags);
     if (result == DXGI_STATUS_OCCLUDED)
     {
         SM_TRACE("DXGI_STATUS_OCCLUDED");
@@ -402,6 +378,10 @@ void RendererBackendDX12::DestroyDeviceAndSwapChain() {
     m_Device12 = nullptr;
 }
 
+nvrhi::DeviceHandle RendererBackendDX12::GetDevice() {
+    return m_Device;
+}
+
 // Private Impls
 void RendererBackendDX12::CreateRenderTargets() {
 if (!m_SwapChain || !m_Device) {
@@ -418,11 +398,11 @@ for(UINT n = 0; n < m_SwapChainDesc.BufferCount; n++)
         HR_ASSERT(hr, "Failed to get swap chain buffer");
 
         nvrhi::TextureDesc textureDesc;
-        textureDesc.width = m_Settings.backBufferWidth;
-        textureDesc.height = m_Settings.backBufferHeight;
-        textureDesc.sampleCount = m_Settings.swapChainSampleCount;
-        textureDesc.sampleQuality = m_Settings.swapChainSampleQuality;
-        textureDesc.format = m_Settings.swapChainFormat;
+        textureDesc.width = m_Settings->backBufferWidth;
+        textureDesc.height = m_Settings->backBufferHeight;
+        textureDesc.sampleCount = m_Settings->swapChainSampleCount;
+        textureDesc.sampleQuality = m_Settings->swapChainSampleQuality;
+        textureDesc.format = m_Settings->swapChainFormat;
         textureDesc.debugName = "SwapChainBuffer";
         textureDesc.isRenderTarget = true;
         textureDesc.isUAV = false;
@@ -463,30 +443,15 @@ void RendererBackendDX12::ResizeSwapChain() {
     if (!m_SwapChain)
         return;
 
-    const HRESULT hr = m_SwapChain->ResizeBuffers(m_Settings.swapChainBufferCount,
-                                            m_Settings.backBufferWidth,
-                                            m_Settings.backBufferHeight,
+    const HRESULT hr = m_SwapChain->ResizeBuffers(m_Settings->swapChainBufferCount,
+                                            m_Settings->backBufferWidth,
+                                            m_Settings->backBufferHeight,
                                             m_SwapChainDesc.Format,
                                             m_SwapChainDesc.Flags);
     HR_ASSERT(hr, "Failed to resize swap chain buffers");
 
     CreateRenderTargets();
 }
-
-void RendererBackendDX12::BackBufferResizing() {
-    m_SwapChainFramebuffers.clear();
-}
-
-void RendererBackendDX12::BackBufferResized() {
-    uint32_t backBufferCount = GetBackBufferCount();
-    m_SwapChainFramebuffers.resize(backBufferCount);
-    for (uint32_t index = 0; index < backBufferCount; index++)
-    {
-        m_SwapChainFramebuffers[index] = m_Device->createFramebuffer(
-            nvrhi::FramebufferDesc().addColorAttachment(GetBackBuffer(index)));
-    }
-}
-
 
 // Static Impls
 

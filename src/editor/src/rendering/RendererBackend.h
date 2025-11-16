@@ -10,7 +10,7 @@ enum class RendererAPI : uint8_t {
     Vulkan,
 };
 
-typedef struct RendererBackendSettings {
+using RendererBackendSettings = struct RendererBackendSettings {
     uint32_t                         refreshRate = 0;
     uint32_t                         swapChainBufferCount = 3;
     nvrhi::Format                    swapChainFormat = nvrhi::Format::SRGBA8_UNORM;
@@ -20,12 +20,12 @@ typedef struct RendererBackendSettings {
     uint32_t                         backBufferWidth = 1920;
     uint32_t                         backBufferHeight = 1080;
     bool                             vsyncEnabled = true;
-} RendererBackendSettings;
+};
 
 class RendererBackend {
 public:
-    explicit RendererBackend(const RendererBackendSettings &settings, GLFWwindow* window)
-        : m_Settings(settings), m_Window(window)
+    explicit RendererBackend(RendererBackendSettings &settings, GLFWwindow* window)
+        : m_Settings(&settings), m_Window(window)
     {}
     virtual ~RendererBackend() = default;
 
@@ -34,15 +34,17 @@ public:
     [[nodiscard]] virtual RendererAPI GetAPI() const = 0;
     virtual nvrhi::DeviceHandle CreateDevice() = 0;
     virtual void CreateSwapChain(uint32_t width, uint32_t height) = 0;
-    virtual nvrhi::CommandListHandle CreateCommandList() = 0;
     virtual void ResizeSwapChain(uint32_t width, uint32_t height) = 0;
-    virtual void SetVSync(bool enabled) { m_Settings.vsyncEnabled = enabled; }
+
     virtual nvrhi::ITexture* GetCurrentBackBuffer() = 0;
     virtual nvrhi::ITexture* GetBackBuffer(uint32_t index) = 0;
+
     virtual uint32_t GetCurrentBackBufferIndex() = 0;
     virtual uint32_t GetBackBufferCount() = 0;
-    virtual uint32_t* GetFrameIndexPtr() = 0;
-    virtual nvrhi::IFramebuffer* GetFrameBuffer(int32_t index) = 0;
+
+    nvrhi::IFramebuffer* GetCurrentFrameBuffer();
+    nvrhi::IFramebuffer* GetFrameBuffer(uint32_t index);
+
     virtual bool BeginFrame() = 0;
     virtual bool Present() = 0;
     virtual nvrhi::ShaderHandle CreateShaderFromMemory(
@@ -52,11 +54,18 @@ public:
         const char* entryPoint,
         const char* targetName) = 0;
 protected:
-    constexpr static uint32_t   SHUTDOWN_TIMEOUT = 5000;
-    RendererBackendSettings     m_Settings {};
-    GLFWwindow*                 m_Window;
+    void BackBufferResizing();
+    void BackBufferResized();
 
+    virtual nvrhi::DeviceHandle GetDevice() = 0;
     virtual void DestroyDeviceAndSwapChain() = 0;
+
+protected:
+    constexpr static uint32_t               SHUTDOWN_TIMEOUT = 5000;
+    RendererBackendSettings*                m_Settings {nullptr};
+    GLFWwindow*                             m_Window;
+    std::vector<nvrhi::FramebufferHandle>   m_SwapChainFramebuffers;
+
 };
 
 struct DefaultMessageCallback : nvrhi::IMessageCallback {

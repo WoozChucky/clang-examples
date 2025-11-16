@@ -185,10 +185,10 @@ nvrhi::DeviceHandle RendererBackendVulkan::CreateDevice() {
     InstallDebugCallback();
 #endif
 
-    if (m_Settings.swapChainFormat == nvrhi::Format::SRGBA8_UNORM)
-        m_Settings.swapChainFormat = nvrhi::Format::SBGRA8_UNORM;
-    else if (m_Settings.swapChainFormat == nvrhi::Format::RGBA8_UNORM)
-        m_Settings.swapChainFormat = nvrhi::Format::BGRA8_UNORM;
+    if (m_Settings->swapChainFormat == nvrhi::Format::SRGBA8_UNORM)
+        m_Settings->swapChainFormat = nvrhi::Format::SBGRA8_UNORM;
+    else if (m_Settings->swapChainFormat == nvrhi::Format::RGBA8_UNORM)
+        m_Settings->swapChainFormat = nvrhi::Format::BGRA8_UNORM;
 
     if (!CreateWindowSurface()) {
         SM_ASSERT(false, "Failed to create Vulkan window surface");
@@ -229,137 +229,140 @@ nvrhi::DeviceHandle RendererBackendVulkan::CreateDevice() {
     //m_DeviceDesc.vulkanLibraryName = "";
     m_DeviceDesc.logBufferLifetime = false;
 
-    m_Device = nvrhi::vulkan::createDevice(m_DeviceDesc);
+    m_NvrhiDevice = nvrhi::vulkan::createDevice(m_DeviceDesc);
 
 #if defined(_DEBUG)
-   return nvrhi::validation::createValidationLayer(m_Device);
+    m_ValidationLayer = nvrhi::validation::createValidationLayer(m_NvrhiDevice);
+   return m_ValidationLayer;
 #endif
 
-   return m_Device;
+   return m_NvrhiDevice;
 }
 
 void RendererBackendVulkan::CreateSwapChain(uint32_t width, uint32_t height) {
-    m_Settings.backBufferWidth = width;
-    m_Settings.backBufferHeight = height;
+    m_Settings->backBufferWidth = width;
+    m_Settings->backBufferHeight = height;
 
     CreateSwapChain();
 
     BackBufferResized();
 
-    if (m_SyncObjectsMissing) {
-        m_SyncObjectsMissing = false;
-
-        m_PresentCompleteSemaphores.clear();
-        m_RenderFinishedSemaphore.clear();
-        m_InFlightFences.clear();
-
-        for (size_t i = 0; i < m_SwapChainImages.size(); i++) {
-            m_PresentCompleteSemaphores.emplace_back(m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo()));
-            m_RenderFinishedSemaphore.emplace_back(m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo()));
-        }
-
-
-        for (size_t i = 0; i < m_Settings.maxFramesInFlight; i++) {
-            vk::FenceCreateInfo fenceCreateInfo{};
-            fenceCreateInfo.flags = vk::FenceCreateFlagBits::eSignaled;
-            m_InFlightFences.emplace_back(m_VulkanDevice.createFence(fenceCreateInfo));
-        }
-    }
-}
-
-nvrhi::CommandListHandle RendererBackendVulkan::CreateCommandList() {
-    if (!m_CommandList) {
-        m_CommandList = m_Device->createCommandList();
+    size_t const numPresentSemaphores = m_SwapChainImages.size();
+    m_PresentSemaphores.reserve(numPresentSemaphores);
+    for (uint32_t i = 0; i < numPresentSemaphores; ++i)
+    {
+        m_PresentSemaphores.push_back(m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo()));
     }
 
-    return m_CommandList;
+    size_t const numAcquireSemaphores = std::max(size_t(m_Settings->maxFramesInFlight),
+        m_SwapChainImages.size());
+    m_AcquireSemaphores.reserve(numAcquireSemaphores);
+    for (uint32_t i = 0; i < numAcquireSemaphores; ++i)
+    {
+        m_AcquireSemaphores.push_back(m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo()));
+    }
 }
 
 void RendererBackendVulkan::ResizeSwapChain(uint32_t width, uint32_t height) {
-    m_Settings.backBufferWidth = width;
-    m_Settings.backBufferHeight = height;
+    m_Settings->backBufferWidth = width;
+    m_Settings->backBufferHeight = height;
     m_ResizeRequested = true;
 }
 
 bool RendererBackendVulkan::BeginFrame() {
 
-    while (vk::Result::eTimeout == m_VulkanDevice.waitForFences(m_InFlightFences[m_CurrentFrame], vk::True, UINT64_MAX) )
-        ;
+    constexpr uint64_t kAcquireTimeoutNs = 1'000'000'000ull; // 1s
+
+    const auto& semaphore = m_AcquireSemaphores[m_AcquireSemaphoreIndex];
 
     vk::Result res;
 
-    constexpr uint64_t kAcquireTimeoutNs = 1'000'000'000ull; // 1s
-
-    res = m_VulkanDevice.acquireNextImageKHR(
-        m_SwapChain,
-        kAcquireTimeoutNs, // timeout
-        m_PresentCompleteSemaphores[m_SemaphoreIndex],
-        vk::Fence(),
-        &m_SwapChainIndex);
-
-    if (res == vk::Result::eErrorOutOfDateKHR || m_ResizeRequested)
+    int const maxAttempts = 3;
+    for (int attempt = 0; attempt < maxAttempts; ++attempt)
     {
-        m_ResizeRequested = false;
-        BackBufferResizing();
-        auto surfaceCaps = m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_WindowSurface);
+        res = m_VulkanDevice.acquireNextImageKHR(
+            m_SwapChain,
+            std::numeric_limits<uint64_t>::max(), // timeout
+            semaphore,
+            vk::Fence(),
+            &m_SwapChainIndex);
 
-        m_Settings.backBufferWidth = surfaceCaps.currentExtent.width;
-        m_Settings.backBufferHeight = surfaceCaps.currentExtent.height;
+        if ((res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR || m_ResizeRequested) && attempt < maxAttempts)
+        {
+            m_ResizeRequested = false;
+            BackBufferResizing();
+            auto surfaceCaps = m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_WindowSurface);
 
-        ResizeSwapChain();
-        BackBufferResized();
-        return false;
+            m_Settings->backBufferWidth = surfaceCaps.currentExtent.width;
+            m_Settings->backBufferHeight = surfaceCaps.currentExtent.height;
+
+            ResizeSwapChain();
+            BackBufferResized();
+        }
+        else
+            break;
     }
 
-    if (res != vk::Result::eSuccess && res != vk::Result::eSuboptimalKHR)
+    m_AcquireSemaphoreIndex = (m_AcquireSemaphoreIndex + 1) % m_AcquireSemaphores.size();
+
+    if (res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR) // Suboptimal is considered a success
     {
-        SM_TRACE("Failed to acquire next swap chain image, error code = %s", nvrhi::vulkan::resultToString(static_cast<VkResult>(res)));
-        return false;
+        // Schedule the wait. The actual wait operation will be submitted when the app executes any command list.
+        m_NvrhiDevice->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, semaphore, 0);
+        return true;
     }
 
-    m_VulkanDevice.resetFences(m_InFlightFences[m_CurrentFrame]);
-
-    return true;
+    return false;
 }
 
 bool RendererBackendVulkan::Present() {
-    /*
-    constexpr vk::PipelineStageFlags waitDestinationStageMask( vk::PipelineStageFlagBits::eColorAttachmentOutput );
-    vk::SubmitInfo submitInfo{};
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = &m_PresentCompleteSemaphores[m_SemaphoreIndex];
-    submitInfo.pWaitDstStageMask = &waitDestinationStageMask;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = static_cast<const vk::CommandBuffer*>(test);
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = &m_RenderFinishedSemaphore[m_SwapChainIndex];
 
-    m_PresentQueue.submit(submitInfo, m_InFlightFences[m_CurrentFrame]);
-    */
+    const auto& semaphore = m_PresentSemaphores[m_SwapChainIndex];
+
+    m_NvrhiDevice->queueSignalSemaphore(nvrhi::CommandQueue::Graphics, semaphore, 0);
+
+    // NVRHI buffers the semaphores and signals them when something is submitted to a queue.
+    // Call 'executeCommandLists' with no command lists to actually signal the semaphore.
+    m_NvrhiDevice->executeCommandLists(nullptr, 0);
 
     vk::PresentInfoKHR info = vk::PresentInfoKHR()
                                 .setWaitSemaphoreCount(1)
-                                .setPWaitSemaphores(&m_RenderFinishedSemaphore[m_SwapChainIndex])
+                                .setPWaitSemaphores(&semaphore)
                                 .setSwapchainCount(1)
                                 .setPSwapchains(&m_SwapChain)
                                 .setPImageIndices(&m_SwapChainIndex);
 
     const vk::Result result = m_PresentQueue.presentKHR(&info);
-    if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR || m_ResizeRequested) {
-        m_ResizeRequested = false;
-        BackBufferResizing();
-        auto surfaceCaps = m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_WindowSurface);
 
-        m_Settings.backBufferWidth = surfaceCaps.currentExtent.width;
-        m_Settings.backBufferHeight = surfaceCaps.currentExtent.height;
-
-        ResizeSwapChain();
-        BackBufferResized();
-    } else if (result != vk::Result::eSuccess) {
-        SM_TRACE("Failed to present swap chain image, error code = %s", nvrhi::vulkan::resultToString(static_cast<VkResult>(result)));
+    if (!(result == vk::Result::eSuccess || result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR))
+    {
         return false;
     }
 
+    while (m_FramesInFlight.size() >= m_Settings->maxFramesInFlight)
+    {
+        auto query = m_FramesInFlight.front();
+        m_FramesInFlight.pop();
+
+        m_NvrhiDevice->waitEventQuery(query);
+
+        m_QueryPool.push_back(query);
+    }
+
+    nvrhi::EventQueryHandle query;
+    if (!m_QueryPool.empty())
+    {
+        query = m_QueryPool.back();
+        m_QueryPool.pop_back();
+    }
+    else
+    {
+        query = m_NvrhiDevice->createEventQuery();
+    }
+
+    m_NvrhiDevice->resetEventQuery(query);
+    m_NvrhiDevice->setEventQuery(query, nvrhi::CommandQueue::Graphics);
+    m_FramesInFlight.push(query);
     return true;
 }
 
@@ -450,8 +453,10 @@ static bool CompileHlslToSpirv_DXC(const char* source, size_t sourceSize,
 
     ComPtr<IDxcResult> result;
     if (FAILED(compiler->Compile(&src, args.data(), (UINT)args.size(), includeHandler.Get(),
-                                 IID_PPV_ARGS(&result))))
+                                 IID_PPV_ARGS(&result)))) {
         return false;
+    }
+
 
     // Collect errors (if any)
     ComPtr<IDxcBlobUtf8> errors;
@@ -461,13 +466,16 @@ static bool CompileHlslToSpirv_DXC(const char* source, size_t sourceSize,
 
     HRESULT status = S_OK;
     result->GetStatus(&status);
-    if (FAILED(status))
+    if (FAILED(status)) {
         return false;
+    }
 
     // Get SPIR-V
     ComPtr<IDxcBlob> obj;
     ComPtr<IDxcBlobUtf16> dummy;
-    if (FAILED(result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&obj), &dummy))) return false;
+    if (FAILED(result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&obj), &dummy))) {
+        return false;
+    }
 
     outSpirv.resize(obj->GetBufferSize());
     memcpy(outSpirv.data(), obj->GetBufferPointer(), obj->GetBufferSize());
@@ -491,13 +499,15 @@ nvrhi::ShaderHandle RendererBackendVulkan::CreateShaderFromMemory(nvrhi::ShaderT
         return nullptr;
     }
 
-    return m_Device->createShader(shaderDesc, spirv.data(), spirv.size());
+    return GetDevice()->createShader(shaderDesc, spirv.data(), spirv.size());
 }
 
 void RendererBackendVulkan::DestroyDeviceAndSwapChain() {
     DestroySwapChain();
 
-    for (auto& semaphore : m_PresentCompleteSemaphores)
+    m_SwapChainFramebuffers.clear();
+
+    for (auto& semaphore : m_PresentSemaphores)
     {
         if (semaphore)
         {
@@ -506,7 +516,7 @@ void RendererBackendVulkan::DestroyDeviceAndSwapChain() {
         }
     }
 
-    for (auto& semaphore : m_RenderFinishedSemaphore)
+    for (auto& semaphore : m_AcquireSemaphores)
     {
         if (semaphore)
         {
@@ -515,14 +525,8 @@ void RendererBackendVulkan::DestroyDeviceAndSwapChain() {
         }
     }
 
-    for (auto& fence : m_InFlightFences) {
-        if (fence) {
-            m_VulkanDevice.destroyFence(fence);
-            fence = vk::Fence();
-        }
-    }
-
-    m_Device = nullptr;
+    m_NvrhiDevice = nullptr;
+    m_ValidationLayer = nullptr;
     m_RendererString.clear();
 
     if (m_VulkanDevice)
@@ -533,7 +537,7 @@ void RendererBackendVulkan::DestroyDeviceAndSwapChain() {
 
     if (m_WindowSurface)
     {
-        SM_ASSERT(m_VulkanInstance, "Vulkan instance is null but window surface is not");
+        assert(m_VulkanInstance);
         m_VulkanInstance.destroySurfaceKHR(m_WindowSurface);
         m_WindowSurface = nullptr;
     }
@@ -548,6 +552,14 @@ void RendererBackendVulkan::DestroyDeviceAndSwapChain() {
         m_VulkanInstance.destroy();
         m_VulkanInstance = nullptr;
     }
+}
+
+nvrhi::DeviceHandle RendererBackendVulkan::GetDevice() {
+#if defined(_DEBUG)
+    if (m_ValidationLayer)
+        return m_ValidationLayer;
+#endif
+    return m_NvrhiDevice;
 }
 
 // Private impls
@@ -576,8 +588,8 @@ bool RendererBackendVulkan::CreateWindowSurface() {
 }
 
 bool RendererBackendVulkan::PickPhysicalDevice() {
-    VkFormat requestedFormat = nvrhi::vulkan::convertFormat(m_Settings.swapChainFormat);
-    vk::Extent2D requestedExtent(m_Settings.backBufferWidth, m_Settings.backBufferHeight);
+    VkFormat requestedFormat = nvrhi::vulkan::convertFormat(m_Settings->swapChainFormat);
+    vk::Extent2D requestedExtent(m_Settings->backBufferWidth, m_Settings->backBufferHeight);
 
     auto devices = m_VulkanInstance.enumeratePhysicalDevices();
 
@@ -673,11 +685,11 @@ bool RendererBackendVulkan::PickPhysicalDevice() {
                 auto surfaceCaps = dev.getSurfaceCapabilitiesKHR(m_WindowSurface);
                 auto surfaceFmts = dev.getSurfaceFormatsKHR(m_WindowSurface);
 
-                if (surfaceCaps.minImageCount > m_Settings.swapChainBufferCount ||
-                    (surfaceCaps.maxImageCount < m_Settings.swapChainBufferCount && surfaceCaps.maxImageCount > 0))
+                if (surfaceCaps.minImageCount > m_Settings->swapChainBufferCount ||
+                    (surfaceCaps.maxImageCount < m_Settings->swapChainBufferCount && surfaceCaps.maxImageCount > 0))
                 {
                     errorStream << std::endl << "  - cannot support the requested swap chain image count:";
-                    errorStream << " requested " << m_Settings.swapChainBufferCount << ", available " << surfaceCaps.minImageCount << " - " << surfaceCaps.maxImageCount;
+                    errorStream << " requested " << m_Settings->swapChainBufferCount << ", available " << surfaceCaps.minImageCount << " - " << surfaceCaps.maxImageCount;
                     deviceIsGood = false;
                 }
 
@@ -948,10 +960,6 @@ bool RendererBackendVulkan::CreateVkDevice() {
         .setDynamicRendering(true)
         .setSynchronization2(synchronization2Supported)
         .setMaintenance4(maintenance4Features.maintenance4);
-    auto aftermathFeatures = vk::DeviceDiagnosticsConfigCreateInfoNV()
-        .setFlags(vk::DeviceDiagnosticsConfigFlagBitsNV::eEnableResourceTracking
-            | vk::DeviceDiagnosticsConfigFlagBitsNV::eEnableShaderDebugInfo
-            | vk::DeviceDiagnosticsConfigFlagBitsNV::eEnableShaderErrorReporting);
     auto clusterAccelerationStructureFeatures = vk::PhysicalDeviceClusterAccelerationStructureFeaturesNV()
         .setClusterAccelerationStructure(true);
     auto mutableDescriptorTypeFeatures = vk::PhysicalDeviceMutableDescriptorTypeFeaturesEXT()
@@ -1047,15 +1055,16 @@ bool RendererBackendVulkan::CreateSwapChain() {
     DestroySwapChain();
 
     m_SwapChainFormat = {
-        vk::Format(nvrhi::vulkan::convertFormat(m_Settings.swapChainFormat)),
+        vk::Format(nvrhi::vulkan::convertFormat(m_Settings->swapChainFormat)),
         vk::ColorSpaceKHR::eSrgbNonlinear
     };
 
-    vk::Extent2D extent = vk::Extent2D(m_Settings.backBufferWidth, m_Settings.backBufferHeight);
+    vk::Extent2D extent = vk::Extent2D(m_Settings->backBufferWidth, m_Settings->backBufferHeight);
 
     std::unordered_set<uint32_t> uniqueQueues = {
         uint32_t(m_GraphicsQueueFamily),
-        uint32_t(m_PresentQueueFamily) };
+        uint32_t(m_PresentQueueFamily)
+    };
 
     std::vector<uint32_t> queues = setToVector(uniqueQueues);
 
@@ -1063,7 +1072,7 @@ bool RendererBackendVulkan::CreateSwapChain() {
 
     auto desc = vk::SwapchainCreateInfoKHR()
                     .setSurface(m_WindowSurface)
-                    .setMinImageCount(m_Settings.swapChainBufferCount)
+                    .setMinImageCount(m_Settings->swapChainBufferCount)
                     .setImageFormat(m_SwapChainFormat.format)
                     .setImageColorSpace(m_SwapChainFormat.colorSpace)
                     .setImageExtent(extent)
@@ -1075,7 +1084,7 @@ bool RendererBackendVulkan::CreateSwapChain() {
                     .setPQueueFamilyIndices(enableSwapChainSharing ? queues.data() : nullptr)
                     .setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity)
                     .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
-                    .setPresentMode(m_Settings.vsyncEnabled ? vk::PresentModeKHR::eFifo : vk::PresentModeKHR::eImmediate)
+                    .setPresentMode(m_Settings->vsyncEnabled ? vk::PresentModeKHR::eFifo : vk::PresentModeKHR::eImmediate)
                     .setClipped(true)
                     .setOldSwapchain(nullptr);
 
@@ -1119,15 +1128,15 @@ bool RendererBackendVulkan::CreateSwapChain() {
         sci.image = image;
 
         nvrhi::TextureDesc textureDesc;
-        textureDesc.width = m_Settings.backBufferWidth;
-        textureDesc.height = m_Settings.backBufferHeight;
-        textureDesc.format = m_Settings.swapChainFormat;
+        textureDesc.width = m_Settings->backBufferWidth;
+        textureDesc.height = m_Settings->backBufferHeight;
+        textureDesc.format = m_Settings->swapChainFormat;
         textureDesc.debugName = "Swap chain image";
         textureDesc.initialState = nvrhi::ResourceStates::Present;
         textureDesc.keepInitialState = true;
         textureDesc.isRenderTarget = true;
 
-        sci.rhiHandle = m_Device->createHandleForNativeTexture(nvrhi::ObjectTypes::VK_Image, nvrhi::Object(sci.image), textureDesc);
+        sci.rhiHandle = m_NvrhiDevice->createHandleForNativeTexture(nvrhi::ObjectTypes::VK_Image, nvrhi::Object(sci.image), textureDesc);
         m_SwapChainImages.push_back(sci);
     }
 
@@ -1142,7 +1151,7 @@ void RendererBackendVulkan::DestroySwapChain() {
         m_VulkanDevice.waitIdle();
     }
 
-    m_SwapChainFramebuffers.clear();
+    // m_SwapChainFramebuffers.clear();
 
     if (m_SwapChain)
     {
@@ -1158,20 +1167,6 @@ void RendererBackendVulkan::ResizeSwapChain() {
     {
         DestroySwapChain();
         CreateSwapChain();
-    }
-}
-
-void RendererBackendVulkan::BackBufferResizing() {
-    m_SwapChainFramebuffers.clear();
-}
-
-void RendererBackendVulkan::BackBufferResized() {
-    uint32_t backBufferCount = GetBackBufferCount();
-    m_SwapChainFramebuffers.resize(backBufferCount);
-    for (uint32_t index = 0; index < backBufferCount; index++)
-    {
-        m_SwapChainFramebuffers[index] = m_Device->createFramebuffer(
-            nvrhi::FramebufferDesc().addColorAttachment(GetBackBuffer(index)));
     }
 }
 
@@ -1192,17 +1187,6 @@ uint32_t RendererBackendVulkan::GetCurrentBackBufferIndex()
 uint32_t RendererBackendVulkan::GetBackBufferCount()
 {
     return uint32_t(m_SwapChainImages.size());
-}
-
-uint32_t * RendererBackendVulkan::GetFrameIndexPtr() {
-    return &m_FrameIndex;
-}
-
-nvrhi::IFramebuffer * RendererBackendVulkan::GetFrameBuffer(int32_t index) {
-    if (index < 0) {
-        index = static_cast<int32_t>(GetCurrentBackBufferIndex());
-    }
-    return m_SwapChainFramebuffers[index];
 }
 
 // Static impls

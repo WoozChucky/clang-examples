@@ -107,6 +107,7 @@ private:
 
     nvrhi::DeviceHandle         m_Device = nullptr;
     nvrhi::CommandListHandle    m_CommandList = nullptr;
+    uint32_t                    m_FrameIndex = 0;
 
     GpuTimer                    m_GpuTimer {};
     FrameAllocator              m_FrameAllocator;

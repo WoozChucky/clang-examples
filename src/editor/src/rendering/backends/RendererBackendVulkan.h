@@ -17,7 +17,7 @@ using nvrhi::RefCountPtr;
 
 class RendererBackendVulkan final : public RendererBackend {
 public:
-    explicit RendererBackendVulkan(const RendererBackendSettings &settings, GLFWwindow* window)
+    explicit RendererBackendVulkan(RendererBackendSettings &settings, GLFWwindow* window)
         : RendererBackend(settings, window)
     {}
     ~RendererBackendVulkan() override = default;
@@ -26,14 +26,11 @@ public:
     [[nodiscard]] RendererAPI GetAPI() const override;
     nvrhi::DeviceHandle CreateDevice() override;
     void CreateSwapChain(uint32_t width, uint32_t height) override;
-    nvrhi::CommandListHandle CreateCommandList() override;
     void ResizeSwapChain(uint32_t width, uint32_t height) override;
     nvrhi::ITexture* GetCurrentBackBuffer() override;
     nvrhi::ITexture* GetBackBuffer(uint32_t index) override;
     uint32_t GetCurrentBackBufferIndex() override;
     uint32_t GetBackBufferCount() override;
-    uint32_t* GetFrameIndexPtr() override;
-    nvrhi::IFramebuffer* GetFrameBuffer(int32_t index) override;
     bool BeginFrame() override;
     bool Present() override;
     nvrhi::ShaderHandle CreateShaderFromMemory(
@@ -44,6 +41,7 @@ public:
         const char* targetName) override;
 protected:
     void DestroyDeviceAndSwapChain() override;
+    nvrhi::DeviceHandle GetDevice() override;
 
 private:
     void InstallDebugCallback();
@@ -57,8 +55,6 @@ private:
     void CreateRenderTargets();
     void ReleaseRenderTargets();
     void ResizeSwapChain();
-    void BackBufferResizing();
-    void BackBufferResized();
 
     struct VulkanExtensionSet
     {
@@ -68,10 +64,7 @@ private:
     };
 
 private:
-    nvrhi::vulkan::DeviceHandle                     m_Device;
-    nvrhi::CommandListHandle                        m_CommandList;
     nvrhi::vulkan::DeviceDesc                       m_DeviceDesc;
-    HWND                                            m_hWnd = nullptr;
     bool                                            m_TearingSupported = false;
 
     std::vector<nvrhi::TextureHandle>               m_RhiSwapChainBuffers;
@@ -162,12 +155,12 @@ private:
     std::vector<SwapChainImage> m_SwapChainImages;
     uint32_t m_SwapChainIndex = static_cast<uint32_t>(-1);
 
-    std::vector<vk::Fence> m_InFlightFences;
-    std::vector<vk::Semaphore> m_PresentCompleteSemaphores;
-    std::vector<vk::Semaphore> m_RenderFinishedSemaphore;
-    uint32_t m_SemaphoreIndex = 0;
-    uint32_t m_CurrentFrame = 0;
-    bool m_SyncObjectsMissing = true;
+    nvrhi::vulkan::DeviceHandle m_NvrhiDevice;
+    nvrhi::DeviceHandle m_ValidationLayer;
+
+    std::vector<vk::Semaphore> m_AcquireSemaphores;
+    std::vector<vk::Semaphore> m_PresentSemaphores;
+    uint32_t m_AcquireSemaphoreIndex = 0;
 
     std::queue<nvrhi::EventQueryHandle> m_FramesInFlight;
     std::vector<nvrhi::EventQueryHandle> m_QueryPool;

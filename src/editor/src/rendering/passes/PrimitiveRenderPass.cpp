@@ -7,6 +7,7 @@
 #include "glm/vec2.hpp"
 #include "glm/vec3.hpp"
 #include "glm/vec4.hpp"
+#include "tracy/Tracy.hpp"
 
 // Helper structs for primitive pass
 struct PerFrameCBData {
@@ -68,7 +69,7 @@ cbuffer PerFrame : register(b0, space0) // set = 0, binding = 0
     float4 uCameraPos; // xyz = camera world pos
 };
 
-cbuffer PrimPerDraw : register(b2, space0) // set = 0, binding = 2
+cbuffer PrimPerDraw : register(b1, space0) // set = 0, binding = 1
 {
     float4 GridColor;
     float4 AxisXColor;
@@ -199,12 +200,12 @@ bool PrimitiveRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     nvrhi::BindingSetDesc bs;
     bs.bindings = {
         nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameConstantBuffer),
-        nvrhi::BindingSetItem::ConstantBuffer(2, m_PerDrawCB)
+        nvrhi::BindingSetItem::ConstantBuffer(1, m_PerDrawCB)
     };
 
     if (!nvrhi::utils::CreateBindingSetAndLayout(
             m_Device,
-            nvrhi::ShaderType::All,
+            nvrhi::ShaderType::Vertex | nvrhi::ShaderType::Pixel,
             0,
             bs,
             m_BindingLayout,
@@ -224,8 +225,10 @@ void PrimitiveRenderPass::Render(
     double deltaTime,
     FrameAllocator* frameAllocator)
 {
+    ZoneScopedN("PrimitiveRenderPass");
     if (!m_Pipeline)
     {
+        ZoneScopedN("Pipeline Creation");
         const auto fbi = frameBuffer->getFramebufferInfo();
         nvrhi::GraphicsPipelineDesc pso;
         pso.VS = m_VS;
@@ -242,46 +245,61 @@ void PrimitiveRenderPass::Render(
     glm::mat4 V = snapshot.GameCamera.get_view_matrix();
     glm::mat4 P = snapshot.GameCamera.get_projection_matrix();
 
-    // Defaults for the grid
-    PrimPerDrawCB prim{};
-    prim.GridColor  = {0.35f, 0.35f, 0.35f, 1.0f};
-    prim.AxisXColor = {1.0f, 0.2f, 0.2f, 1.0f};
-    prim.AxisZColor = {0.2f, 0.6f, 1.0f, 1.0f};
-    prim.GridParams = {1.f, 2.0f};   // 1 unit per cell, 2px thickness
-    prim.FadeParams = {100.0f, 150.0f};
-    commandList->writeBuffer(m_PerDrawCB, &prim, sizeof(prim));
+    {
+        ZoneScopedN("Upload ContantBuffer 1");
+        // Defaults for the grid
+        PrimPerDrawCB prim{};
+        prim.GridColor  = {0.35f, 0.35f, 0.35f, 1.0f};
+        prim.AxisXColor = {1.0f, 0.2f, 0.2f, 1.0f};
+        prim.AxisZColor = {0.2f, 0.6f, 1.0f, 1.0f};
+        prim.GridParams = {1.f, 2.0f};   // 1 unit per cell, 2px thickness
+        prim.FadeParams = {100.0f, 150.0f};
+        commandList->writeBuffer(m_PerDrawCB, &prim, sizeof(prim));
+    }
 
     // State
     nvrhi::GraphicsState primState;
-    primState.pipeline = m_Pipeline.Get();
-    primState.framebuffer = frameBuffer;
-    primState.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
-    primState.bindings = { m_BindingSet };
-    primState.vertexBuffers = { nvrhi::VertexBufferBinding(m_VertexBuffer, 0, 0) };
-    primState.indexBuffer = nvrhi::IndexBufferBinding(m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+    {
+        ZoneScopedN("Create Graphics State");
+        primState.pipeline = m_Pipeline;
+        primState.framebuffer = frameBuffer;
+        primState.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+        primState.bindings = { m_BindingSet };
+        primState.vertexBuffers = { nvrhi::VertexBufferBinding(m_VertexBuffer, 0, 0) };
+        primState.indexBuffer = nvrhi::IndexBufferBinding(m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
+    }
 
-    PrimitiveInstance inst{};
-    inst.type = PrimitiveType::Plane;
-    inst.transform = glm::mat4(1.0f); // Typically identity for Y=0 grid
-    inst.color = {1,1,1,1};
-    inst.params = {0,0,0,0};
+    {
+        ZoneScopedN("Upload ContantBuffer 2");
+        PrimitiveInstance inst{};
+        inst.type = PrimitiveType::Plane;
+        inst.transform = glm::mat4(1.0f); // Typically identity for Y=0 grid
+        inst.color = {1,1,1,1};
+        inst.params = {0,0,0,0};
 
-    PerFrameCBData pf{};
-    pf.Model = inst.transform;
-    pf.VP = P * V;
-    pf.CameraPos = glm::vec4(snapshot.GameCamera.position, 0.0f);
+        PerFrameCBData pf{};
+        pf.Model = inst.transform;
+        pf.VP = P * V;
+        pf.CameraPos = glm::vec4(snapshot.GameCamera.position, 0.0f);
 
-    commandList->writeBuffer(m_PerFrameConstantBuffer, &pf, sizeof(pf));
+        commandList->writeBuffer(m_PerFrameConstantBuffer, &pf, sizeof(pf));
+    }
 
-    commandList->setGraphicsState(primState);
+    {
+        ZoneScopedN("Set Graphics State");
+        commandList->setGraphicsState(primState);
+    }
 
-    nvrhi::DrawArguments args{};
-    args.vertexCount = m_IndexCount; // vertexCount acts as index count for indexed draw per NVRHI documentation
-    args.instanceCount = 1;
-    args.startIndexLocation = 0;
-    args.startVertexLocation = 0;
+    {
+        ZoneScopedN("Draw");
+        nvrhi::DrawArguments args{};
+        args.vertexCount = m_IndexCount; // vertexCount acts as index count for indexed draw per NVRHI documentation
+        args.instanceCount = 1;
+        args.startIndexLocation = 0;
+        args.startVertexLocation = 0;
 
-    commandList->drawIndexed(args);
+        commandList->drawIndexed(args);
+    }
 }
 
 void PrimitiveRenderPass::Shutdown() {

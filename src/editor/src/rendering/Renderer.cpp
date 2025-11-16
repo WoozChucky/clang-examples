@@ -61,7 +61,7 @@ bool Renderer::Init(const RendererAPI api) {
 
     m_Backend->CreateSwapChain(m_BackendSettings.backBufferWidth, m_BackendSettings.backBufferHeight);
 
-    m_CommandList = m_Backend->CreateCommandList();
+    m_CommandList = m_Device->createCommandList();
     if (!m_CommandList) {
         SM_ERROR("Failed to create CommandList");
         delete m_Backend;
@@ -155,19 +155,16 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
         }
     }
 
-    uint32_t* frameIndex = m_Backend->GetFrameIndexPtr();
-
-    if (*frameIndex > 0) {
+    if (m_FrameIndex > 0) {
         if (m_Backend->BeginFrame()) {
 
-            nvrhi::IFramebuffer* frameBuffer = m_Backend->GetFrameBuffer(-1);
+            nvrhi::IFramebuffer* frameBuffer = m_Backend->GetCurrentFrameBuffer();
 
             {
                 ZoneScopedN("BeginRecording");
                 m_CommandList->open();
                 m_GpuTimer.Begin(m_CommandList);
             }
-
 
             {
                 ZoneScopedN("RenderPasses");
@@ -178,6 +175,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
 
                 // Render all passes
                 for (auto& pass : m_RenderPasses) {
+                    ZoneScopedN("RenderPass Rec N");
                     if (pass) {
                         pass->Render(m_CommandList, frameBuffer, snapshot, deltaTime, &m_FrameAllocator);
                     }
@@ -212,7 +210,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
 
     m_Device->runGarbageCollection();
 
-    ++*frameIndex;
+    ++m_FrameIndex;
 
     return secs;
 }
@@ -232,9 +230,6 @@ void Renderer::Resize(const uint32_t width, const uint32_t height) {
 
 void Renderer::ToggleVSync() {
     m_BackendSettings.vsyncEnabled = !m_BackendSettings.vsyncEnabled;
-    if (m_Backend) {
-        m_Backend->SetVSync(m_BackendSettings.vsyncEnabled);
-    }
 }
 
 nvrhi::ShaderHandle Renderer::CreateShader(
@@ -260,8 +255,8 @@ void Renderer::AddRenderPass(std::unique_ptr<IRenderPass> pass) {
 void Renderer::RemoveRenderPass(IRenderPass* pass) {
     if (!pass) return;
 
-    auto it = std::find_if(m_RenderPasses.begin(), m_RenderPasses.end(),
-        [pass](const std::unique_ptr<IRenderPass>& ptr) { return ptr.get() == pass; });
+    auto it = std::ranges::find_if(m_RenderPasses,
+                                   [pass](const std::unique_ptr<IRenderPass>& ptr) { return ptr.get() == pass; });
     if (it != m_RenderPasses.end()) {
         m_RenderPasses.erase(it);
     }

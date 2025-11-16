@@ -12,6 +12,7 @@ add_executable(editor
     
     # Rendering
     src/rendering/Renderer.cpp
+    src/rendering/RendererBackend.cpp
     src/rendering/ImGuiRenderer.cpp
     src/rendering/imgui_nvrhi.cpp
     src/rendering/registered_font.cpp
@@ -90,6 +91,12 @@ add_custom_command(TARGET editor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/nethost.dll
     ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/hostfxr.dll
+    $<TARGET_FILE_DIR:editor>
+)
+
+add_custom_command(TARGET editor POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_SOURCE_DIR}/third_party/dxc-prebuilt/bin/x64/dxcompiler.dll"
     $<TARGET_FILE_DIR:editor>
 )
 

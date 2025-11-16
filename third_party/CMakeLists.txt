@@ -22,6 +22,14 @@ foreach(target ${nvrhi_targets})
     set_target_properties(${target} PROPERTIES FOLDER ThirdParty/NVRHI)
 endforeach()
 
+set(DXC_ROOT "${CMAKE_SOURCE_DIR}/third_party/dxc-prebuilt")
+add_library(dxcompiler SHARED IMPORTED)
+set_target_properties(dxcompiler PROPERTIES
+    IMPORTED_LOCATION "${DXC_ROOT}/bin/x64/dxcompiler.dll"
+    IMPORTED_IMPLIB "${DXC_ROOT}/lib/x64/dxcompiler.lib"
+)
+target_include_directories(dxcompiler INTERFACE "${DXC_ROOT}/inc")
+
 set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
 set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
 add_subdirectory(tracy)

@@ -14,7 +14,7 @@ using nvrhi::RefCountPtr;
 
 class RendererBackendDX12 final : public RendererBackend {
 public:
-    explicit RendererBackendDX12(const RendererBackendSettings &settings, GLFWwindow* window)
+    explicit RendererBackendDX12(RendererBackendSettings &settings, GLFWwindow* window)
         : RendererBackend(settings, window)
     {}
     ~RendererBackendDX12() override = default;
@@ -23,14 +23,11 @@ public:
     [[nodiscard]] RendererAPI GetAPI() const override;
     nvrhi::DeviceHandle CreateDevice() override;
     void CreateSwapChain(uint32_t width, uint32_t height) override;
-    nvrhi::CommandListHandle CreateCommandList() override;
     void ResizeSwapChain(uint32_t width, uint32_t height) override;
     nvrhi::ITexture* GetCurrentBackBuffer() override;
     nvrhi::ITexture* GetBackBuffer(uint32_t index) override;
     uint32_t GetCurrentBackBufferIndex() override;
     uint32_t GetBackBufferCount() override;
-    uint32_t* GetFrameIndexPtr() override;
-    nvrhi::IFramebuffer* GetFrameBuffer(int32_t index) override;
     bool BeginFrame() override;
     bool Present() override;
     nvrhi::ShaderHandle CreateShaderFromMemory(
@@ -41,6 +38,7 @@ public:
         const char* targetName) override;
 protected:
     void DestroyDeviceAndSwapChain() override;
+    nvrhi::DeviceHandle GetDevice() override;
 
 private:
     static void EnableDebugLayerIfAvailable();
@@ -52,8 +50,7 @@ private:
     void CreateRenderTargets();
     void ReleaseRenderTargets();
     void ResizeSwapChain();
-    void BackBufferResizing();
-    void BackBufferResized();
+
 
 private:
     nvrhi::DeviceHandle                             m_Device;
@@ -77,8 +74,6 @@ private:
     std::vector<HANDLE>                             m_FrameFenceEvents;
 
     UINT64                                          m_FrameCount = 1;
-    uint32_t                                        m_FrameIndex = 0;
 
-    std::vector<nvrhi::FramebufferHandle>           m_SwapChainFramebuffers;
     bool                                            m_ResizeRequested = false;
 };
