@@ -17,6 +17,13 @@
 #include <print>
 #include <ostream>
 
+enum class RendererAPI : uint8_t {
+    Invalid,
+    DirectX12,
+    DirectX11,
+    Vulkan,
+};
+
 // #############################################################################
 //                           Constants
 // #############################################################################
@@ -438,7 +445,7 @@ inline float ease_in_circ(float t)
 inline float ease_out_elastic(float t)
 {
   float c4 = (2.0f * 3.14f) / 3.0f;
-  
+
   if (t == 0.0f)
   {
     return 0.0f;
@@ -473,7 +480,7 @@ inline float superku_function(float t)
   {
     return 1.0f;
   }
-  
+
   return 0.5f * (sqrt(t) + t * t * t * t *t );
 }
 
@@ -533,12 +540,12 @@ char* format_text(char* format, Args... args)
 {
   static int bufferIdx = 0;
   static char buffers[2][1024] = {};
-  
+
   char* buffer = buffers[bufferIdx];
   memset(buffer, 0, 1024);
-  
+
   sprintf(buffer, format, args...);
-  
+
   return buffer;
 }
 
@@ -588,7 +595,7 @@ inline long get_file_size(const char* filePath)
 
 /*
 * Reads a file into a supplied buffer. We manage our own
-* memory and therefore want more control over where it 
+* memory and therefore want more control over where it
 * is allocated
 */
 inline char* read_file(const char* filePath, int* fileSize, char* buffer)
@@ -643,7 +650,7 @@ inline char* read_file(const char* filePath, int* fileSize, BumpAllocator* bumpA
     file = read_file(filePath, fileSize, buffer);
   }
 
-  return file; 
+  return file;
 }
 
 inline bool copy_file(const char* fileName, const char* outputName, char* buffer)
@@ -665,7 +672,7 @@ inline bool copy_file(const char* fileName, const char* outputName, char* buffer
     SM_ERROR("Failed opening File(write-output): %s", outputName);
     return false;
   }
-  
+
   fclose(outputFile);
 
   return true;
@@ -689,7 +696,7 @@ inline bool copy_file(const char* fileName, const char* outputName, BumpAllocato
 // #############################################################################
 //                           WAV File stuff
 // #############################################################################
-// Wave Files are seperated into chunks, 
+// Wave Files are seperated into chunks,
 // struct chunk
 // {
 //   unsigned int id;
@@ -731,18 +738,18 @@ inline WAVFile* load_wav(char* path, BumpAllocator* bumpAllocator)
 {
 	int fileSize = 0;
 	WAVFile* wavFile = (WAVFile*)read_file(path, &fileSize, bumpAllocator);
-	if(!wavFile) 
-  { 
+	if(!wavFile)
+  {
     SM_ASSERT(0, "Failed to load Wave File: %s", path);
-    return {}; 
+    return {};
   }
 
-	SM_ASSERT(wavFile->header.numChannels == NUM_CHANNELS, 
+	SM_ASSERT(wavFile->header.numChannels == NUM_CHANNELS,
             "We only support 2 channels for now!");
-	SM_ASSERT(wavFile->header.sampleRate == SAMPLE_RATE, 
+	SM_ASSERT(wavFile->header.sampleRate == SAMPLE_RATE,
             "We only support 44100 sample rate for now!");
 
-	SM_ASSERT(memcmp(&wavFile->header.dataChunkId, "data", 4) == 0, 
+	SM_ASSERT(memcmp(&wavFile->header.dataChunkId, "data", 4) == 0,
 						"WAV File not in propper format");
 
 	return wavFile;

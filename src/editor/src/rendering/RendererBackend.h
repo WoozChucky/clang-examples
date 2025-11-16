@@ -3,13 +3,6 @@
 #include <nvrhi/nvrhi.h>
 #include <GLFW/glfw3.h>
 
-enum class RendererAPI : uint8_t {
-    Invalid,
-    DirectX12,
-    DirectX11,
-    Vulkan,
-};
-
 using RendererBackendSettings = struct RendererBackendSettings {
     uint32_t                         refreshRate = 0;
     uint32_t                         swapChainBufferCount = 3;

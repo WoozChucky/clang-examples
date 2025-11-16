@@ -11,6 +11,8 @@
 #include <d3dcompiler.h>
 #include <GLFW/glfw3native.h>
 
+#include "shader/ShaderCommpiler.h"
+
 #define HR_ASSERT(x, msg) SM_ASSERT(SUCCEEDED(x), msg)
 
 bool RendererBackendDX12::Init() {
@@ -316,36 +318,14 @@ nvrhi::ShaderHandle RendererBackendDX12::CreateShaderFromMemory(nvrhi::ShaderTyp
     shaderDesc.shaderType = shaderType;
     shaderDesc.entryName = entryPoint;
 
-    ComPtr<ID3DBlob> bytecode;
-    ComPtr<ID3DBlob> errors;
-    UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
-#if defined(_DEBUG)
-    flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#endif
-    HRESULT hr = D3DCompile(
-        content, strlen(content),
-        nullptr,
-        nullptr, nullptr,
-        entryPoint,
-        targetName,
-        flags, 0,
-        &bytecode, &errors
-    );
-    if (FAILED(hr)) {
-        if (errors) {
-            char temp[1024];
-            size_t size = std::min<size_t>(errors->GetBufferSize(), sizeof(temp) - 1);
-            memcpy(temp, errors->GetBufferPointer(), size);
-            temp[size] = 0;
-            SM_ERROR("Shader compile error: %s", (char*)errors->GetBufferPointer());
-        }
-        SM_ASSERT(false, "Shader compile failed");
+    std::string errors;
+    const auto shaderBlob = CompileShader(RendererAPI::DirectX12, content, entryPoint, targetName, errors);
+    if (!errors.empty()) {
+        SM_ERROR("Shader compilation failed: %s", errors.c_str());
+        return nullptr;
     }
 
-    if(!bytecode)
-        return nullptr;
-
-    return m_Device->createShader(shaderDesc, bytecode->GetBufferPointer(), bytecode->GetBufferSize());
+    return m_Device->createShader(shaderDesc, shaderBlob.data.data(), shaderBlob.data.size());
 }
 
 void RendererBackendDX12::DestroyDeviceAndSwapChain() {

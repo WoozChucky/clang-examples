@@ -146,8 +146,8 @@ bool PrimitiveRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     );
 
     // Compile primitive shaders (procedural grid)
-    m_VS = m_Renderer->CreateShader(nvrhi::ShaderType::Vertex, PRIM_VS_HLSL, 0, "main_vs", "vs_5_1");
-    m_PS = m_Renderer->CreateShader(nvrhi::ShaderType::Pixel, PRIM_PS_HLSL, 0, "main_ps", "ps_5_1");
+    m_VS = m_Renderer->CreateShader(nvrhi::ShaderType::Vertex, PRIM_VS_HLSL, 0, "main_vs", "vs_6_1");
+    m_PS = m_Renderer->CreateShader(nvrhi::ShaderType::Pixel, PRIM_PS_HLSL, 0, "main_ps", "ps_6_1");
 
     if (!m_VS || !m_PS) {
         SM_ERROR("Failed to create primitive shaders");

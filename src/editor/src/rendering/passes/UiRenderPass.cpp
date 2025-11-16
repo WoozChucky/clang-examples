@@ -127,8 +127,8 @@ bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
     m_MaxInstances = 16384;
 
     // Compile shaders
-    m_VS = m_Renderer->CreateShader(nvrhi::ShaderType::Vertex, QUAD_VS_HLSL, 0, "main_vs", "vs_5_1");
-    m_PS = m_Renderer->CreateShader(nvrhi::ShaderType::Pixel, QUAD_PS_HLSL, 0, "main_ps", "ps_5_1");
+    m_VS = m_Renderer->CreateShader(nvrhi::ShaderType::Vertex, QUAD_VS_HLSL, 0, "main_vs", "vs_6_1");
+    m_PS = m_Renderer->CreateShader(nvrhi::ShaderType::Pixel, QUAD_PS_HLSL, 0, "main_ps", "ps_6_1");
 
 
     SM_ASSERT(m_VS && m_PS, "Failed to create UI shaders");

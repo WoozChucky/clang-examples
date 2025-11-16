@@ -145,8 +145,8 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
             .setKeepInitialState(true));
 
     // Compile shaders
-    m_VS = m_Renderer->CreateShader(nvrhi::ShaderType::Vertex, MESH_VS_HLSL, 0, "main_vs", "vs_5_1");
-    m_PS = m_Renderer->CreateShader(nvrhi::ShaderType::Pixel,  MESH_PS_HLSL, 0, "main_ps", "ps_5_1");
+    m_VS = m_Renderer->CreateShader(nvrhi::ShaderType::Vertex, MESH_VS_HLSL, 0, "main_vs", "vs_6_1");
+    m_PS = m_Renderer->CreateShader(nvrhi::ShaderType::Pixel,  MESH_PS_HLSL, 0, "main_ps", "ps_6_1");
     if (!m_VS || !m_PS)
         return false;
 

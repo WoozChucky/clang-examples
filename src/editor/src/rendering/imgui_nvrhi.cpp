@@ -2,7 +2,9 @@
 
 #include <Windows.h>
 
-inline auto IMGUI_VS_HLSL = R"(
+#include "shader/ShaderCommpiler.h"
+
+inline auto IMGUI_VS_HLSL3 = R"(
 struct Constants
 {
     float2 invDisplaySize;
@@ -33,6 +35,42 @@ PS_INPUT main(VS_INPUT input)
     output.out_uv = input.uv;
     return output;
 }
+)";
+inline auto IMGUI_VS_HLSL = R"(
+struct Constants
+{
+    float2 invDisplaySize;
+};
+
+cbuffer ConstantsCB : register(b0)
+{
+    float2 invDisplaySize;
+    // padding is implicit to 16 bytes
+};
+
+struct VS_INPUT
+{
+    float2 pos : POSITION;
+    float2 uv  : TEXCOORD0;
+    float4 col : COLOR0;
+};
+
+struct PS_INPUT
+{
+    float4 out_pos : SV_POSITION;
+    float4 out_col : COLOR0;
+    float2 out_uv : TEXCOORD0;
+};
+
+PS_INPUT main(VS_INPUT input)
+{
+    PS_INPUT output;
+    output.out_pos.xy = input.pos.xy * invDisplaySize * float2(2.0, -2.0) + float2(-1.0, 1.0);
+    output.out_pos.zw = float2(0.0, 1.0);
+    output.out_col = input.col;
+    output.out_uv = input.uv; // types now match
+    return output;
+};
 )";
 
 // array size is 4076
@@ -568,12 +606,29 @@ static const unsigned char imgui_pixel[]  = {
   0x00, 0x00, 0x00, 0x00
 };
 
-nvrhi::ShaderHandle CreateShader(nvrhi::IDevice* device, const char* entryName, const unsigned char* content, size_t size, const nvrhi::ShaderDesc& desc)
+nvrhi::ShaderHandle CreateShader(RendererAPI api, nvrhi::IDevice* device, const char* entryName, const char* content, const nvrhi::ShaderDesc& desc)
 {
     nvrhi::ShaderDesc descCopy = desc;
     descCopy.entryName = entryName;
 
-    return device->createShader(descCopy, content, size);
+    const char* targetName = nullptr;
+
+    if (api != RendererAPI::Vulkan)
+    {
+        targetName = "vs_6_1";
+        if (desc.shaderType == nvrhi::ShaderType::Pixel)
+            targetName = "ps_6_1";
+    }
+
+    std::string errors;
+    const auto shaderBlob = CompileShader(api, content, descCopy.entryName.c_str(), targetName, errors);
+    if (!errors.empty())
+    {
+        fprintf(stderr, "Failed to compile ImGui shader: %s\n", errors.c_str());
+        return nullptr;
+    }
+
+    return device->createShader(descCopy, shaderBlob.data.data(), shaderBlob.data.size());
 }
 
 struct VERTEX_CONSTANT_BUFFER
@@ -628,13 +683,15 @@ bool ImGui_NVRHI::updateFontTexture()
 bool ImGui_NVRHI::init(nvrhi::IDevice* device)
 {
     m_device = device;
+    const auto nvRhiApi = m_device->getGraphicsAPI();
+    auto rendererApi = RendererAPI::DirectX12;
+    if (nvRhiApi == nvrhi::GraphicsAPI::VULKAN)
+        rendererApi = RendererAPI::Vulkan;
 
     m_commandList = m_device->createCommandList();
 
-    auto vertexByteSize = sizeof(imgui_vertex);
-    auto pixelByteSize = sizeof(imgui_pixel);
-    vertexShader = CreateShader(device, "main", imgui_vertex, vertexByteSize, nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex));
-    pixelShader = CreateShader(device, "main", imgui_pixel, pixelByteSize, nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel));
+    vertexShader = CreateShader(rendererApi, device, "main", IMGUI_VS_HLSL, nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex));
+    pixelShader = CreateShader(rendererApi, device, "main", IMGUI_PS_HLSL, nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel));
 
     if (!vertexShader || !pixelShader)
     {
