@@ -61,16 +61,29 @@ void GameThread::RunLoop() {
     gameState.World.AddComponent(textEntityId, transform);
     gameState.World.AddComponent(textEntityId, text);
 
-    auto cubeEntityId = gameState.World.CreateEntity();
-    auto cubeTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-    auto cubeMesh = MeshComponent{ .MeshId = 0, .Visible = false };
-    auto cubeMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 1.0f} };
-    gameState.World.AddComponent(cubeEntityId, cubeTransform);
-    gameState.World.AddComponent(cubeEntityId, cubeMaterial);
-    gameState.World.AddComponent(cubeEntityId, cubeMesh);
+    {
+        auto cubeEntityId = gameState.World.CreateEntity();
+        auto cubeTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+        auto cubeMesh = MeshComponent{ .MeshId = 0, .Visible = false };
+        auto cubeMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 1.0f} };
+        gameState.World.AddComponent(cubeEntityId, cubeTransform);
+        gameState.World.AddComponent(cubeEntityId, cubeMaterial);
+        gameState.World.AddComponent(cubeEntityId, cubeMesh);
+        // Enqueue model loading job to background worker
+        EnqueueModelLoadJob(cubeEntityId, "assets/models/cube.obj", "assets/models"); // stanford-bunny
+    }
 
-    // Enqueue model loading job to background worker
-    EnqueueModelLoadJob(cubeEntityId, "assets/models/cube.obj", "assets/models"); // stanford-bunny
+    {
+        auto sphereEntityId = gameState.World.CreateEntity();
+        auto sphereTransform = TransformComponent{.Position = glm::vec3{-5.f, 0.f, -5.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+        auto sphereMesh = MeshComponent{ .MeshId = 0, .Visible = false };
+        auto sphereMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 1.0f} };
+        gameState.World.AddComponent(sphereEntityId, sphereTransform);
+        gameState.World.AddComponent(sphereEntityId, sphereMaterial);
+        gameState.World.AddComponent(sphereEntityId, sphereMesh);
+        // Enqueue model loading job to background worker
+        EnqueueModelLoadJob(sphereEntityId, "assets/models/sphere.obj", "assets/models");
+    }
 
     auto lightningEntityId = gameState.World.CreateEntity();
     auto lightning = LightningComponent{
@@ -561,3 +574,119 @@ void GameThread::WorkerThreadFunc()
         }
     }
 }
+
+/*
+
+Same as above but without vertex deduplication for comparison
+void GameThread::WorkerThreadFunc()
+{
+    tracy::SetThreadName("ModelWorker");
+    for (;;)
+    {
+        ModelLoadJob job;
+        {
+            std::unique_lock<std::mutex> ul(m_JobMutex);
+            m_JobCv.wait(ul, [&]{ return m_WorkerStop.load(std::memory_order_relaxed) || !m_PendingJobs.empty(); });
+            if (m_WorkerStop.load(std::memory_order_relaxed) && m_PendingJobs.empty())
+                break;
+            job = std::move(m_PendingJobs.front());
+            m_PendingJobs.pop();
+        }
+
+        ModelLoadResult result;
+        result.ticketId = job.ticketId;
+
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string warn;
+        std::string err;
+
+        const auto now = Clock::now();
+
+        bool ok = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, job.objPath.c_str(), job.mtlBaseDir.c_str());
+        if (!warn.empty()) {
+            SM_WARN("TinyObjLoader warning: %s", warn.c_str());
+        }
+
+        const auto loadDuration = std::chrono::duration<double>(Clock::now() - now).count();
+        SM_TRACE("Loaded OBJ '%s' in %.3f seconds: %zu vertices, %zu shapes, %zu materials",
+                job.objPath.c_str(), loadDuration,
+                attrib.vertices.size() / 3, shapes.size(), materials.size());
+
+        if (!ok || !err.empty()) {
+            if (!err.empty()) SM_ERROR("TinyObjLoader error: %s", err.c_str());
+            result.success = false;
+            result.error = err.empty() ? std::string("Failed to load OBJ") : err;
+        } else {
+            std::vector<MeshVertex> vertices;
+            std::vector<uint32_t> indices;
+
+            // Count total triangles
+            size_t totalTris = 0;
+            for (const auto& shape : shapes) {
+                for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
+                    if (shape.mesh.num_face_vertices[f] == 3) ++totalTris;
+                }
+            }
+
+            vertices.reserve(totalTris * 3);
+            indices.reserve(totalTris * 3);
+
+            uint32_t currentIndex = 0;
+            for (const auto& shape : shapes) {
+                for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
+                    const int fv = shape.mesh.num_face_vertices[f];
+                    if (fv != 3) continue;
+
+                    for (int v = 0; v < 3; ++v) {
+                        const tinyobj::index_t idx = shape.mesh.indices[f * 3 + v];
+                        MeshVertex vert{};
+
+                        // Position
+                        vert.px = attrib.vertices[3 * idx.vertex_index + 0];
+                        vert.py = attrib.vertices[3 * idx.vertex_index + 1];
+                        vert.pz = attrib.vertices[3 * idx.vertex_index + 2];
+
+                        // Normal
+                        if (idx.normal_index >= 0 && !attrib.normals.empty()) {
+                            vert.nx = attrib.normals[3 * idx.normal_index + 0];
+                            vert.ny = attrib.normals[3 * idx.normal_index + 1];
+                            vert.nz = attrib.normals[3 * idx.normal_index + 2];
+                        } else {
+                            vert.nx = 0.0f;
+                            vert.ny = 1.0f;
+                            vert.nz = 0.0f;
+                        }
+
+                        // UV
+                        if (idx.texcoord_index >= 0 && !attrib.texcoords.empty()) {
+                            vert.u = attrib.texcoords[2 * idx.texcoord_index + 0];
+                            vert.v = 1.0f - attrib.texcoords[2 * idx.texcoord_index + 1];
+                        } else {
+                            vert.u = 0.0f;
+                            vert.v = 0.0f;
+                        }
+
+                        vertices.push_back(vert);
+                        indices.push_back(currentIndex++);
+                    }
+                }
+            }
+
+            const auto processDuration = std::chrono::duration<double>(Clock::now() - now).count();
+            SM_TRACE("Processed model '%s': %zu vertices, %zu indices in %.3f seconds",
+                    job.objPath.c_str(), vertices.size(), indices.size(), processDuration);
+
+            result.success = true;
+            result.vertices = std::move(vertices);
+            result.indices = std::move(indices);
+        }
+
+        {
+            std::lock_guard<std::mutex> lg(m_JobMutex);
+            m_CompletedJobs.push(std::move(result));
+        }
+    }
+}
+*/
