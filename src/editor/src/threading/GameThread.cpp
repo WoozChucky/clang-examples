@@ -64,7 +64,7 @@ void GameThread::RunLoop() {
     auto cubeEntityId = gameState.World.CreateEntity();
     auto cubeTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
     auto cubeMesh = MeshComponent{ .MeshId = 0, .Visible = false };
-    auto cubeMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 0.25} };
+    auto cubeMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 1.0f} };
     gameState.World.AddComponent(cubeEntityId, cubeTransform);
     gameState.World.AddComponent(cubeEntityId, cubeMaterial);
     gameState.World.AddComponent(cubeEntityId, cubeMesh);

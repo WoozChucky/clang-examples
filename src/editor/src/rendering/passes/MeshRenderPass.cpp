@@ -7,11 +7,24 @@
 
 // HLSL shaders for mesh pass
 static const char* MESH_VS_HLSL = R"(
+struct DirectionalLight {
+    float4 Direction; // xyz = light direction
+    float4 Color;
+};
+
+struct PointLight {
+    float4 Position;
+    float4 Color;
+    float Intensity;
+    float Range;
+    float2 _pad;
+};
+
 cbuffer PerFrame : register(b0)
 {
-    float4x4 uP;   // Projection
-    float4x4 uVP;  // ViewProjection P * V on CPU
-    float4   uLightDir; // xyz = light direction
+    float4x4 uP;
+    float4x4 uVP;
+    DirectionalLight uDirLight;
 };
 
 cbuffer PerDraw : register(b1)
@@ -49,11 +62,24 @@ VSOut main_vs(VSIn vin)
 )";
 
 static const char* MESH_PS_HLSL = R"(
+struct DirectionalLight {
+    float4 Direction; // xyz = light direction
+    float4 Color;
+};
+
+struct PointLight {
+    float4 Position;
+    float4 Color;
+    float Intensity;
+    float Range;
+    float2 _pad;
+};
+
 cbuffer PerFrame : register(b0)
 {
     float4x4 uP;
     float4x4 uVP;
-    float4   uLightDir; // xyz = light direction
+    DirectionalLight uDirLight;
 };
 
 cbuffer PerDraw : register(b1)
@@ -79,27 +105,24 @@ struct PSIn
 float4 main_ps(PSIn i) : SV_Target
 {
     // Use dynamic light direction from constant buffer
-    float3 lightDir = normalize(uLightDir.xyz);
+    float3 lightDir = normalize(uDirLight.Direction.xyz);
 
     float3 N = normalize(i.Normal);
     float diffuse = max(dot(N, -lightDir), 0.0);
 
     float ambient = 0.2;
-    float lighting = ambient + diffuse * 0.8;
+    // Apply light color to diffuse and ambient lightning
+    float3 lighting = (ambient + diffuse) * uDirLight.Color.rgb;
 
-    // Get base color (from texture or material)
-    float4 albedo;
-    if ((uFlags & OPT_SAMPLE_TEXTURE) != 0u)
-    {
-        albedo = uTexture.Sample(uSampler, i.UV) * uBaseColor;
+    float4 finalColor;
+    if ((uFlags & OPT_SAMPLE_TEXTURE) != 0) {
+        finalColor = uTexture.Sample(uSampler, i.UV);
+        finalColor.rgb *= lighting;
+    } else {
+        finalColor.rgb = uBaseColor.rgb * lighting;
+        finalColor.a = uBaseColor.a;
     }
-    else
-    {
-        albedo = uBaseColor;
-    }
-
-    // Apply lighting to albedo
-    return float4(albedo.rgb * lighting, albedo.a);
+    return finalColor;
 }
 )";
 
@@ -292,12 +315,14 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         // Try to find the LightningComponent to get the light direction
 
         glm::vec4 lightningDirection(0.5f, -1.0f, 0.3f, 0.0f); // default arbitrary direction
+        glm::vec4 lightningColor(1.0f, 1.0f, 1.0f, 1.0f);
 
         for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, LightningComponent>()) {
             const auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
             const auto* lightning = snapshot.WorldSnapshotPtr->GetComponent<LightningComponent>(entity);
-            if (transform && lightning) {
+            if (transform && lightning && lightning->Type == LightningType::Directional) {
                 lightningDirection = lightning->Direction;
+                lightningColor = lightning->Color;
                 break; // Use the first found light
             }
         }
@@ -308,7 +333,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         const glm::mat4 P = snapshot.GameCamera.get_projection_matrix();
         perFrame.P  = P;
         perFrame.VP = P * V;
-        perFrame.LightDir = lightningDirection;
+        perFrame.DirectionalLight.Direction = lightningDirection;
+        perFrame.DirectionalLight.Color = lightningColor;
         commandList->writeBuffer(m_PerFrameCB, &perFrame, sizeof(perFrame));
 
         nvrhi::GraphicsState state;

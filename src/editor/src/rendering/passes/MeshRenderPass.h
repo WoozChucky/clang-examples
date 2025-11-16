@@ -35,11 +35,17 @@ public:
                          uint32_t texWidth = 0, uint32_t texHeight = 0);
 
 private:
+    struct DirectionalLight
+    {
+        glm::vec4 Direction; // xyz = light direction
+        glm::vec4 Color;
+    };
+
     struct PerFrameCB
     {
         glm::mat4 P;   // Projection
         glm::mat4 VP;  // View-Projection
-        glm::vec4 LightDir; // xyz = light direction
+        DirectionalLight DirectionalLight;
     };
 
     struct PerDrawCB
