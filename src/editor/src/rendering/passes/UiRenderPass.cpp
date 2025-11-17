@@ -9,7 +9,7 @@ inline auto QUAD_VS_HLSL = R"(
 // Transforms 2D quad vertices (in pixels) using per-instance transform read from a StructuredBuffer
 // and an orthographic matrix. Also applies per-instance UV scale/offset and color.
 
-cbuffer UIFrame : register(b0)
+[[vk::binding(0, 0)]] cbuffer UIFrame : register(b0)
 {
     float4x4 uOrtho;        // orthographic projection to clip space
 };
@@ -25,7 +25,7 @@ struct UIInstance
     uint3    _pad;      // padding to keep 16-byte alignment for structure stride
 };
 
-StructuredBuffer<UIInstance> gUIInstances : register(t1);
+[[vk::binding(2, 0)]] StructuredBuffer<UIInstance> gUIInstances : register(t2);
 
 struct VSIn
 {
@@ -63,8 +63,8 @@ inline auto QUAD_PS_HLSL = R"(
 // - bit 0 (SAMPLE_TEXTURE): sample atlas (R channel as coverage) and modulate with Color
 // - bit 0 off: output solid Color as-is
 
-Texture2D    uTexture : register(t0);
-SamplerState uSampler : register(s0);
+[[vk::binding(1, 0)]] Texture2D    uTexture : register(t1);
+[[vk::binding(3, 0)]] SamplerState uSampler : register(s3);
 
 static const uint UI_OPT_SAMPLE_TEXTURE = 1u << 0;
 
@@ -207,10 +207,17 @@ bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
     layoutDesc.visibility = nvrhi::ShaderType::All;
     layoutDesc.bindings = {
         nvrhi::BindingLayoutItem::ConstantBuffer(0),  // b0
-        nvrhi::BindingLayoutItem::Texture_SRV(0),     // t0
-        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1), // t1
-        nvrhi::BindingLayoutItem::Sampler(0)          // s0
+        nvrhi::BindingLayoutItem::Texture_SRV(1),     // t0
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2), // t1
+        nvrhi::BindingLayoutItem::Sampler(3)          // s0
     };
+    nvrhi::VulkanBindingOffsets& offsets =
+        nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0).setUnorderedAccessViewOffset(0);
+
+    if (m_Device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+    {
+        layoutDesc.setBindingOffsets(offsets);
+    }
     m_BindingLayout = m_Device->createBindingLayout(layoutDesc);
 
     cl->close();

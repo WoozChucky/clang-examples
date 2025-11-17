@@ -66,19 +66,9 @@ private:
 private:
     nvrhi::vulkan::DeviceDesc                       m_DeviceDesc;
     bool                                            m_TearingSupported = false;
-
     std::vector<nvrhi::TextureHandle>               m_RhiSwapChainBuffers;
-
-    UINT64                                          m_FrameCount = 1;
-    uint32_t                                        m_FrameIndex = 0;
-
-    std::vector<nvrhi::FramebufferHandle>           m_SwapChainFramebuffers;
     bool                                            m_ResizeRequested = false;
-
     std::string                                     m_RendererString{};
-
-    vk::Semaphore m_LastAcquireSemaphore{};
-    bool m_FrameHadWork = false;
 
     // Vulkan-specific members
     VulkanExtensionSet enabledExtensions = {

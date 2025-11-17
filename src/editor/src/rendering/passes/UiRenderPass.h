@@ -234,9 +234,9 @@ public:
         nvrhi::BindingSetDesc bsd;
         bsd.bindings = {
             nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameCB),
-            nvrhi::BindingSetItem::Texture_SRV(0, atlas.texture),
-            nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_InstanceBuffer),
-            nvrhi::BindingSetItem::Sampler(0, m_Sampler)
+            nvrhi::BindingSetItem::Texture_SRV(1, atlas.texture),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(2, m_InstanceBuffer),
+            nvrhi::BindingSetItem::Sampler(3, m_Sampler)
         };
         atlas.uiBindingSet = m_Device->createBindingSet(bsd, m_UIBindingLayout);
     }

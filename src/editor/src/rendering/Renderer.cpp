@@ -96,7 +96,7 @@ bool Renderer::Init(const RendererAPI api) {
         return false;
     }
     AddRenderPass(std::move(meshPass));
-
+    */
 
     auto uiPass = std::make_unique<UiRenderPass>();
     if (!uiPass->Initialize(m_Device, this)) {
@@ -104,7 +104,7 @@ bool Renderer::Init(const RendererAPI api) {
         return false;
     }
     AddRenderPass(std::move(uiPass));
-    */
+
 
     return true;
 }

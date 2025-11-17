@@ -391,8 +391,6 @@ nvrhi::ShaderHandle RendererBackendVulkan::CreateShaderFromMemory(nvrhi::ShaderT
 void RendererBackendVulkan::DestroyDeviceAndSwapChain() {
     DestroySwapChain();
 
-    m_SwapChainFramebuffers.clear();
-
     for (auto& semaphore : m_PresentSemaphores)
     {
         if (semaphore)
@@ -1037,7 +1035,7 @@ void RendererBackendVulkan::DestroySwapChain() {
         m_VulkanDevice.waitIdle();
     }
 
-    // m_SwapChainFramebuffers.clear();
+    m_SwapChainFramebuffers.clear();
 
     if (m_SwapChain)
     {

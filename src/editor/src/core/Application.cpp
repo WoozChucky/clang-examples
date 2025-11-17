@@ -21,11 +21,11 @@ void Application::Run() {
     m_ThreadGame = std::thread([this]() {
         m_GameThread->RunLoop();
         SM_TRACE("Game thread exiting...");
-        });
+    });
     m_ThreadRender = std::thread([this]() {
         m_RenderThread->RunLoop();
         SM_TRACE("Render thread exiting...");
-        });
+    });
 
     m_PlatformThread->RunMainLoop();
 
