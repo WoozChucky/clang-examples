@@ -368,122 +368,6 @@ bool RendererBackendVulkan::Present() {
     return true;
 }
 
-#include <Unknwn.h>
-#include <dxcapi.h>
-#include <wrl/client.h>
-#include <vector>
-#include <string>
-
-using Microsoft::WRL::ComPtr;
-
-static const wchar_t* MapTargetProfile(nvrhi::ShaderType type, const char* targetName)
-{
-    // Use provided profile if not null, else infer from shader type.
-    if (targetName && targetName[0])
-    {
-        static std::wstring wprofile;
-        int len = MultiByteToWideChar(CP_UTF8, 0, targetName, -1, nullptr, 0);
-        wprofile.resize(size_t(len));
-        MultiByteToWideChar(CP_UTF8, 0, targetName, -1, wprofile.data(), len);
-        return wprofile.c_str();
-    }
-    switch (type)
-    {
-        case nvrhi::ShaderType::Vertex:   return L"vs_6_7";
-        case nvrhi::ShaderType::Pixel:    return L"ps_6_7";
-        case nvrhi::ShaderType::Compute:  return L"cs_6_7";
-        case nvrhi::ShaderType::Geometry: return L"gs_6_7";
-        case nvrhi::ShaderType::Hull:     return L"hs_6_7";
-        case nvrhi::ShaderType::Domain:   return L"ds_6_7";
-            // For raytracing you typically use lib_6_x with -spirv and entry point per stage.
-        default:                          return L"vs_6_7";
-    }
-}
-
-static std::wstring ToWide(const char* s)
-{
-    if (!s) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
-    std::wstring ws; ws.resize(static_cast<size_t>(len));
-    MultiByteToWideChar(CP_UTF8, 0, s, -1, ws.data(), len);
-    return ws;
-}
-
-static bool CompileHlslToSpirv_DXC(const char* source, size_t sourceSize,
-                                   nvrhi::ShaderType stage,
-                                   const char* entryPoint,
-                                   const char* targetName,
-                                   std::vector<uint8_t>& outSpirv,
-                                   std::string& outErrors)
-{
-    outSpirv.clear();
-    outErrors.clear();
-
-    ComPtr<IDxcUtils> utils;
-    ComPtr<IDxcCompiler3> compiler;
-    if (FAILED(DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils)))) return false;
-    if (FAILED(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler)))) return false;
-
-    DxcBuffer src{};
-    src.Ptr = source;
-    src.Size = sourceSize != 0 ? sourceSize : strlen(source);
-    src.Encoding = DXC_CP_UTF8;
-
-    ComPtr<IDxcIncludeHandler> includeHandler;
-    utils->CreateDefaultIncludeHandler(&includeHandler);
-
-    std::wstring wEntry = ToWide(entryPoint ? entryPoint : "main");
-    const wchar_t* profile = MapTargetProfile(stage, targetName);
-
-    fprintf(stdout, "%ls", wEntry.c_str());
-
-    // DXC arguments for Vulkan SPIR-V
-    std::vector args = {
-        L"-E", wEntry.c_str(),
-        L"-T", profile,
-        L"-spirv",
-        L"-fspv-target-env=vulkan1.3",
-        L"-fvk-use-dx-layout",
-        L"-O3",
-        L"-Zpr" // row-major
-    };
-
-#if defined(_DEBUG)
-    args.push_back(L"-Zi");
-    args.push_back(L"-Qembed_debug");
-#endif
-
-    ComPtr<IDxcResult> result;
-    if (FAILED(compiler->Compile(&src, args.data(), (UINT)args.size(), includeHandler.Get(),
-                                 IID_PPV_ARGS(&result)))) {
-        return false;
-    }
-
-
-    // Collect errors (if any)
-    ComPtr<IDxcBlobUtf8> errors;
-    result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errors), nullptr);
-    if (errors && errors->GetStringLength() > 0)
-        outErrors.assign(errors->GetStringPointer(), errors->GetStringPointer() + errors->GetStringLength());
-
-    HRESULT status = S_OK;
-    result->GetStatus(&status);
-    if (FAILED(status)) {
-        return false;
-    }
-
-    // Get SPIR-V
-    ComPtr<IDxcBlob> obj;
-    ComPtr<IDxcBlobUtf16> dummy;
-    if (FAILED(result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&obj), &dummy))) {
-        return false;
-    }
-
-    outSpirv.resize(obj->GetBufferSize());
-    memcpy(outSpirv.data(), obj->GetBufferPointer(), obj->GetBufferSize());
-    return true;
-}
-
 nvrhi::ShaderHandle RendererBackendVulkan::CreateShaderFromMemory(nvrhi::ShaderType shaderType, const char *content,
     size_t contentSize, const char *entryPoint, const char *targetName) {
 
@@ -494,12 +378,14 @@ nvrhi::ShaderHandle RendererBackendVulkan::CreateShaderFromMemory(nvrhi::ShaderT
 
 
     std::string errors;
-    const auto shaderBlob = CompileShader(RendererAPI::Vulkan, content, entryPoint, targetName, errors);
+    auto shaderBlob = CompileShader(RendererAPI::Vulkan, content, entryPoint, targetName, errors);
     if (!errors.empty()) {
         SM_ERROR("Shader compilation errors:\n%s", errors.c_str());
     }
 
-    return GetDevice()->createShader(shaderDesc, shaderBlob.data.data(), shaderBlob.data.size());
+    auto shader = GetDevice()->createShader(shaderDesc, shaderBlob.data.data(), shaderBlob.data.size());
+    shaderBlob.data.clear();
+    return shader;
 }
 
 void RendererBackendVulkan::DestroyDeviceAndSwapChain() {

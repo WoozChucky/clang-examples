@@ -196,22 +196,36 @@ bool PrimitiveRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     attr.setName("POSITION").setFormat(nvrhi::Format::RGB32_FLOAT).setOffset(0).setBufferIndex(0).setElementStride(sizeof(PrimVertex));
     m_InputLayout = m_Device->createInputLayout(&attr, 1, m_VS);
 
-    // Create binding layout/set (b0 = PerFrame from main pass, b2 = PrimPerDraw)
-    nvrhi::BindingSetDesc bs;
-    bs.bindings = {
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = false;
+    layoutDesc.bindings = {
+        nvrhi::BindingLayoutItem::ConstantBuffer(0),
+        nvrhi::BindingLayoutItem::ConstantBuffer(1),
+    };
+    nvrhi::VulkanBindingOffsets& offsets =
+        nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
+
+    if (m_Device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+    {
+        layoutDesc.setBindingOffsets(offsets);
+    }
+
+    m_BindingLayout = m_Device->createBindingLayout(layoutDesc);
+
+    nvrhi::BindingSetDesc desc;
+    desc.bindings = {
         nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameConstantBuffer),
-        nvrhi::BindingSetItem::ConstantBuffer(1, m_PerDrawCB)
+        nvrhi::BindingSetItem::ConstantBuffer(1, m_PerDrawCB),
     };
 
-    if (!nvrhi::utils::CreateBindingSetAndLayout(
-            m_Device,
-            nvrhi::ShaderType::Vertex | nvrhi::ShaderType::Pixel,
-            0,
-            bs,
-            m_BindingLayout,
-            m_BindingSet, true))
-    {
-        SM_ERROR("Failed to create Primitive binding set/layout");
+    nvrhi::BindingSetHandle binding;
+    m_BindingSet = m_Device->createBindingSet(desc, m_BindingLayout);
+
+    if (!m_BindingLayout || !m_BindingSet) {
+        SM_ERROR("Failed to create primitive binding layout or set");
         return false;
     }
 

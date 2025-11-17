@@ -81,7 +81,7 @@ bool Renderer::Init(const RendererAPI api) {
     SM_TRACE("Renderer initialized with API: %d", static_cast<int>(m_Backend->GetAPI()));
 
     // Initialize and add render passes
-    /*
+
     auto primitivePass = std::make_unique<PrimitiveRenderPass>();
     if (!primitivePass->Initialize(m_Device, this)) {
         SM_ERROR("Failed to initialize PrimitiveRenderPass");
@@ -89,8 +89,7 @@ bool Renderer::Init(const RendererAPI api) {
     }
     AddRenderPass(std::move(primitivePass));
 
-    // Mesh render pass (3D models)
-
+    /*
     auto meshPass = std::make_unique<MeshRenderPass>();
     if (!meshPass->Initialize(m_Device, this)) {
         SM_ERROR("Failed to initialize MeshRenderPass");
