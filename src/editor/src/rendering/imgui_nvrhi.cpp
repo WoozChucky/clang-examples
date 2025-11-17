@@ -46,8 +46,8 @@ struct PS_INPUT
     float2 uv  : TEXCOORD0;
 };
 
-[[vk::binding(0)]] Texture2D texture0 : register(t0);
-[[vk::binding(1)]] sampler sampler0 : register(s0);
+Texture2D texture0 : register(t0);
+sampler sampler0 : register(s1);
 
 float4 main(PS_INPUT input) : SV_Target
 {
@@ -192,11 +192,13 @@ bool ImGui_NVRHI::init(nvrhi::IDevice* device)
             nvrhi::BindingLayoutItem::Texture_SRV(0),
             nvrhi::BindingLayoutItem::Sampler(1)
         };
-        nvrhi::VulkanBindingOffsets& offsets = nvrhi::VulkanBindingOffsets{}
-            .setConstantBufferOffset(0)
-            .setShaderResourceOffset(0)
-            .setSamplerOffset(0);
-        layoutDesc.setBindingOffsets(offsets);
+        nvrhi::VulkanBindingOffsets& offsets =
+            nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
+
+        if (m_device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            layoutDesc.setBindingOffsets(offsets);
+        }
 
         bindingLayout = m_device->createBindingLayout(layoutDesc);
 

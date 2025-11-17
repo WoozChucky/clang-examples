@@ -10,6 +10,73 @@
 
 using Microsoft::WRL::ComPtr;
 
+namespace {
+    // Strip any HLSL attributes of the form [[vk::...]] when not compiling for Vulkan/SPIR-V.
+    // This allows the same shader source to compile for DX12 where these attributes are unknown.
+    static std::string PreprocessShaderSource(RendererAPI api, std::string_view source)
+    {
+        // Keep Vulkan attributes intact for Vulkan.
+        if (api == RendererAPI::Vulkan)
+        {
+            return std::string(source);
+        }
+
+        std::string output;
+        output.reserve(source.size());
+
+        const char* s = source.data();
+        const size_t n = source.size();
+
+        size_t i = 0;
+        while (i < n)
+        {
+            // Look for an attribute block start.
+            if (i + 1 < n && s[i] == '[' && s[i + 1] == '[')
+            {
+                size_t contentStart = i + 2;
+                size_t end = source.find("]]", contentStart);
+                if (end == std::string_view::npos)
+                {
+                    // Malformed attribute, just copy the remaining text and stop.
+                    output.append(s + i, n - i);
+                    break;
+                }
+
+                // Extract the attribute content between [[ and ]]
+                std::string_view attrib = source.substr(contentStart, end - contentStart);
+
+                // Trim leading whitespace in the attribute content
+                size_t a = 0;
+                while (a < attrib.size() && (attrib[a] == ' ' || attrib[a] == '\t' || attrib[a] == '\n' || attrib[a] == '\r'))
+                    ++a;
+
+                // If this attribute block contains any vk:: attribute, drop the whole block.
+                bool isVulkanAttribute = (attrib.find("vk::", a) != std::string_view::npos);
+
+                if (isVulkanAttribute)
+                {
+                    // Skip the entire [[...]] block
+                    i = end + 2;
+                    continue;
+                }
+                else
+                {
+                    // Keep non-vk attributes intact
+                    output.append(s + i, (end + 2) - i);
+                    i = end + 2;
+                    continue;
+                }
+            }
+
+            // Default: copy character
+            output.push_back(s[i]);
+            ++i;
+        }
+
+        return output;
+    }
+}
+
 ShaderBlob CompileShader(
     RendererAPI api,
     std::string_view sourceCode,
@@ -33,10 +100,13 @@ ShaderBlob CompileShader(
         return shaderBlob;
     }
 
+    // Preprocess the shader source for the selected API (strip [[vk::...]] for non-Vulkan)
+    std::string preprocessedSource = PreprocessShaderSource(api, sourceCode);
+
     // Create source blob
     ComPtr<IDxcBlobEncoding> sourceBlob;
-    if (FAILED(utils->CreateBlob(sourceCode.data(),
-                             static_cast<UINT32>(sourceCode.size()),
+    if (FAILED(utils->CreateBlob(preprocessedSource.data(),
+                             static_cast<UINT32>(preprocessedSource.size()),
                                  CP_UTF8, &sourceBlob))) {
         outErrorMessage = "Failed to create source blob";
         return shaderBlob;
