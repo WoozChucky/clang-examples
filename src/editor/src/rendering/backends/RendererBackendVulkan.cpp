@@ -4,6 +4,8 @@
 
 #include <nvrhi/validation.h>
 
+#include "shader/ShaderCompiler.h"
+
 // Define the Vulkan dynamic dispatcher - this needs to occur in exactly one cpp file in the program.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
@@ -490,16 +492,14 @@ nvrhi::ShaderHandle RendererBackendVulkan::CreateShaderFromMemory(nvrhi::ShaderT
     shaderDesc.shaderType = shaderType;
     shaderDesc.entryName = entryPoint;
 
-    std::vector<uint8_t> spirv;
+
     std::string errors;
-    if (!CompileHlslToSpirv_DXC(content, contentSize, shaderType, entryPoint, targetName, spirv, errors))
-    {
-        if (!errors.empty())
-            SM_ERROR("DXC compile failed: %s", errors.c_str());
-        return nullptr;
+    const auto shaderBlob = CompileShader(RendererAPI::Vulkan, content, entryPoint, targetName, errors);
+    if (!errors.empty()) {
+        SM_ERROR("Shader compilation errors:\n%s", errors.c_str());
     }
 
-    return GetDevice()->createShader(shaderDesc, spirv.data(), spirv.size());
+    return GetDevice()->createShader(shaderDesc, shaderBlob.data.data(), shaderBlob.data.size());
 }
 
 void RendererBackendVulkan::DestroyDeviceAndSwapChain() {

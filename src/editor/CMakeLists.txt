@@ -16,6 +16,9 @@ add_executable(editor
     src/rendering/ImGuiRenderer.cpp
     src/rendering/imgui_nvrhi.cpp
     src/rendering/registered_font.cpp
+        
+    # Shader Compilation
+    src/rendering/shader/ShaderCompiler.cpp
 
     # Rendering Backends
     src/rendering/backends/RendererBackendDX12.cpp
@@ -45,7 +48,8 @@ target_include_directories(editor PRIVATE
 
 set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE_EXPERIMENTAL;")
 
-target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES} GLFW_INCLUDE_VULKAN) # TRACY_ENABLE TRACY_ON_DEMAND
+target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES} GLFW_INCLUDE_VULKAN) 
+# TRACY_ENABLE TRACY_ON_DEMAND
 
 # Allocation tracker flag: ENABLE_ALLOC_TRACKER can be ON, OFF or AUTO (default)
 set(ENABLE_ALLOC_TRACKER "AUTO" CACHE STRING "Enable allocation tracker (ON/OFF/AUTO)")

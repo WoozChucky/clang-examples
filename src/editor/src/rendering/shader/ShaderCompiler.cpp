@@ -1,36 +1,24 @@
-#pragma once
+#include "ShaderCompiler.h"
+
+#include <filesystem>
+#include <fstream>
 
 #include <d3dcompiler.h>
 #include <nvrhi/nvrhi.h>
-#include <string>
-
-#include "lib.h"
-
 #include <wrl.h>
-#include <d3dcompiler.h>
 #include <dxcapi.h>
 
 using Microsoft::WRL::ComPtr;
 
-struct ShaderBlob {
-    std::vector<uint8_t> data;
-};
-
-// The idea is this function will compile shader source code into a binary blob
-// suitable for the specified RendererAPI (e.g., DXIL for DirectX12, and SPIR-V for Vulkan).
-// It returns the compiled shader blob on success, or an empty blob on failure,
-// with the error message populated in outErrorMessage.
-
-inline ShaderBlob CompileShader(
+ShaderBlob CompileShader(
     RendererAPI api,
     std::string_view sourceCode,
     const char* entryPoint,
     const char* targetName,
     std::string& outErrorMessage) {
 
-    ShaderBlob shaderBlob;
-
     outErrorMessage.clear();
+    ShaderBlob shaderBlob;
 
     // Create DXC instances
     ComPtr<IDxcUtils> utils;
@@ -66,17 +54,31 @@ inline ShaderBlob CompileShader(
     std::wstring wTargetName = std::wstring(targetName, targetName + strlen(targetName));
     arguments.push_back(L"-T");
     arguments.push_back(wTargetName.c_str());
+    arguments.push_back(DXC_ARG_WARNINGS_ARE_ERRORS);
 
     // Debug flags
 #if defined(_DEBUG)
     arguments.push_back(DXC_ARG_DEBUG);
     arguments.push_back(DXC_ARG_SKIP_OPTIMIZATIONS);
+    arguments.push_back(L"-Qembed_debug");
 #endif
+
+    // Here for future reference, do not remove
+    // arguments.push_back(DXC_ARG_PACK_MATRIX_COLUMN_MAJOR);
 
     // SPIR-V generation for Vulkan
     if (api == RendererAPI::Vulkan) {
         arguments.push_back(L"-spirv");
-        arguments.push_back(L"-fspv-target-env=vulkan1.2");
+        arguments.push_back(L"-fspv-target-env=vulkan1.3");
+        // Here for future reference, do not remove
+        // arguments.push_back(L"-Zpc");
+        // arguments.push_back(L"-WX");
+        // arguments.push_back(L"-fvk-use-dx-layout");
+    }
+
+    if (std::string(targetName).starts_with("vs_")) {
+        // Here for future reference, do not remove
+        //arguments.push_back(L"-fvk-invert-y");
     }
 
     // Compile
@@ -112,6 +114,73 @@ inline ShaderBlob CompileShader(
         memcpy(shaderBlob.data.data(), compiledShader->GetBufferPointer(),
                compiledShader->GetBufferSize());
     }
+
+    return shaderBlob;
+}
+
+ShaderBlob CompileGlsl(std::string_view sourceCode,
+    const char* entryPoint,
+    const char* targetName,
+    std::string& outErrorMessage) {
+
+    ShaderBlob shaderBlob;
+    outErrorMessage.clear();
+
+    if (sourceCode.empty()) {
+        outErrorMessage = "GLSL source is empty";
+        return shaderBlob;
+    }
+
+    // Create temporary files
+    auto tempDir = std::filesystem::temp_directory_path();
+    auto srcFile = tempDir / "shader_temp.glsl";
+    auto outFile = tempDir / "shader_temp.spv";
+
+    // Write GLSL source to temp file
+    std::ofstream ofs(srcFile, std::ios::binary);
+    ofs.write(sourceCode.data(), sourceCode.size());
+    ofs.close();
+
+    // Build command line
+    std::string cmd = "glslangValidator -V ";
+    cmd += srcFile.string();
+    cmd += " -o " + outFile.string();
+    if (targetName && std::strlen(targetName) > 0) {
+        // vert / frag
+        if (std::string(targetName) == "vs_6_1") {
+            cmd += " -S vert";
+        }
+        else if (std::string(targetName) == "ps_6_1") {
+            cmd += " -S frag";
+        }
+    }
+    if(entryPoint && std::strlen(entryPoint) > 0) {
+        cmd += " -e " + std::string(entryPoint);
+    }
+
+    // Run compiler
+    int result = std::system(cmd.c_str());
+    if(result != 0 || !std::filesystem::exists(outFile)) {
+        outErrorMessage = "glslangValidator failed. Make sure it's on PATH.";
+        return shaderBlob;
+    }
+
+    // Read SPIR-V binary
+    std::ifstream ifs(outFile, std::ios::binary | std::ios::ate);
+    if (!ifs) {
+        outErrorMessage = "Failed to open SPIR-V output file";
+        return shaderBlob;
+    }
+    auto size = ifs.tellg();
+    ifs.seekg(0, std::ios::beg);
+    shaderBlob.data.resize(static_cast<size_t>(size));
+    ifs.read(reinterpret_cast<char*>(shaderBlob.data.data()), size);
+
+    ifs.close();
+
+    // Clean up temp files
+    std::filesystem::remove(srcFile);
+    std::filesystem::remove(outFile);
 
     return shaderBlob;
 }

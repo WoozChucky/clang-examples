@@ -11,7 +11,7 @@
 #include <d3dcompiler.h>
 #include <GLFW/glfw3native.h>
 
-#include "shader/ShaderCommpiler.h"
+#include "shader/ShaderCompiler.h"
 
 #define HR_ASSERT(x, msg) SM_ASSERT(SUCCEEDED(x), msg)
 
