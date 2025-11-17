@@ -89,14 +89,12 @@ bool Renderer::Init(const RendererAPI api) {
     }
     AddRenderPass(std::move(primitivePass));
 
-    /*
     auto meshPass = std::make_unique<MeshRenderPass>();
     if (!meshPass->Initialize(m_Device, this)) {
         SM_ERROR("Failed to initialize MeshRenderPass");
         return false;
     }
     AddRenderPass(std::move(meshPass));
-    */
 
     auto uiPass = std::make_unique<UiRenderPass>();
     if (!uiPass->Initialize(m_Device, this)) {

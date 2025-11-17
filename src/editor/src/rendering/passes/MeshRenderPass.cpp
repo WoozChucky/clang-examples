@@ -90,8 +90,8 @@ cbuffer PerDraw : register(b1)
     uint3    _pad;
 };
 
-Texture2D uTexture : register(t0);
-SamplerState uSampler : register(s0);
+Texture2D uTexture : register(t2);
+SamplerState uSampler : register(s3);
 
 static const uint OPT_SAMPLE_TEXTURE = 1u << 0;
 
@@ -166,9 +166,17 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     layoutDesc.bindings = {
         nvrhi::BindingLayoutItem::ConstantBuffer(0),
         nvrhi::BindingLayoutItem::ConstantBuffer(1),
-        nvrhi::BindingLayoutItem::Texture_SRV(0),
-        nvrhi::BindingLayoutItem::Sampler(0)
+        nvrhi::BindingLayoutItem::Texture_SRV(2),
+        nvrhi::BindingLayoutItem::Sampler(3)
     };
+    nvrhi::VulkanBindingOffsets& offsets =
+        nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
+
+    if (m_Device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+    {
+        layoutDesc.setBindingOffsets(offsets);
+    }
+
     m_BindingLayout = m_Device->createBindingLayout(layoutDesc);
 
     // Sampler
@@ -187,7 +195,8 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         td.dimension = nvrhi::TextureDimension::Texture2D;
         td.format = nvrhi::Format::RGBA8_UNORM;
         td.initialState = nvrhi::ResourceStates::CopyDest;
-        td.keepInitialState = true;
+        //td.keepInitialState = true;
+        td.isShaderResource = true;
         m_DefaultWhite = m_Device->createTexture(td);
 
         uint32_t pixel = 0xFFFFFFFFu; // white
@@ -268,8 +277,8 @@ ModelHandle MeshRenderPass::AddModel(const MeshVertex* vertices, uint32_t vertex
     bs.bindings = {
         nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameCB),
         nvrhi::BindingSetItem::ConstantBuffer(1, m_PerDrawCB),
-        nvrhi::BindingSetItem::Texture_SRV(0, model.texture),
-        nvrhi::BindingSetItem::Sampler(0, m_Sampler)
+        nvrhi::BindingSetItem::Texture_SRV(2, model.texture),
+        nvrhi::BindingSetItem::Sampler(3, m_Sampler)
     };
     model.bindingSet = m_Device->createBindingSet(bs, m_BindingLayout);
 
