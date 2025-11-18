@@ -51,21 +51,39 @@ foreach(target ${glfw_targets})
 endforeach()
 
 add_library(imgui STATIC
-        imgui/imgui.cpp
-        imgui/imgui_draw.cpp
-        imgui/imgui_tables.cpp
-        imgui/imgui_widgets.cpp
-        imgui/imgui_impl_win32.cpp
-        imgui/imgui_impl_dx11.cpp
-        imgui/imgui_impl_dx12.cpp
-        imgui/imgui_impl_glfw.cpp
+    imgui/imgui.cpp
+    imgui/imgui_draw.cpp
+    imgui/imgui_tables.cpp
+    imgui/imgui_widgets.cpp
+    imgui/imgui_impl_win32.cpp
+    imgui/imgui_impl_dx11.cpp
+    imgui/imgui_impl_dx12.cpp
+    imgui/imgui_impl_glfw.cpp
 )
 set_target_properties(imgui PROPERTIES
-        OUTPUT_NAME imgui
-        RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
-        ARCHIVE_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
-        LIBRARY_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
-        FOLDER ThirdParty/ImGui
+    OUTPUT_NAME imgui
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    ARCHIVE_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER ThirdParty/ImGui
 )
 target_include_directories(imgui PUBLIC imgui)
 target_link_libraries(imgui PRIVATE glfw)
+
+
+add_library(ImGuizmo STATIC
+    ImGuizmo/GraphEditor.cpp
+    ImGuizmo/ImCurveEdit.cpp
+    ImGuizmo/ImGradient.cpp
+    ImGuizmo/ImSequencer.cpp
+    ImGuizmo/ImGuizmo.cpp
+)
+set_target_properties(ImGuizmo PROPERTIES
+    OUTPUT_NAME ImGuizmo
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    ARCHIVE_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER ThirdParty/ImGuizmo
+)
+target_include_directories(ImGuizmo PUBLIC ImGuizmo)
+target_link_libraries(ImGuizmo PRIVATE imgui)
