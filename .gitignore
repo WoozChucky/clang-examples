@@ -2,5 +2,8 @@
 build/
 .vs/
 /out/
-
+buildzed/
 third_party/freetype-demos/bin/freetype.dll
+.cache/
+
+compile_commands.json

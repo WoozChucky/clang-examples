@@ -4,18 +4,21 @@ CompileFlags:
     - "-ferror-limit=0"
     - "-std=c++23"
 
-    - "-I../third_party"
-    - "-I../third_party/Include"
+    - "-Isrc/common/include"
+
+    - "-Isrc/editor/src/core"
+    - "-Isrc/editor/src/rendering"
+    - "-Isrc/editor/src/threading"
+
+    - "-Ithird_party/freetype/include"
+    - "-Ithird_party/glfw/include"
+    - "-Ithird_party/glm/glm"
+    - "-Ithird_party/imgui"
+    - "-Ithird_party/NVRHI/include"
+    - "-Ithird_party/tracy/public"
 
     - "-Wno-switch"
     - "-Wno-writable-strings"
     - "-Wno-sign-compare"
     - "-Wno-deprecated-declarations"
     - "-Wno-format-security"
-
----
-
-If:
-  PathExclude: src/game\..*
-CompileFlags:
-  Add: "-include main.cpp"

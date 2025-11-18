@@ -1,29 +1,58 @@
 {
-    "version": 8,
-    "configurePresets": [
-      {
-        "name": "clang-win64-vs2026-community",
-        "displayName": "Clang 20 - VS2026 Community",
-        "description": "",
-        "binaryDir": "${sourceDir}/out/build/${presetName}",
-        "cacheVariables": {
-          "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-          "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe",
-          "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang++.exe",
-          "CMAKE_BUILD_TYPE": "Debug"
-        }
-      },
-      {
-        "name": "clang-win64-vs2026-enterprise",
-        "displayName": "Clang 20 - VS2026 Enterprise",
-        "description": "",
-        "binaryDir": "${sourceDir}/out/build/${presetName}",
-        "cacheVariables": {
-          "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-          "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe",
-          "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang++.exe",
-          "CMAKE_BUILD_TYPE": "Debug"
-        }
+  "version": 8,
+  "configurePresets": [
+    {
+      "name": "clang-win64-vs2026-community",
+      "displayName": "Clang 20 - VS2026 Community",
+      "description": "",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+        "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe",
+        "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang++.exe",
+        "CMAKE_BUILD_TYPE": "Debug"
       }
-    ]
+    },
+    {
+      "name": "clang-win64-vs2026-enterprise",
+      "displayName": "Clang 20 - VS2026 Enterprise",
+      "description": "",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+        "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe",
+        "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang++.exe",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "msvc-win64-vs2026-community",
+      "displayName": "MSVC 20 - VS2026 Community",
+      "description": "",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+        "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+        "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_SYSTEM_VERSION": "10.0.26100.0",
+        "CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION": "10.0.26100.0",
+        "WindowsSdkDir": "C:\\Program Files (x86)\\Windows Kits\\10"
+      }
+    },
+    {
+      "name": "msvc-win64-vs2026-enterprise",
+      "displayName": "MSVC 20 - VS2026 Enterprise",
+      "description": "",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+        "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+        "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ]
 }
