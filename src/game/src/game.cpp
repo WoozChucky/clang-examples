@@ -53,7 +53,7 @@ void GameUpdate(GameState* state) {
 
     {
 	    // Use IsKeyPressedThisFrame to add only ONE entity per key press (not per frame while held)
-		if (IsKeyPressedThisFrame(KEY_1)) {
+		if (IsKeyPressedThisFrame(KEY_F12)) {
 			const auto entityId = g_GameState->World.CreateEntity();
 			SM_TRACE("Added new Entity (%llu)", entityId)
 		}

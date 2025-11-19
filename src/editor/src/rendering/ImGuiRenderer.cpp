@@ -6,6 +6,8 @@
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <ImGuizmo.h>
+#include <glm/gtc/type_ptr.hpp>
 
 #include "ApplicationContext.h"
 #include "registered_font.h"
@@ -175,7 +177,132 @@ bool ImGuiRenderer::Init(GLFWwindow* window, nvrhi::IDevice* device, Application
     return true;
 }
 
-void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, const SimulationSnapshot& snapshot) {
+// ImGuizmo persistent state (made part of the renderer state instead of local statics)
+static ImGuizmo::OPERATION m_GizmoOperation = ImGuizmo::TRANSLATE;
+static ImGuizmo::MODE      m_GizmoMode      = ImGuizmo::LOCAL;
+static bool                m_GizmoUseSnap   = false;
+static float               m_GizmoSnap[3]   = { 1.0f, 1.0f, 1.0f };
+static bool                m_GizmoUseWindow = false; // draw gizmo in its own window vs full-screen overlay
+static float               m_GizmoCamDistance = 8.0f; // for ViewManipulate widget
+
+// --- ImGuizmo integration helpers ---
+// Implemented as ImGuiRenderer member functions (no external self argument)
+void ImGuiRenderer::TransformStart(float* cameraView, float* cameraProjection, float* matrix)
+{
+    static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
+    static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
+    static bool boundSizing = false;
+    static bool boundSizingSnap = false;
+
+    if (ImGui::IsKeyPressed(ImGuiKey_T))
+        m_GizmoOperation = ImGuizmo::TRANSLATE;
+    if (ImGui::IsKeyPressed(ImGuiKey_E))
+        m_GizmoOperation = ImGuizmo::ROTATE;
+    if (ImGui::IsKeyPressed(ImGuiKey_R)) // r Key
+        m_GizmoOperation = ImGuizmo::SCALE;
+    if (ImGui::RadioButton("Translate", m_GizmoOperation == ImGuizmo::TRANSLATE))
+        m_GizmoOperation = ImGuizmo::TRANSLATE;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Rotate", m_GizmoOperation == ImGuizmo::ROTATE))
+        m_GizmoOperation = ImGuizmo::ROTATE;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Scale", m_GizmoOperation == ImGuizmo::SCALE))
+        m_GizmoOperation = ImGuizmo::SCALE;
+    float matrixTranslation[3], matrixRotation[3], matrixScale[3];
+    ImGuizmo::DecomposeMatrixToComponents(matrix, matrixTranslation, matrixRotation, matrixScale);
+    ImGui::InputFloat3("Tr", matrixTranslation);
+    ImGui::InputFloat3("Rt", matrixRotation);
+    ImGui::InputFloat3("Sc", matrixScale);
+    ImGuizmo::RecomposeMatrixFromComponents(matrixTranslation, matrixRotation, matrixScale, matrix);
+
+    if (m_GizmoOperation != ImGuizmo::SCALE)
+    {
+        if (ImGui::RadioButton("Local", m_GizmoMode == ImGuizmo::LOCAL))
+            m_GizmoMode = ImGuizmo::LOCAL;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("World", m_GizmoMode == ImGuizmo::WORLD))
+            m_GizmoMode = ImGuizmo::WORLD;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_S))
+        m_GizmoUseSnap = !m_GizmoUseSnap;
+    ImGui::Checkbox(" ", &m_GizmoUseSnap);
+    ImGui::SameLine();
+    switch (m_GizmoOperation)
+    {
+    case ImGuizmo::TRANSLATE:
+        ImGui::InputFloat3("Snap", &m_GizmoSnap[0]);
+        break;
+    case ImGuizmo::ROTATE:
+        ImGui::InputFloat("Angle Snap", &m_GizmoSnap[0]);
+        break;
+    case ImGuizmo::SCALE:
+        ImGui::InputFloat("Scale Snap", &m_GizmoSnap[0]);
+        break;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    float viewManipulateRight = io.DisplaySize.x;
+    float viewManipulateTop = 0;
+    static ImGuiWindowFlags gizmoWindowFlags = 0;
+    ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(ImVec2(400, 20), ImGuiCond_Appearing);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
+    if (m_GizmoUseWindow)
+    {
+       ImGui::Begin("Gizmo", 0, gizmoWindowFlags);
+       ImGuizmo::SetDrawlist();
+    }
+    float windowWidth = (float)ImGui::GetWindowWidth();
+    float windowHeight = (float)ImGui::GetWindowHeight();
+
+    if (!m_GizmoUseWindow)
+    {
+       ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+    }
+    else
+    {
+       ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
+    }
+    viewManipulateRight = ImGui::GetWindowPos().x + windowWidth;
+    viewManipulateTop = ImGui::GetWindowPos().y;
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    gizmoWindowFlags = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0;
+
+    // Draw reference grid and the manipulated object as a cube overlay
+    glm::mat4 identity(1.0f);
+    //ImGuizmo::DrawGrid(cameraView, cameraProjection, glm::value_ptr(identity), 100.f);
+    //ImGuizmo::DrawCubes(cameraView, cameraProjection, matrix, 1);
+
+    ImGuizmo::ViewManipulate(cameraView, m_GizmoCamDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
+}
+
+void ImGuiRenderer::TransformEnd()
+{
+   if (m_GizmoUseWindow)
+   {
+      ImGui::End();
+   }
+   ImGui::PopStyleColor(1);
+}
+
+void ImGuiRenderer::EditTransform(float* cameraView, float* cameraProjection, float* matrix)
+{
+    ImGuiIO& io = ImGui::GetIO();
+    const auto windowWidth = ImGui::GetWindowWidth();
+    const auto windowHeight = ImGui::GetWindowHeight();
+    if (!m_GizmoUseWindow)
+    {
+        ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+    }
+    else
+    {
+        ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
+    }
+    ImGuizmo::Manipulate(cameraView, cameraProjection, m_GizmoOperation, m_GizmoMode, matrix, nullptr, m_GizmoUseSnap ? &m_GizmoSnap[0] : nullptr);
+}
+
+void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot) {
     ZoneScopedN("ImGui");
     {
         ZoneScopedN("ImGui_ProcessInput");
@@ -240,7 +367,11 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
             s_dockBuilt = true;
         }
 
+        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::BeginFrame();
+
         ImGui::Begin("Hello, world!");
+
         ImGui::Text("Renderer average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
         ImGui::Text("Game TPS: %.2f/%.2f", snapshot.ActualTPS, snapshot.TargetTPS);
 
@@ -528,22 +659,89 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, c
 
                             // Position editor
                             ImGui::Text("Position:");
-                            if (ImGui::DragFloat3("##Position", &editTransform.Position.x, 0.1f)) {
+                            if (ImGui::InputFloat3("##Position", &editTransform.Position.x)) {
                                 modified = true;
                             }
 
                             // Rotation editor (in degrees for user-friendliness)
                             ImGui::Text("Rotation:");
                             glm::vec3 rotationDegrees = glm::degrees(editTransform.Rotation);
-                            if (ImGui::DragFloat3("##Rotation", &rotationDegrees.x, 1.0f, -180.0f, 180.0f)) {
+                            if (ImGui::InputFloat3("##Rotation", &rotationDegrees.x)) {
                                 editTransform.Rotation = glm::radians(rotationDegrees);
                                 modified = true;
                             }
 
                             // Scale editor
                             ImGui::Text("Scale:");
-                            if (ImGui::DragFloat3("##Scale", &editTransform.Scale.x, 0.1f, 0.01f, 10.0f)) {
+                            if (ImGui::InputFloat3("##Scale", &editTransform.Scale.x)) {
                                 modified = true;
+                            }
+
+                            const auto hasTextTransform = worldSnapshot->HasComponent<TextComponent>(selectedEntity);
+                            // ImGuizmo integration: manipulate this entity's transform using camera
+                            if (!hasTextTransform) {
+                                auto cameraView = snapshot.GameCamera.get_view_matrix();
+                                auto cameraProjection = snapshot.GameCamera.get_projection_matrix();
+
+                                // Small inline gizmo controls specific to Transform component
+                                ImGui::Separator();
+                                ImGui::Text("Gizmo:");
+                                ImGui::SameLine();
+                                if (ImGui::RadioButton("Translate##GZ", m_GizmoOperation == ImGuizmo::TRANSLATE)) m_GizmoOperation = ImGuizmo::TRANSLATE;
+                                ImGui::SameLine();
+                                if (ImGui::RadioButton("Rotate##GZ", m_GizmoOperation == ImGuizmo::ROTATE)) m_GizmoOperation = ImGuizmo::ROTATE;
+                                ImGui::SameLine();
+                                if (ImGui::RadioButton("Scale##GZ", m_GizmoOperation == ImGuizmo::SCALE)) m_GizmoOperation = ImGuizmo::SCALE;
+
+                                if (m_GizmoOperation != ImGuizmo::SCALE)
+                                {
+                                    if (ImGui::RadioButton("Local##GZ", m_GizmoMode == ImGuizmo::LOCAL)) m_GizmoMode = ImGuizmo::LOCAL;
+                                    ImGui::SameLine();
+                                    if (ImGui::RadioButton("World##GZ", m_GizmoMode == ImGuizmo::WORLD)) m_GizmoMode = ImGuizmo::WORLD;
+                                }
+
+                                // Keyboard shortcuts for convenience
+                                if (ImGui::IsKeyPressed(ImGuiKey_T)) m_GizmoOperation = ImGuizmo::TRANSLATE;
+                                if (ImGui::IsKeyPressed(ImGuiKey_E)) m_GizmoOperation = ImGuizmo::ROTATE;
+                                if (ImGui::IsKeyPressed(ImGuiKey_R)) m_GizmoOperation = ImGuizmo::SCALE;
+                                if (ImGui::IsKeyPressed(ImGuiKey_S)) m_GizmoUseSnap = !m_GizmoUseSnap;
+
+                                ImGui::Checkbox("Snap##GZ", &m_GizmoUseSnap);
+                                ImGui::SameLine();
+                                if (m_GizmoOperation == ImGuizmo::TRANSLATE)
+                                {
+                                    ImGui::InputFloat3("Step##GZ", &m_GizmoSnap[0]);
+                                }
+                                else if (m_GizmoOperation == ImGuizmo::ROTATE)
+                                {
+                                    ImGui::InputFloat("Angle##GZ", &m_GizmoSnap[0]);
+                                }
+                                else // SCALE
+                                {
+                                    ImGui::InputFloat("Scale##GZ", &m_GizmoSnap[0]);
+                                }
+
+                                // Build model matrix from current editable transform
+                                glm::mat4 T = glm::translate(glm::mat4(1.0f), editTransform.Position);
+                                glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), editTransform.Rotation.x, glm::vec3(1.f, 0.f, 0.f));
+                                glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), editTransform.Rotation.y, glm::vec3(0.f, 1.f, 0.f));
+                                glm::mat4 Rz = glm::rotate(glm::mat4(1.0f), editTransform.Rotation.z, glm::vec3(0.f, 0.f, 1.f));
+                                glm::mat4 S  = glm::scale(glm::mat4(1.0f), editTransform.Scale);
+                                glm::mat4 M  = T * Rz * Ry * Rx * S;
+
+                                // Manipulate matrix within this inspector window
+                                EditTransform(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection), glm::value_ptr(M));
+
+                                // If user manipulated the gizmo, decompose back into component fields
+                                if (ImGuizmo::IsUsing())
+                                {
+                                    float tr[3], rtDeg[3], sc[3];
+                                    ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(M), tr, rtDeg, sc);
+                                    editTransform.Position = glm::vec3(tr[0], tr[1], tr[2]);
+                                    editTransform.Rotation = glm::radians(glm::vec3(rtDeg[0], rtDeg[1], rtDeg[2]));
+                                    editTransform.Scale    = glm::vec3(sc[0], sc[1], sc[2]);
+                                    modified = true;
+                                }
                             }
 
                             // Buttons to apply or revert changes

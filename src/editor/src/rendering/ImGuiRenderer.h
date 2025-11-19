@@ -18,11 +18,16 @@ public:
     }
 
     bool Init(GLFWwindow* window, nvrhi::IDevice* device, ApplicationContext* appContext);
-    void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, const SimulationSnapshot& snapshot);
+    void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot);
     void Shutdown();
 private:
     std::shared_ptr<RegisteredFont> CreateFontFromFile(const char* fontFile, float fontSize);
     void ProcessInputEvents();
+
+    // ImGuizmo helpers as member functions (no external self parameter required)
+    void TransformStart(float* cameraView, float* cameraProjection, float* matrix);
+    void TransformEnd();
+    void EditTransform(float* cameraView, float* cameraProjection, float* matrix);
 
 private:
     std::vector<std::shared_ptr<RegisteredFont>> m_fonts;
