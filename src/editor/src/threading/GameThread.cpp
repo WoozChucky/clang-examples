@@ -198,7 +198,7 @@ void GameThread::RunLoop() {
 			frameStats.SampleCount++;
 		}
 
-  {
+        {
             ZoneScopedN("Game:FixedUpdate");
 
             // Process ECS commands from RenderThread (ImGui modifications)
@@ -295,6 +295,7 @@ void GameThread::RunLoop() {
 			}
 
 			gameState.DeltaTime = std::min(actualDt, targetDt * 2.0); // clamp to prevent spiral of death
+		    gameState.GameTime = TimeNowSec();
 
 			GameUpdate(&gameState);
 

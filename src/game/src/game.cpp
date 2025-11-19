@@ -1,5 +1,7 @@
 #include "Game.h"
 
+#include <tuple>
+
 #include <ApplicationContext.h>
 #include <Input.h>
 
@@ -12,6 +14,7 @@ static bool gKeysPressedThisFrame[KEY_LAST + 1] = {}; // NEW: Track single-frame
 static int32_t gMouseWheel = 0;
 static bool   g_MouseAimEnabled = false;        // toggled by T
 static double g_MouseX = 0.0, g_MouseY = 0.0;   // last mouse position in window coords
+static uint64_t textEntityId = 0;
 
 using namespace Input;
 
@@ -66,15 +69,29 @@ void GameUpdate(GameState* state) {
             g_GameState->StateId = GameStateId::MainMenu;
 	        g_GameState->GameCamera.position = glm::vec3(0.0f, 5.0f, 10.0f);
 
-	        auto entityId = g_GameState->World.CreateEntity();
-	        auto transform = TransformComponent{.Position = glm::vec3{200.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+	        textEntityId = g_GameState->World.CreateEntity();
+	        auto transform = TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
 	        auto text = TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48};
-	        g_GameState->World.AddComponent(entityId, transform);
-	        g_GameState->World.AddComponent(entityId, text);
+	        g_GameState->World.AddComponent(textEntityId, transform);
+	        g_GameState->World.AddComponent(textEntityId, text);
 	        break;
 	    }
-	    case GameStateId::MainMenu:
-		    break;
+	    case GameStateId::MainMenu: {
+	        auto [transform, text] = g_GameState->World.GetComponents<TransformComponent, TextComponent>(textEntityId);
+	        if (transform) {
+	            transform->Rotation.z += glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime);
+	        }
+
+	        if (text) {
+                const auto time = static_cast<float>(g_GameState->DeltaTime);
+	            const float red = (sinf(time) + 1.0f) / 2.0f;
+	            const float green = (cosf(g_GameState->GameTime) + 1.0f) / 2.0f;
+	            const float blue = 1.0f - red;
+                text->Color = glm::vec4(red, green, blue, 1.0f);
+            }
+
+	        break;
+	    }
 	    case GameStateId::InLevel:
 		    break;
 	    case GameStateId::InEditor:

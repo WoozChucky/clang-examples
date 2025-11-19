@@ -340,6 +340,46 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         ImGui::PushFont(m_fonts[0]->GetScaledFont(), 14.f);
 
+        // Main Menu Bar (File / Edit / About) with placeholder items
+        if (ImGui::BeginMainMenuBar())
+        {
+            if (ImGui::BeginMenu("File"))
+            {
+                if (ImGui::MenuItem("New", "Ctrl+N")) { /* no-op */ }
+                if (ImGui::MenuItem("Open...", "Ctrl+O")) { /* no-op */ }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Save", "Ctrl+S")) { /* no-op */ }
+                if (ImGui::MenuItem("Save As...")) { /* no-op */ }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Exit")) { /* no-op */ }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Edit"))
+            {
+                if (ImGui::MenuItem("Undo", "Ctrl+Z")) { /* no-op */ }
+                if (ImGui::MenuItem("Redo", "Ctrl+Y")) { /* no-op */ }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Cut", "Ctrl+X")) { /* no-op */ }
+                if (ImGui::MenuItem("Copy", "Ctrl+C")) { /* no-op */ }
+                if (ImGui::MenuItem("Paste", "Ctrl+V")) { /* no-op */ }
+                if (ImGui::MenuItem("Delete", "Del")) { /* no-op */ }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Select All", "Ctrl+A")) { /* no-op */ }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("About"))
+            {
+                if (ImGui::MenuItem("About This App...")) { /* no-op */ }
+                if (ImGui::MenuItem("Check for Updates")) { /* no-op */ }
+                if (ImGui::MenuItem("Credits")) { /* no-op */ }
+                ImGui::EndMenu();
+            }
+
+            ImGui::EndMainMenuBar();
+        }
+
         // Ensure a DockSpace
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
