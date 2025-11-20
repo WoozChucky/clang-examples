@@ -345,7 +345,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         pso.bindingLayouts = { m_BindingLayout };
         pso.primType = nvrhi::PrimitiveType::TriangleList;
         // Depth disabled for now (no depth buffer in target)
-        pso.renderState.depthStencilState.depthTestEnable = false;
+        pso.renderState.depthStencilState.depthTestEnable = true;
+        pso.renderState.depthStencilState.depthWriteEnable = true;
         pso.renderState.rasterState.cullMode = nvrhi::RasterCullMode::Back;
         pso.renderState.rasterState.setFrontCounterClockwise(true);
         nvrhi::BlendState::RenderTarget rt;
@@ -360,6 +361,14 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         pso.renderState.blendState.setRenderTarget(0, rt);
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
     }
+
+    commandList->clearDepthStencilTexture(
+        frameBuffer->getDesc().depthAttachment.texture,
+        nvrhi::TextureSubresourceSet(),
+        true,
+        1.0f,
+        false,
+        0);
 
     // ECS-driven rendering: TransformComponent + MeshComponent are required; MaterialComponent is optional
     if (snapshot.WorldSnapshotPtr)

@@ -69,7 +69,7 @@ void GameThread::RunLoop() {
 
     {
         auto sphereEntityId = gameState.World.CreateEntity();
-        auto sphereTransform = TransformComponent{.Position = glm::vec3{-5.f, 0.f, -5.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{3.f}};
+        auto sphereTransform = TransformComponent{.Position = glm::vec3{-5.f, 0.f, -5.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
         auto sphereMesh = MeshComponent{ .MeshId = 0, .Visible = false };
         auto sphereMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 1.0f} };
         gameState.World.AddComponent(sphereEntityId, sphereTransform);

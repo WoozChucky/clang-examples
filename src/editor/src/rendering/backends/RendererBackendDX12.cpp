@@ -407,6 +407,7 @@ void RendererBackendDX12::ReleaseRenderTargets() {
     for(auto e : m_FrameFenceEvents)
         SetEvent(e);
 
+    m_SwapChainDepthTextures.clear();
     m_SwapChainFramebuffers.clear();
 
     // Release the old buffers because ResizeBuffers requires that

@@ -58,7 +58,7 @@ protected:
     RendererBackendSettings*                m_Settings {nullptr};
     GLFWwindow*                             m_Window;
     std::vector<nvrhi::FramebufferHandle>   m_SwapChainFramebuffers;
-
+    std::vector<nvrhi::TextureHandle>       m_SwapChainDepthTextures;
 };
 
 struct DefaultMessageCallback : nvrhi::IMessageCallback {

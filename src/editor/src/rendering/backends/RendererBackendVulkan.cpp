@@ -1036,6 +1036,7 @@ void RendererBackendVulkan::DestroySwapChain() {
         m_VulkanDevice.waitIdle();
     }
 
+    m_SwapChainDepthTextures.clear();
     m_SwapChainFramebuffers.clear();
 
     if (m_SwapChain)
