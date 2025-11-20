@@ -18,6 +18,7 @@
 
 #include "lib.h"
 #include "Timing.h"
+#include "assimp/scene.h"
 
 using namespace std::chrono_literals;
 
@@ -380,6 +381,9 @@ void GameThread::EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPa
     m_JobCv.notify_one();
 }
 
+#include <assimp/Importer.hpp>
+#include <assimp/postprocess.h>
+
 void GameThread::WorkerThreadFunc()
 {
     tracy::SetThreadName("ModelWorker");
@@ -406,107 +410,89 @@ void GameThread::WorkerThreadFunc()
 
         const auto now = Clock::now();
 
-        bool ok = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, job.objPath.c_str(), job.mtlBaseDir.c_str());
-        if (!warn.empty()) {
-            SM_WARN("TinyObjLoader warning: %s", warn.c_str());
+        Assimp::Importer importer;
+
+        const aiScene* scene = importer.ReadFile(job.objPath,
+            aiProcess_Triangulate |
+            aiProcess_GenSmoothNormals |
+            aiProcess_FlipUVs |
+            // aiProcess_ConvertToLeftHanded | // Might not need this, and instead use aiProcess_FlipUVs
+            aiProcess_JoinIdenticalVertices);
+
+        if (!scene) {
+            SM_ERROR("Assimp failed to load OBJ '%s': %s", job.objPath.c_str(), importer.GetErrorString());
+            result.success = false;
+            result.error = std::string("Assimp failed to load OBJ: ") + importer.GetErrorString();
+            {
+                std::lock_guard<std::mutex> lg(m_JobMutex);
+                m_CompletedJobs.push(std::move(result));
+            }
+            continue;
         }
 
-        const auto loadDuration = std::chrono::duration<double>(Clock::now() - now).count();
-        SM_TRACE("Loaded OBJ '%s' in %.3f seconds: %zu vertices, %zu shapes, %zu materials",
-                job.objPath.c_str(), loadDuration,
-                attrib.vertices.size() / 3, shapes.size(), materials.size());
-
-        if (!ok || !err.empty()) {
-            if (!err.empty()) SM_ERROR("TinyObjLoader error: %s", err.c_str());
-            result.success = false;
-            result.error = err.empty() ? std::string("Failed to load OBJ") : err;
-        } else {
-            // Build vertices & indices with deduplication
+        auto processMesh = [&](aiMesh* mesh, const aiScene* sceneRef) {
+            // Process mesh data if needed
             std::vector<MeshVertex> vertices;
             std::vector<uint32_t> indices;
-            std::unordered_map<size_t, uint32_t> vertexMap;  // hash -> index
 
-            auto hashVertex = [](const MeshVertex& v) -> size_t {
-                size_t h = 0;
-                h ^= std::hash<float>{}(v.px) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                h ^= std::hash<float>{}(v.py) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                h ^= std::hash<float>{}(v.pz) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                h ^= std::hash<float>{}(v.nx) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                h ^= std::hash<float>{}(v.ny) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                h ^= std::hash<float>{}(v.nz) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                h ^= std::hash<float>{}(v.u) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                h ^= std::hash<float>{}(v.v) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                return h;
-            };
+            for (size_t i = 0; i < mesh->mNumVertices; ++i) {
+                MeshVertex vertex{};
+                vertex.px = mesh->mVertices[i].x;
+                vertex.py = mesh->mVertices[i].y;
+                vertex.pz = mesh->mVertices[i].z;
+                if (mesh->HasNormals()) {
+                    vertex.nx = mesh->mNormals[i].x;
+                    vertex.ny = mesh->mNormals[i].y;
+                    vertex.nz = mesh->mNormals[i].z;
+                } else {
+                    vertex.nx = 0.0f; vertex.ny = 0.0f; vertex.nz = 0.0f;
+                }
+                if (mesh->HasTextureCoords(0)) {
+                    vertex.u = mesh->mTextureCoords[0][i].x;
+                    vertex.v = mesh->mTextureCoords[0][i].y;
+                } else {
+                    vertex.u = 0.0f; vertex.v = 0.0f;
+                }
 
-            // Count total triangles across all shapes first
-            size_t totalTris = 0;
-            for (const auto& shape : shapes) {
-                for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
-                    if (shape.mesh.num_face_vertices[f] == 3) ++totalTris;
+                vertices.push_back(vertex);
+            }
+
+            for (size_t i = 0; i < mesh->mNumFaces; ++i) {
+                aiFace face = mesh->mFaces[i];
+                for (size_t j = 0; j < face.mNumIndices; ++j) {
+                    indices.push_back(face.mIndices[j]);
                 }
             }
 
-            vertices.reserve(totalTris * 3);  // Exact size
-            indices.reserve(totalTris * 3);
-
-            for (const auto& shape : shapes) {
-                for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
-                    const int fv = shape.mesh.num_face_vertices[f];
-                    if (fv != 3) continue;
-
-                    for (int v = 0; v < 3; ++v) {
-                        const tinyobj::index_t idx = shape.mesh.indices[f * 3 + v];
-                        MeshVertex vert{};
-
-                        // Position
-                        vert.px = attrib.vertices[3 * idx.vertex_index + 0];
-                        vert.py = attrib.vertices[3 * idx.vertex_index + 1];
-                        vert.pz = attrib.vertices[3 * idx.vertex_index + 2];
-
-                        // Normal
-                        if (idx.normal_index >= 0 && !attrib.normals.empty()) {
-                            vert.nx = attrib.normals[3 * idx.normal_index + 0];
-                            vert.ny = attrib.normals[3 * idx.normal_index + 1];
-                            vert.nz = attrib.normals[3 * idx.normal_index + 2];
-                        } else {
-                            // Default up normal if not provided
-                            vert.nx = 0.0f;
-                            vert.ny = 1.0f;
-                            vert.nz = 0.0f;
-                        }
-
-                        // UV
-                        if (idx.texcoord_index >= 0 && !attrib.texcoords.empty()) {
-                            vert.u = attrib.texcoords[2 * idx.texcoord_index + 0];
-                            vert.v = 1.0f - attrib.texcoords[2 * idx.texcoord_index + 1];
-                        } else {
-                            vert.u = 0.0f;
-                            vert.v = 0.0f;
-                        }
-
-                        const size_t hash = hashVertex(vert);
-                        auto it = vertexMap.find(hash);
-                        if (it != vertexMap.end()) {
-                            indices.push_back(it->second);  // Reuse existing vertex
-                        } else {
-                            uint32_t newIdx = static_cast<uint32_t>(vertices.size());
-                            vertices.push_back(vert);
-                            vertexMap[hash] = newIdx;
-                            indices.push_back(newIdx);
-                        }
-                    }
+            if (mesh->mMaterialIndex >= 0) {
+                aiMaterial* material = sceneRef->mMaterials[mesh->mMaterialIndex];
+                if (material) {
+                    SM_TRACE("TODO: Process material for mesh '%s'", mesh->mName.C_Str());
                 }
             }
 
-            const auto processDuration = std::chrono::duration<double>(Clock::now() - now).count();
-            SM_TRACE("Processed model '%s': %zu unique vertices, %zu indices in %.3f seconds",
-                    job.objPath.c_str(), vertices.size(), indices.size(), processDuration);
+            return std::make_tuple(vertices, indices);
+        };
 
-            result.success = true;
-            result.vertices = std::move(vertices);
-            result.indices = std::move(indices);
-        }
+        std::function<void(aiNode*, const aiScene*)> processNode = [&](aiNode* node, const aiScene* sceneRef) {
+            for (size_t i = 0; i < node->mNumMeshes; i++) {
+                aiMesh* mesh = sceneRef->mMeshes[node->mMeshes[i]];
+                auto [vertex, index] = processMesh(mesh, sceneRef);
+                //result.vertices.insert(result.vertices.end(), vertex.begin(), vertex.end());
+                //result.indices.insert(result.indices.end(), index.begin(), index.end());
+                result.vertices = std::move(vertex);
+                result.indices = std::move(index);
+            }
+
+            for (size_t i = 0; i < node->mNumChildren; i++) {
+                processNode(node->mChildren[i], sceneRef);
+            }
+        };
+
+        processNode(scene->mRootNode, scene);
+
+        result.success = true;
+
 
         {
             std::lock_guard<std::mutex> lg(m_JobMutex);

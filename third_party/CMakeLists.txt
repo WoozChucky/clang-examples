@@ -87,3 +87,12 @@ set_target_properties(ImGuizmo PROPERTIES
 )
 target_include_directories(ImGuizmo PUBLIC ImGuizmo)
 target_link_libraries(ImGuizmo PRIVATE imgui)
+
+option(ASSIMP_BUILD_TESTS "" OFF)
+option(ASSIMP_INSTALL "" OFF)
+add_subdirectory(assimp)
+# Set folder for GLFW targets
+get_directory_property(assimp_targets DIRECTORY assimp BUILDSYSTEM_TARGETS)
+foreach(target ${assimp_targets})
+  set_target_properties(${target} PROPERTIES FOLDER ThirdParty/assimp)
+endforeach()

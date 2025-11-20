@@ -13,3 +13,6 @@
 [submodule "third_party/ImGuizmo"]
 	path = third_party/ImGuizmo
 	url = https://github.com/CedricGuillemet/ImGuizmo
+[submodule "third_party/assimp"]
+	path = third_party/assimp
+	url = https://github.com/assimp/assimp
