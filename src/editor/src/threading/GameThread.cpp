@@ -55,12 +55,6 @@ void GameThread::RunLoop() {
     m_WorkerStop.store(false, std::memory_order_relaxed);
     m_Worker = std::thread(&GameThread::WorkerThreadFunc, this);
 
-    auto textEntityId = gameState.World.CreateEntity();
-    auto transform = TransformComponent{.Position = glm::vec3{200.f, 550.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-    auto text = TextComponent{.Text = "Hello, Thread!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48};
-    gameState.World.AddComponent(textEntityId, transform);
-    gameState.World.AddComponent(textEntityId, text);
-
     {
         auto cubeEntityId = gameState.World.CreateEntity();
         auto cubeTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
@@ -84,61 +78,6 @@ void GameThread::RunLoop() {
         // Enqueue model loading job to background worker
         EnqueueModelLoadJob(sphereEntityId, "assets/models/sphere.obj", "assets/models");
     }
-
-    auto lightningEntityId = gameState.World.CreateEntity();
-    auto lightning = LightningComponent{
-        .Type = LightningType::Directional,
-        .Direction = glm::vec4(0.5f, -1.0f, 0.3f, 0.0f)
-    };
-    auto lightningTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-    gameState.World.AddComponent(lightningEntityId, lightningTransform);
-    gameState.World.AddComponent(lightningEntityId, lightning);
-
-    /*
-    static const MeshVertex cubeVertices[24] = {
-        // Front (+Z)
-        {-1.f,-1.f, 1.f, 0.f,0.f},
-        { 1.f,-1.f, 1.f, 1.f,0.f},
-        { 1.f, 1.f, 1.f, 1.f,1.f},
-        {-1.f, 1.f, 1.f, 0.f,1.f},
-        // Back (-Z)
-        { 1.f,-1.f,-1.f, 0.f,0.f},
-        {-1.f,-1.f,-1.f, 1.f,0.f},
-        {-1.f, 1.f,-1.f, 1.f,1.f},
-        { 1.f, 1.f,-1.f, 0.f,1.f},
-        // Left (-X)
-        {-1.f,-1.f,-1.f, 0.f,0.f},
-        {-1.f,-1.f, 1.f, 1.f,0.f},
-        {-1.f, 1.f, 1.f, 1.f,1.f},
-        {-1.f, 1.f,-1.f, 0.f,1.f},
-        // Right (+X)
-        { 1.f,-1.f, 1.f, 0.f,0.f},
-        { 1.f,-1.f,-1.f, 1.f,0.f},
-        { 1.f, 1.f,-1.f, 1.f,1.f},
-        { 1.f, 1.f, 1.f, 0.f,1.f},
-        // Top (+Y)
-        {-1.f, 1.f, 1.f, 0.f,0.f},
-        { 1.f, 1.f, 1.f, 1.f,0.f},
-        { 1.f, 1.f,-1.f, 1.f,1.f},
-        {-1.f, 1.f,-1.f, 0.f,1.f},
-        // Bottom (-Y)
-        {-1.f,-1.f,-1.f, 0.f,0.f},
-        { 1.f,-1.f,-1.f, 1.f,0.f},
-        { 1.f,-1.f, 1.f, 1.f,1.f},
-        {-1.f,-1.f, 1.f, 0.f,1.f},
-    };
-
-    static const uint32_t cubeIndices[36] = {
-        0,1,2, 2,3,0,        // Front
-        4,5,6, 6,7,4,        // Back
-        8,9,10, 10,11,8,     // Left
-        12,13,14, 14,15,12,  // Right
-        16,17,18, 18,19,16,  // Top
-        20,21,22, 22,23,20   // Bottom
-    };
-    */
-
-    // Actual GPU upload will be requested when the background job completes
 
 	// Initialize default settings
 	GameThreadSettings threadSettings{};

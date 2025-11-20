@@ -46,6 +46,8 @@ private:
         glm::mat4 P;   // Projection
         glm::mat4 VP;  // View-Projection
         DirectionalLight DirectionalLight;
+        uint32_t PointLightCount = 0; // number of point lights in the structured buffer
+        uint32_t _pfPad[3]{};         // padding to 16-byte alignment
     };
 
     struct PerDrawCB
@@ -82,6 +84,20 @@ private:
     nvrhi::BufferHandle m_PerDrawCB;
     nvrhi::SamplerHandle m_Sampler;
     nvrhi::TextureHandle m_DefaultWhite;
+
+    // Point lights GPU buffer (StructuredBuffer SRV)
+    struct PointLightCPU
+    {
+        glm::vec4 Position;  // xyz = world position
+        glm::vec4 Color;     // rgba
+        float     Intensity; // scalar multiplier
+        float     Range;     // attenuation range
+        float     _pad[2];   // padding to 16-byte alignment
+    };
+    static_assert(sizeof(PointLightCPU) % 16 == 0, "PointLightCPU must be 16-byte aligned");
+
+    nvrhi::BufferHandle m_PointLightBuffer;
+    uint32_t m_MaxPointLights = 256;
 
     std::vector<Model> m_Models;
 };

@@ -74,6 +74,26 @@ void GameUpdate(GameState* state) {
 	        auto text = TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48};
 	        g_GameState->World.AddComponent(textEntityId, transform);
 	        g_GameState->World.AddComponent(textEntityId, text);
+
+	        auto directionalLightningEntity = g_GameState->World.CreateEntity();
+	        auto lightning = LightningComponent{
+	            .Type = LightningType::Directional,
+                .Direction = glm::vec4(0.5f, -1.0f, 0.3f, 0.0f)
+            };
+	        auto lightningTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+	        g_GameState->World.AddComponent(directionalLightningEntity, lightningTransform);
+	        g_GameState->World.AddComponent(directionalLightningEntity, lightning);
+
+	        auto pointLightEntity = g_GameState->World.CreateEntity();
+            auto pointLight = LightningComponent{
+                .Type = LightningType::Point,
+                .Color = glm::vec4(1.0f, 0.8f, 0.6f, 1.0f),
+                .Intensity = 5.0f,
+                .Range = 15.0f
+            };
+            auto pointLightTransform = TransformComponent{.Position = glm::vec3{2.f, 4.f, 2.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+            g_GameState->World.AddComponent(pointLightEntity, pointLightTransform);
+            g_GameState->World.AddComponent(pointLightEntity, pointLight);
 	        break;
 	    }
 	    case GameStateId::MainMenu: {

@@ -25,6 +25,8 @@ cbuffer PerFrame : register(b0)
     float4x4 uP;
     float4x4 uVP;
     DirectionalLight uDirLight;
+    uint uPointLightCount;
+    uint3 _pfPad;
 };
 
 cbuffer PerDraw : register(b1)
@@ -47,6 +49,7 @@ struct VSOut
     float4 PosH   : SV_POSITION;
     float3 Normal : NORMAL;
     float2 UV     : TEXCOORD0;
+    float3 WorldPos : TEXCOORD1;
 };
 
 VSOut main_vs(VSIn vin)
@@ -57,6 +60,7 @@ VSOut main_vs(VSIn vin)
     o.PosH = mul(uVP, wp);
     o.Normal = mul((float3x3)uModel, vin.Normal);
     o.UV = vin.UV;
+    o.WorldPos = wp.xyz;
     return o;
 }
 )";
@@ -80,6 +84,8 @@ cbuffer PerFrame : register(b0)
     float4x4 uP;
     float4x4 uVP;
     DirectionalLight uDirLight;
+    uint uPointLightCount;
+    uint3 _pfPad;
 };
 
 cbuffer PerDraw : register(b1)
@@ -92,6 +98,7 @@ cbuffer PerDraw : register(b1)
 
 Texture2D uTexture : register(t2);
 SamplerState uSampler : register(s3);
+StructuredBuffer<PointLight> gPointLights : register(t4);
 
 static const uint OPT_SAMPLE_TEXTURE = 1u << 0;
 
@@ -100,6 +107,7 @@ struct PSIn
     float4 PosH   : SV_POSITION;
     float3 Normal : NORMAL;
     float2 UV     : TEXCOORD0;
+    float3 WorldPos : TEXCOORD1;
 };
 
 float4 main_ps(PSIn i) : SV_Target
@@ -113,6 +121,24 @@ float4 main_ps(PSIn i) : SV_Target
     float ambient = 0.2;
     // Apply light color to diffuse and ambient lightning
     float3 lighting = (ambient + diffuse) * uDirLight.Color.rgb;
+
+    // Add point lights contribution
+    [loop]
+    for (uint idx = 0; idx < uPointLightCount; ++idx)
+    {
+        PointLight pl = gPointLights[idx];
+        float3 L = pl.Position.xyz - i.WorldPos;
+        float dist = length(L);
+        if (pl.Range > 0.0001)
+        {
+            float3 Ldir = L / max(dist, 1e-5);
+            float NdotL = max(dot(N, Ldir), 0.0);
+            // Smooth falloff: saturate(1 - (d/r)^2)
+            float falloff = saturate(1.0 - (dist / pl.Range) * (dist / pl.Range));
+            float contrib = pl.Intensity * NdotL * falloff;
+            lighting += pl.Color.rgb * contrib;
+        }
+    }
 
     float4 finalColor;
     if ((uFlags & OPT_SAMPLE_TEXTURE) != 0) {
@@ -160,14 +186,15 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         .setOffset(offsetof(MeshVertex, u)).setBufferIndex(0).setElementStride(sizeof(MeshVertex));
     m_InputLayout = m_Device->createInputLayout(attrs, 3, m_VS);
 
-    // Binding layout: b0 (PerFrame), b1 (PerDraw), t0 (Texture), s0 (Sampler)
+    // Binding layout: b0 (PerFrame), b1 (PerDraw), t2 (Texture), s3 (Sampler), t4 (PointLights)
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
     layoutDesc.bindings = {
         nvrhi::BindingLayoutItem::ConstantBuffer(0),
         nvrhi::BindingLayoutItem::ConstantBuffer(1),
         nvrhi::BindingLayoutItem::Texture_SRV(2),
-        nvrhi::BindingLayoutItem::Sampler(3)
+        nvrhi::BindingLayoutItem::Sampler(3),
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4)
     };
     nvrhi::VulkanBindingOffsets& offsets =
         nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
@@ -207,6 +234,21 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         cl->setPermanentTextureState(m_DefaultWhite, nvrhi::ResourceStates::ShaderResource);
         cl->close();
         m_Device->executeCommandList(cl);
+    }
+
+    // Create PointLight structured buffer (SRV)
+    {
+        nvrhi::BufferDesc bd;
+        bd.debugName = "MeshRenderPass PointLights";
+        bd.byteSize = m_MaxPointLights * sizeof(PointLightCPU);
+        bd.structStride = sizeof(PointLightCPU);
+        bd.initialState = nvrhi::ResourceStates::CopyDest; // upload each frame
+        bd.isIndexBuffer = false;
+        bd.isVertexBuffer = false;
+        bd.isConstantBuffer = false;
+        bd.canHaveUAVs = false;
+        bd.keepInitialState = true;
+        m_PointLightBuffer = m_Device->createBuffer(bd);
     }
 
     return true;
@@ -272,13 +314,14 @@ ModelHandle MeshRenderPass::AddModel(const MeshVertex* vertices, uint32_t vertex
     cl->close();
     m_Device->executeCommandList(cl);
 
-    // Create binding set for this model (per-frame, per-draw, texture, sampler)
+    // Create binding set for this model (per-frame, per-draw, texture, sampler, point lights)
     nvrhi::BindingSetDesc bs;
     bs.bindings = {
         nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameCB),
         nvrhi::BindingSetItem::ConstantBuffer(1, m_PerDrawCB),
         nvrhi::BindingSetItem::Texture_SRV(2, model.texture),
-        nvrhi::BindingSetItem::Sampler(3, m_Sampler)
+        nvrhi::BindingSetItem::Sampler(3, m_Sampler),
+        nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer)
     };
     model.bindingSet = m_Device->createBindingSet(bs, m_BindingLayout);
 
@@ -321,18 +364,36 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
     // ECS-driven rendering: TransformComponent + MeshComponent are required; MaterialComponent is optional
     if (snapshot.WorldSnapshotPtr)
     {
-        // Try to find the LightningComponent to get the light direction
-
+        // Gather lights
         glm::vec4 lightningDirection(0.5f, -1.0f, 0.3f, 0.0f); // default arbitrary direction
         glm::vec4 lightningColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+        // Collect point lights into a temporary CPU array (capped to m_MaxPointLights)
+        std::vector<PointLightCPU> pointLights;
+        pointLights.reserve(16);
 
         for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, LightningComponent>()) {
             const auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
             const auto* lightning = snapshot.WorldSnapshotPtr->GetComponent<LightningComponent>(entity);
-            if (transform && lightning && lightning->Type == LightningType::Directional) {
+            if (!transform || !lightning) continue;
+
+            if (lightning->Type == LightningType::Directional)
+            {
                 lightningDirection = lightning->Direction;
                 lightningColor = lightning->Color;
-                break; // Use the first found light
+                // keep scanning for points in case; do not break
+            }
+            else if (lightning->Type == LightningType::Point)
+            {
+                if (pointLights.size() < m_MaxPointLights)
+                {
+                    PointLightCPU pl{};
+                    pl.Position = glm::vec4(transform->Position, 1.0f);
+                    pl.Color = lightning->Color;
+                    pl.Intensity = lightning->Intensity;
+                    pl.Range = lightning->Range;
+                    pointLights.push_back(pl);
+                }
             }
         }
 
@@ -344,7 +405,14 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         perFrame.VP = P * V;
         perFrame.DirectionalLight.Direction = lightningDirection;
         perFrame.DirectionalLight.Color = lightningColor;
+        perFrame.PointLightCount = static_cast<uint32_t>(pointLights.size());
         commandList->writeBuffer(m_PerFrameCB, &perFrame, sizeof(perFrame));
+
+        // Upload point lights data (if any)
+        if (m_PointLightBuffer && !pointLights.empty())
+        {
+            commandList->writeBuffer(m_PointLightBuffer, pointLights.data(), static_cast<uint32_t>(pointLights.size() * sizeof(PointLightCPU)));
+        }
 
         nvrhi::GraphicsState state;
         state.pipeline = m_Pipeline;
@@ -432,6 +500,7 @@ void MeshRenderPass::Shutdown()
     m_PerFrameCB = nullptr;
     m_PerDrawCB = nullptr;
     m_Sampler = nullptr;
+    m_PointLightBuffer = nullptr;
     m_DefaultWhite = nullptr;
     m_VS = nullptr;
     m_PS = nullptr;

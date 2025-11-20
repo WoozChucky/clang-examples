@@ -56,6 +56,7 @@ struct LightningComponent {
     glm::vec4 Direction{0.0f, -1.0f, 0.0f, 0.0f}; // for directional lights
     glm::vec4 Color{1.0f};
     float Intensity = 1.0f;
+    float Range = 1.0f;
 };
 
 // #############################################################################
