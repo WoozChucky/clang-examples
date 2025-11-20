@@ -47,12 +47,14 @@ private:
         glm::mat4 VP;  // View-Projection
         DirectionalLight DirectionalLight;
         uint32_t PointLightCount = 0; // number of point lights in the structured buffer
-        uint32_t _pfPad[3]{};         // padding to 16-byte alignment
+        float    Ambient = 0.0f;
+        uint32_t _pfPad[2]{};         // padding to 16-byte alignment
     };
 
     struct PerDrawCB
     {
         glm::mat4 Model;     // world transform for this draw
+        glm::mat4 NormalMatrix;
         glm::vec4 BaseColor; // material base color (used when not sampling or as tint)
         uint32_t  Flags;     // bit 0 = sample texture
         uint32_t  _pad[3]{}; // padding to 16-byte alignment

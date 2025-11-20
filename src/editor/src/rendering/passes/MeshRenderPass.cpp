@@ -12,26 +12,20 @@ struct DirectionalLight {
     float4 Color;
 };
 
-struct PointLight {
-    float4 Position;
-    float4 Color;
-    float Intensity;
-    float Range;
-    float2 _pad;
-};
-
 cbuffer PerFrame : register(b0)
 {
     float4x4 uP;
     float4x4 uVP;
     DirectionalLight uDirLight;
     uint uPointLightCount;
-    uint3 _pfPad;
+    float uAmbient;
+    float2 _pfPad;
 };
 
 cbuffer PerDraw : register(b1)
 {
     float4x4 uModel;
+    float4x4 uNormalMatrix;
     float4   uBaseColor;
     uint     uFlags; // bit0: sample texture
     uint3    _pad;
@@ -58,7 +52,10 @@ VSOut main_vs(VSIn vin)
     float4 lp = float4(vin.Position, 1.0);
     float4 wp = mul(uModel, lp);
     o.PosH = mul(uVP, wp);
-    o.Normal = mul((float3x3)uModel, vin.Normal);
+
+    //o.Normal = mul((float3x3)uModel, vin.Normal);
+    o.Normal = mul((float3x3)uNormalMatrix, vin.Normal);
+
     o.UV = vin.UV;
     o.WorldPos = wp.xyz;
     return o;
@@ -85,12 +82,14 @@ cbuffer PerFrame : register(b0)
     float4x4 uVP;
     DirectionalLight uDirLight;
     uint uPointLightCount;
-    uint3 _pfPad;
+    float uAmbient;
+    float2 _pfPad;
 };
 
 cbuffer PerDraw : register(b1)
 {
     float4x4 uModel;
+    float4x4 uNormalMatrix;
     float4   uBaseColor;
     uint     uFlags; // bit0: sample texture
     uint3    _pad;
@@ -101,6 +100,7 @@ SamplerState uSampler : register(s3);
 StructuredBuffer<PointLight> gPointLights : register(t4);
 
 static const uint OPT_SAMPLE_TEXTURE = 1u << 0;
+static const uint OPT_UNLIT          = 1u << 1;
 
 struct PSIn
 {
@@ -118,9 +118,10 @@ float4 main_ps(PSIn i) : SV_Target
     float3 N = normalize(i.Normal);
     float diffuse = max(dot(N, -lightDir), 0.0);
 
-    float ambient = 0.2;
+    float ambient = uAmbient;
+    float3 lighting = ambient * uDirLight.Color.rgb; // or just float3(ambient) if you don’t want ambient tinted by sun
     // Apply light color to diffuse and ambient lightning
-    float3 lighting = (ambient + diffuse) * uDirLight.Color.rgb;
+    lighting += diffuse * uDirLight.Color.rgb;
 
     // Add point lights contribution
     [loop]
@@ -138,6 +139,14 @@ float4 main_ps(PSIn i) : SV_Target
             float contrib = pl.Intensity * NdotL * falloff;
             lighting += pl.Color.rgb * contrib;
         }
+    }
+
+    if ((uFlags & OPT_UNLIT) != 0u)
+    {
+        float4 c = ((uFlags & OPT_SAMPLE_TEXTURE) != 0)
+            ? uTexture.Sample(uSampler, i.UV)
+            : float4(uBaseColor.rgb, uBaseColor.a);
+        return c; // bypass lighting
     }
 
     float4 finalColor;
@@ -374,8 +383,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
     if (snapshot.WorldSnapshotPtr)
     {
         // Gather lights
-        glm::vec4 lightningDirection(0.5f, -1.0f, 0.3f, 0.0f); // default arbitrary direction
-        glm::vec4 lightningColor(1.0f, 1.0f, 1.0f, 1.0f);
+        glm::vec4 lightningDirection(0.0f, -1.0f, 0.0f, 0.0f); // default arbitrary direction
+        glm::vec4 lightningColor(0.0f);
 
         // Collect point lights into a temporary CPU array (capped to m_MaxPointLights)
         std::vector<PointLightCPU> pointLights;
@@ -415,6 +424,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         perFrame.DirectionalLight.Direction = lightningDirection;
         perFrame.DirectionalLight.Color = lightningColor;
         perFrame.PointLightCount = static_cast<uint32_t>(pointLights.size());
+        perFrame.Ambient = 0.01f; // hardcoded ambient for now
         commandList->writeBuffer(m_PerFrameCB, &perFrame, sizeof(perFrame));
 
         // Upload point lights data (if any)
@@ -449,6 +459,9 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
             glm::mat4 S = glm::scale(glm::mat4(1.0f), transform->Scale);
             glm::mat4 M = T * Rz * Ry * Rx * S;
 
+            glm::mat3 M3(M);
+            glm::mat3 N3 = glm::transpose(glm::inverse(M3));
+
             // Material defaults
             glm::vec4 baseColor(1.0f);
             uint32_t flags = model.useTexture ? 1u : 0u; // default to model's texture preference
@@ -470,6 +483,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
             // Update per-draw data
             PerDrawCB pd{};
             pd.Model = M;
+            pd.NormalMatrix = glm::mat4(N3);
             pd.BaseColor = baseColor;
             pd.Flags = flags;
             commandList->writeBuffer(m_PerDrawCB, &pd, sizeof(pd));
