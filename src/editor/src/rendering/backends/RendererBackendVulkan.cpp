@@ -289,7 +289,7 @@ bool RendererBackendVulkan::BeginFrame() {
             vk::Fence(),
             &m_SwapChainIndex);
 
-        if ((res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR || m_ResizeRequested) && attempt < maxAttempts)
+        if ((res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR || m_ResizeRequested || m_LastVsyncEnabled != m_Settings->vsyncEnabled) && attempt < maxAttempts)
         {
             m_ResizeRequested = false;
             BackBufferResizing();
@@ -300,6 +300,7 @@ bool RendererBackendVulkan::BeginFrame() {
 
             ResizeSwapChain();
             BackBufferResized();
+            m_LastVsyncEnabled = m_Settings->vsyncEnabled;
         }
         else
             break;

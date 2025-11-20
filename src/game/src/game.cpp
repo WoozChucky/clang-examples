@@ -99,12 +99,12 @@ void GameUpdate(GameState* state) {
             auto pointLight = LightningComponent{
                 .Type = LightningType::Point,
                 .Color = glm::vec4(1.0f, 0.8f, 0.6f, 1.0f),
-                .Intensity = 5.0f,
-                .Range = 15.0f
+                .Intensity = 1.0f,
+                .Range = 5.0f
             };
             auto pointLightTransform = TransformComponent{.Position = glm::vec3{2.f, 4.f, 2.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-            //g_GameState->World.AddComponent(pointLightEntity, pointLightTransform);
-            //g_GameState->World.AddComponent(pointLightEntity, pointLight);
+            g_GameState->World.AddComponent(pointLightEntity, pointLightTransform);
+            g_GameState->World.AddComponent(pointLightEntity, pointLight);
 
 	        break;
 	    }

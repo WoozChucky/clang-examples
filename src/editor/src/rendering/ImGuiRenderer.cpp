@@ -837,6 +837,12 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                             if (ImGui::DragFloat("Intensity", &editLightning.Intensity, 0.1f, 0.0f, 100.0f)) {
                                 modified = true;
                             }
+                            // Range editor (for Point and Spot lights)
+                            if (editLightning.Type != LightningType::Directional) {
+                                if (ImGui::DragFloat("Range", &editLightning.Range, 0.1f, 0.0f, 1000.0f)) {
+                                    modified = true;
+                                }
+                            }
                             ImGui::Spacing();
 
                             if (modified) {
