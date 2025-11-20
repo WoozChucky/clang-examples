@@ -59,17 +59,17 @@ void GameThread::RunLoop() {
         auto cubeEntityId = gameState.World.CreateEntity();
         auto cubeTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
         auto cubeMesh = MeshComponent{ .MeshId = 0, .Visible = false };
-        auto cubeMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 1.0f} };
+        auto cubeMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 1.f, 1.f, 1.0f} };
         gameState.World.AddComponent(cubeEntityId, cubeTransform);
         gameState.World.AddComponent(cubeEntityId, cubeMaterial);
         gameState.World.AddComponent(cubeEntityId, cubeMesh);
         // Enqueue model loading job to background worker
-        EnqueueModelLoadJob(cubeEntityId, "assets/models/cube.obj", "assets/models"); // stanford-bunny
+        EnqueueModelLoadJob(cubeEntityId, "assets/models/mage.obj", "assets/models"); // stanford-bunny
     }
 
     {
         auto sphereEntityId = gameState.World.CreateEntity();
-        auto sphereTransform = TransformComponent{.Position = glm::vec3{-5.f, 0.f, -5.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+        auto sphereTransform = TransformComponent{.Position = glm::vec3{-5.f, 0.f, -5.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{3.f}};
         auto sphereMesh = MeshComponent{ .MeshId = 0, .Visible = false };
         auto sphereMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 1.0f} };
         gameState.World.AddComponent(sphereEntityId, sphereTransform);

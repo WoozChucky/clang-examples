@@ -4,6 +4,7 @@
 
 #include <ApplicationContext.h>
 #include <Input.h>
+#include <cmath>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -15,6 +16,8 @@ static int32_t gMouseWheel = 0;
 static bool   g_MouseAimEnabled = false;        // toggled by T
 static double g_MouseX = 0.0, g_MouseY = 0.0;   // last mouse position in window coords
 static uint64_t textEntityId = 0;
+static float g_DayNightCycleSeconds = 10.0f; // configurable day-night cycle duration
+static EntityId g_DirectionalLightEntity = INVALID_ENTITY; // Track the created directional light
 
 using namespace Input;
 
@@ -54,6 +57,8 @@ void GameUpdate(GameState* state) {
 
 	HandleCameraMovement(g_GameState);
 
+    // Note: Day/Night cycle is handled only in MainMenu state (see below)
+
     {
 	    // Use IsKeyPressedThisFrame to add only ONE entity per key press (not per frame while held)
 		if (IsKeyPressedThisFrame(KEY_F12)) {
@@ -64,6 +69,7 @@ void GameUpdate(GameState* state) {
 
     switch (g_GameState->StateId)
     {
+
 	    case GameStateId::Uninitialized: {
 	        SM_TRACE("[GAMEDLL] Initializing game...")
             g_GameState->StateId = GameStateId::MainMenu;
@@ -75,14 +81,19 @@ void GameUpdate(GameState* state) {
 	        g_GameState->World.AddComponent(textEntityId, transform);
 	        g_GameState->World.AddComponent(textEntityId, text);
 
-	        auto directionalLightningEntity = g_GameState->World.CreateEntity();
-	        auto lightning = LightningComponent{
-	            .Type = LightningType::Directional,
-                .Direction = glm::vec4(0.5f, -1.0f, 0.3f, 0.0f)
-            };
-	        auto lightningTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-	        g_GameState->World.AddComponent(directionalLightningEntity, lightningTransform);
-	        g_GameState->World.AddComponent(directionalLightningEntity, lightning);
+             auto directionalLightningEntity = g_GameState->World.CreateEntity();
+             auto lightning = LightningComponent{
+                .Type = LightningType::Directional,
+                // Start from a diagonal pointing from (-X, -Z) towards the scene with a downward Y
+                // This sets the initial sun direction to bottom-left on screen
+                .Direction = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 0.0f),
+                // Mimic the sunlight color
+                .Color = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f)
+             };
+             auto lightningTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+             g_GameState->World.AddComponent(directionalLightningEntity, lightningTransform);
+             g_GameState->World.AddComponent(directionalLightningEntity, lightning);
+             g_DirectionalLightEntity = directionalLightningEntity;
 
 	        auto pointLightEntity = g_GameState->World.CreateEntity();
             auto pointLight = LightningComponent{
@@ -92,15 +103,16 @@ void GameUpdate(GameState* state) {
                 .Range = 15.0f
             };
             auto pointLightTransform = TransformComponent{.Position = glm::vec3{2.f, 4.f, 2.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-            g_GameState->World.AddComponent(pointLightEntity, pointLightTransform);
-            g_GameState->World.AddComponent(pointLightEntity, pointLight);
+            //g_GameState->World.AddComponent(pointLightEntity, pointLightTransform);
+            //g_GameState->World.AddComponent(pointLightEntity, pointLight);
+
 	        break;
 	    }
-	    case GameStateId::MainMenu: {
-	        auto [transform, text] = g_GameState->World.GetComponents<TransformComponent, TextComponent>(textEntityId);
-	        if (transform) {
-	            transform->Rotation.z += glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime);
-	        }
+        case GameStateId::MainMenu: {
+            auto [transform, text] = g_GameState->World.GetComponents<TransformComponent, TextComponent>(textEntityId);
+            if (transform) {
+                transform->Rotation.z += glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime);
+            }
 
 	        if (text) {
                 const auto time = static_cast<float>(g_GameState->DeltaTime);
@@ -110,8 +122,53 @@ void GameUpdate(GameState* state) {
                 text->Color = glm::vec4(red, green, blue, 1.0f);
             }
 
-	        break;
-	    }
+            if (g_DirectionalLightEntity != INVALID_ENTITY) {
+                auto* l = g_GameState->World.GetComponent<LightningComponent>(g_DirectionalLightEntity);
+                if (l && l->Type == LightningType::Directional) {
+
+                    const float cycle = glm::max(g_DayNightCycleSeconds, 0.001f);
+                    const double gameTime = g_GameState->GameTime; // seconds
+                    const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
+                    const float theta = phase * 6.28318530718f; // 2*pi
+                    // Rotate in YZ plane: midday -> light points downward (0, -1, 0)
+                    const glm::vec3 dir = glm::normalize(glm::vec3(0.0f, -cosf(theta), sinf(theta)));
+                    /*
+                     * DO NOT REMOVE THIS COMMENTED OUT CODE - kept for reference
+                    const float cycle = glm::max(g_DayNightCycleSeconds, 0.001f);
+                    const double gameTime = g_GameState->GameTime; // seconds
+                    const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
+                    // Move the light direction from (-X, -Z) to (+X, +Z) over the cycle, with a constant downward Y
+                    const float xz = -1.0f + 2.0f * phase; // [-1 .. +1]
+                    const glm::vec3 dir = glm::normalize(glm::vec3(xz, -1.0f, xz));
+                    */
+
+                    l->Direction = glm::vec4(dir, 0.0f);
+
+                    // Compute sun color over the cycle based on elevation and horizon warmness
+                    // Elevation factor: 0 (night) .. 1 (midday). Our light points down at midday (dir.y ~ -1)
+                    const float elevation = glm::clamp(-dir.y, 0.0f, 1.0f);
+                    // Horizon factor peaks near sunrise/sunset when |dir.y| ~ 0
+                    const float horizon = 1.0f - glm::abs(dir.y);
+                    const float horizonSmooth = glm::smoothstep(0.0f, 0.5f, horizon);
+
+                    const glm::vec3 dayColor  = glm::vec3(1.00f, 0.98f, 0.90f); // slightly warm white
+                    const glm::vec3 warmColor = glm::vec3(1.00f, 0.68f, 0.35f); // sunrise/sunset orange
+                    const glm::vec3 nightColor= glm::vec3(0.15f, 0.20f, 0.40f); // cool moonlight blue
+
+                    // Blend between day and warm near horizon, then between night and that by elevation
+                    const glm::vec3 dayWarm   = glm::mix(dayColor, warmColor, horizonSmooth);
+                    const glm::vec3 baseColor = glm::mix(nightColor, dayWarm, elevation);
+
+                    // Optional brightness scaling to dim the sun at night and brighten at day
+                    const float brightness = 0.75f + 0.75f * elevation; // [0.25 .. 1.0]
+                    const glm::vec3 finalColor = baseColor * brightness;
+
+                    l->Color = glm::vec4(finalColor, 1.0f);
+                }
+            }
+
+            break;
+        }
 	    case GameStateId::InLevel:
 		    break;
 	    case GameStateId::InEditor:
@@ -246,6 +303,7 @@ void GameExit(GameState* state) {
     {
         g_GameState->World.Clear();
         g_GameState = nullptr;
+        g_DirectionalLightEntity = INVALID_ENTITY;
     }
     SM_TRACE("[GAMEDLL] GameExit")
 }

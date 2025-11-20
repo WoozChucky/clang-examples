@@ -741,10 +741,10 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                                 }
 
                                 // Keyboard shortcuts for convenience
-                                if (ImGui::IsKeyPressed(ImGuiKey_T)) m_GizmoOperation = ImGuizmo::TRANSLATE;
-                                if (ImGui::IsKeyPressed(ImGuiKey_E)) m_GizmoOperation = ImGuizmo::ROTATE;
-                                if (ImGui::IsKeyPressed(ImGuiKey_R)) m_GizmoOperation = ImGuizmo::SCALE;
-                                if (ImGui::IsKeyPressed(ImGuiKey_S)) m_GizmoUseSnap = !m_GizmoUseSnap;
+                                if (ImGui::IsKeyPressed(ImGuiKey_F1)) m_GizmoOperation = ImGuizmo::TRANSLATE;
+                                if (ImGui::IsKeyPressed(ImGuiKey_F2)) m_GizmoOperation = ImGuizmo::ROTATE;
+                                if (ImGui::IsKeyPressed(ImGuiKey_F3)) m_GizmoOperation = ImGuizmo::SCALE;
+                                if (ImGui::IsKeyPressed(ImGuiKey_F4)) m_GizmoUseSnap = !m_GizmoUseSnap;
 
                                 ImGui::Checkbox("Snap##GZ", &m_GizmoUseSnap);
                                 ImGui::SameLine();
