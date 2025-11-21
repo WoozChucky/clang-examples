@@ -41,8 +41,11 @@ private:
         uint64_t ticketId{0};
         bool success{false};
         std::string error;
-        std::vector<MeshVertex> vertices;
-        std::vector<uint32_t> indices;
+        std::vector<MeshVertex> vertices{};
+        std::vector<uint32_t> indices{};
+        uint32_t Width{0};
+        uint32_t Height{0};
+        uint32_t* Texture{nullptr}; // optional RGBA8 pixels (w*h entries)
     };
 
     void WorkerThreadFunc();

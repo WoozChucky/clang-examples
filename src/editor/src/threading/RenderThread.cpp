@@ -55,38 +55,53 @@ void RenderThread::RunLoop()
         // Game -> Render commands
         while (m_AppContext->GRCommandRing.Pop(cmd)) {
             switch (cmd.Type) {
-                case RendererCommandType::RequestMesh:
-                    SM_TRACE("Mesh Requested");
-                    break;
-                case RendererCommandType::RequestMaterial:
-                    SM_TRACE("Material Requested");
-                    break;
-                case RendererCommandType::RequestModel: {
-                    SM_TRACE("Model Requested");
+                case RendererCommandType::RequestMesh: {
+                    SM_TRACE("Mesh Requested (ticket %llu)", (unsigned long long)cmd.TicketId);
 
-                    const auto handle = m_Renderer->AddModel(
-                        cmd.ModelRequest.Vertices, cmd.ModelRequest.VertexCount,
-                        cmd.ModelRequest.Indices, cmd.ModelRequest.IndexCount,
-                        cmd.ModelRequest.UseTexture,
-                        cmd.ModelRequest.Texture,
-                        cmd.ModelRequest.Width, cmd.ModelRequest.Height
+                    const auto meshHandle = m_Renderer->AddMesh(
+                        cmd.MeshRequest.Vertices, static_cast<uint32_t>(cmd.MeshRequest.VertexCount),
+                        cmd.MeshRequest.Indices, static_cast<uint32_t>(cmd.MeshRequest.IndexCount)
                     );
 
-                    // The incoming pointers are heap-allocated by the GameThread; Renderer copies data.
-                    // Free them here to avoid leaks.
-                    if (cmd.ModelRequest.Vertices) std::free(cmd.ModelRequest.Vertices);
-                    if (cmd.ModelRequest.Indices) std::free(cmd.ModelRequest.Indices);
-                    if (cmd.ModelRequest.Texture) std::free(cmd.ModelRequest.Texture);
+                    // Free allocated memory from GameThread
+                    if (cmd.MeshRequest.Vertices) std::free(cmd.MeshRequest.Vertices);
+                    if (cmd.MeshRequest.Indices) std::free(cmd.MeshRequest.Indices);
 
                     RendererResponse response{};
-                    response.Type = RendererResponseType::ModelUpload;
+                    response.Type = RendererResponseType::MeshUpload;
                     response.TicketId = cmd.TicketId;
-                    response.Model.Valid = handle.Index != UINT32_MAX;
-                    response.Model.Handle = handle;
+                    response.Mesh.Valid = meshHandle.Index != UINT32_MAX;
+                    response.Mesh.Handle = meshHandle;
                     if (!m_AppContext->RGCommandRing.Push(response)) {
-                        SM_ERROR("RenderThread: Failed to push RendererResponse to ring");
+                        SM_ERROR("RenderThread: Failed to push MeshUpload response to ring");
+                    }
+                    break;
+                }
+                case RendererCommandType::RequestMaterial: {
+                    SM_TRACE("Material Requested (ticket %llu)", (unsigned long long)cmd.TicketId);
+
+                    if (cmd.MaterialRequest.Texture == nullptr) {
+                        SM_WARN("RenderThread: Material request has null texture pointer (ticket %llu)", (unsigned long long)cmd.TicketId);
+                        break;
                     }
 
+                    const auto materialHandle = m_Renderer->AddMaterial(
+                        cmd.MaterialRequest.Texture,
+                        cmd.MaterialRequest.Width,
+                        cmd.MaterialRequest.Height
+                    );
+
+                    // Free allocated memory from GameThread
+                    if (cmd.MaterialRequest.Texture) std::free(cmd.MaterialRequest.Texture);
+
+                    RendererResponse response{};
+                    response.Type = RendererResponseType::MaterialUpload;
+                    response.TicketId = cmd.TicketId;
+                    response.Material.Valid = materialHandle.Index != UINT32_MAX;
+                    response.Material.Handle = materialHandle;
+                    if (!m_AppContext->RGCommandRing.Push(response)) {
+                        SM_ERROR("RenderThread: Failed to push MaterialUpload response to ring");
+                    }
                     break;
                 }
                 default:

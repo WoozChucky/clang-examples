@@ -4,12 +4,21 @@
 #include <nvrhi/utils.h>
 #include "lib.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include <unordered_map>
 
 // HLSL shaders for mesh pass
 static const char* MESH_VS_HLSL = R"(
 struct DirectionalLight {
     float4 Direction; // xyz = light direction
     float4 Color;
+};
+
+struct InstanceData {
+    float4x4 Model;
+    float4x4 NormalMatrix;
+    float4 BaseColor;
+    uint Flags;
+    uint3 _pad;
 };
 
 cbuffer PerFrame : register(b0)
@@ -31,11 +40,14 @@ cbuffer PerDraw : register(b1)
     uint3    _pad;
 };
 
+StructuredBuffer<InstanceData> gInstances : register(t5);
+
 struct VSIn
 {
     float3 Position : POSITION;
     float3 Normal   : NORMAL;
     float2 UV       : TEXCOORD0;
+    uint InstanceID : SV_InstanceID;
 };
 
 struct VSOut
@@ -44,20 +56,25 @@ struct VSOut
     float3 Normal : NORMAL;
     float2 UV     : TEXCOORD0;
     float3 WorldPos : TEXCOORD1;
+    uint InstanceID : TEXCOORD2;
 };
 
 VSOut main_vs(VSIn vin)
 {
     VSOut o;
+
+    // Fetch per-instance data
+    InstanceData inst = gInstances[vin.InstanceID];
+
     float4 lp = float4(vin.Position, 1.0);
-    float4 wp = mul(uModel, lp);
+    float4 wp = mul(inst.Model, lp);
     o.PosH = mul(uVP, wp);
 
-    //o.Normal = mul((float3x3)uModel, vin.Normal);
-    o.Normal = mul((float3x3)uNormalMatrix, vin.Normal);
+    o.Normal = mul((float3x3)inst.NormalMatrix, vin.Normal);
 
     o.UV = vin.UV;
     o.WorldPos = wp.xyz;
+    o.InstanceID = vin.InstanceID;
     return o;
 }
 )";
@@ -74,6 +91,14 @@ struct PointLight {
     float Intensity;
     float Range;
     float2 _pad;
+};
+
+struct InstanceData {
+    float4x4 Model;
+    float4x4 NormalMatrix;
+    float4 BaseColor;
+    uint Flags;
+    uint3 _pad;
 };
 
 cbuffer PerFrame : register(b0)
@@ -98,6 +123,7 @@ cbuffer PerDraw : register(b1)
 Texture2D uTexture : register(t2);
 SamplerState uSampler : register(s3);
 StructuredBuffer<PointLight> gPointLights : register(t4);
+StructuredBuffer<InstanceData> gInstances : register(t5);
 
 static const uint OPT_SAMPLE_TEXTURE = 1u << 0;
 static const uint OPT_UNLIT          = 1u << 1;
@@ -108,10 +134,13 @@ struct PSIn
     float3 Normal : NORMAL;
     float2 UV     : TEXCOORD0;
     float3 WorldPos : TEXCOORD1;
+    uint InstanceID : TEXCOORD2;
 };
 
 float4 main_ps(PSIn i) : SV_Target
 {
+    // Fetch per-instance data
+    InstanceData inst = gInstances[i.InstanceID];
     // Use dynamic light direction from constant buffer
     float3 lightDir = normalize(uDirLight.Direction.xyz);
 
@@ -141,21 +170,21 @@ float4 main_ps(PSIn i) : SV_Target
         }
     }
 
-    if ((uFlags & OPT_UNLIT) != 0u)
+    if ((inst.Flags & OPT_UNLIT) != 0u)
     {
-        float4 c = ((uFlags & OPT_SAMPLE_TEXTURE) != 0)
+        float4 c = ((inst.Flags & OPT_SAMPLE_TEXTURE) != 0)
             ? uTexture.Sample(uSampler, i.UV)
-            : float4(uBaseColor.rgb, uBaseColor.a);
+            : float4(inst.BaseColor.rgb, inst.BaseColor.a);
         return c; // bypass lighting
     }
 
     float4 finalColor;
-    if ((uFlags & OPT_SAMPLE_TEXTURE) != 0) {
+    if ((inst.Flags & OPT_SAMPLE_TEXTURE) != 0) {
         finalColor = uTexture.Sample(uSampler, i.UV);
         finalColor.rgb *= lighting;
     } else {
-        finalColor.rgb = uBaseColor.rgb * lighting;
-        finalColor.a = uBaseColor.a;
+        finalColor.rgb = inst.BaseColor.rgb * lighting;
+        finalColor.a = inst.BaseColor.a;
     }
     return finalColor;
 }
@@ -165,7 +194,7 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
 {
     m_Device = device;
     m_Renderer = renderer;
-    if (!m_Device || !m_Renderer)
+    if (!m_Device || !m_Renderer || !renderer->GetMeshSystem() || !renderer->GetMaterialSystem())
         return false;
 
     // Create constant buffers
@@ -195,7 +224,7 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         .setOffset(offsetof(MeshVertex, u)).setBufferIndex(0).setElementStride(sizeof(MeshVertex));
     m_InputLayout = m_Device->createInputLayout(attrs, 3, m_VS);
 
-    // Binding layout: b0 (PerFrame), b1 (PerDraw), t2 (Texture), s3 (Sampler), t4 (PointLights)
+    // Binding layout: b0 (PerFrame), b1 (PerDraw), t2 (Texture), s3 (Sampler), t4 (PointLights), t5 (Instances)
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
     layoutDesc.bindings = {
@@ -203,7 +232,8 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         nvrhi::BindingLayoutItem::ConstantBuffer(1),
         nvrhi::BindingLayoutItem::Texture_SRV(2),
         nvrhi::BindingLayoutItem::Sampler(3),
-        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4)
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4),
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5)
     };
     nvrhi::VulkanBindingOffsets& offsets =
         nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
@@ -214,36 +244,6 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     }
 
     m_BindingLayout = m_Device->createBindingLayout(layoutDesc);
-
-    // Sampler
-    nvrhi::SamplerDesc sd;
-    sd.setAllFilters(true);
-    sd.setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
-    m_Sampler = m_Device->createSampler(sd);
-
-    // Default white texture (1x1 RGBA8)
-    {
-        nvrhi::TextureDesc td;
-        td.debugName = "MeshRenderPass DefaultWhite";
-        td.width = 1; td.height = 1; td.depth = 1;
-        td.arraySize = 1; td.mipLevels = 1;
-        td.sampleCount = 1;
-        td.dimension = nvrhi::TextureDimension::Texture2D;
-        td.format = nvrhi::Format::RGBA8_UNORM;
-        td.initialState = nvrhi::ResourceStates::CopyDest;
-        //td.keepInitialState = true;
-        td.isShaderResource = true;
-        m_DefaultWhite = m_Device->createTexture(td);
-
-        uint32_t pixel = 0xFFFFFFFFu; // white
-        const auto cl = m_Device->createCommandList();
-        cl->open();
-        cl->beginTrackingTextureState(m_DefaultWhite, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
-        cl->writeTexture(m_DefaultWhite, 0, 0, &pixel, sizeof(uint32_t));
-        cl->setPermanentTextureState(m_DefaultWhite, nvrhi::ResourceStates::ShaderResource);
-        cl->close();
-        m_Device->executeCommandList(cl);
-    }
 
     // Create PointLight structured buffer (SRV)
     {
@@ -260,82 +260,22 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         m_PointLightBuffer = m_Device->createBuffer(bd);
     }
 
-    return true;
-}
-
-ModelHandle MeshRenderPass::AddModel(const MeshVertex* vertices, uint32_t vertexCount,
-                                                    const uint32_t* indices, uint32_t indexCount,
-                                                    bool useTexture,
-                                                    const uint32_t* textureRgba8,
-                                                    uint32_t texWidth, uint32_t texHeight)
-{
-    Model model{};
-    model.indexCount = indexCount;
-    model.useTexture = useTexture;
-
-    // Upload VB/IB
-    auto cl = m_Device->createCommandList(nvrhi::CommandListParameters().setQueueType(nvrhi::CommandQueue::Graphics));
-    cl->open();
-
-    // VB
-    nvrhi::BufferDesc vb;
-    vb.debugName = "MeshPass VB";
-    vb.byteSize = sizeof(MeshVertex) * vertexCount;
-    vb.isVertexBuffer = true;
-    vb.initialState = nvrhi::ResourceStates::CopyDest;
-    model.vertexBuffer = m_Device->createBuffer(vb);
-    cl->beginTrackingBufferState(model.vertexBuffer, nvrhi::ResourceStates::CopyDest);
-    cl->writeBuffer(model.vertexBuffer, vertices, vb.byteSize);
-    cl->setPermanentBufferState(model.vertexBuffer, nvrhi::ResourceStates::VertexBuffer);
-
-    // IB (assume 32-bit indices)
-    nvrhi::BufferDesc ib;
-    ib.debugName = "MeshPass IB";
-    ib.byteSize = sizeof(uint32_t) * indexCount;
-    ib.isIndexBuffer = true;
-    ib.initialState = nvrhi::ResourceStates::CopyDest;
-    model.indexBuffer = m_Device->createBuffer(ib);
-    cl->beginTrackingBufferState(model.indexBuffer, nvrhi::ResourceStates::CopyDest);
-    cl->writeBuffer(model.indexBuffer, indices, ib.byteSize);
-    cl->setPermanentBufferState(model.indexBuffer, nvrhi::ResourceStates::IndexBuffer);
-
-    // Texture (optional)
-    nvrhi::TextureHandle tex = m_DefaultWhite;
-    if (useTexture && textureRgba8 && texWidth > 0 && texHeight > 0)
+    // Create instance buffer (structured buffer SRV)
     {
-        nvrhi::TextureDesc td;
-        td.debugName = "MeshPass ModelTexture";
-        td.width = texWidth; td.height = texHeight; td.depth = 1;
-        td.arraySize = 1; td.mipLevels = 1; td.sampleCount = 1;
-        td.dimension = nvrhi::TextureDimension::Texture2D;
-        td.format = nvrhi::Format::RGBA8_UNORM;
-        td.initialState = nvrhi::ResourceStates::CopyDest;
-        td.keepInitialState = true;
-        tex = m_Device->createTexture(td);
-
-        // Row pitch is width * 4
-        cl->beginTrackingTextureState(tex, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
-        cl->writeTexture(tex, 0, 0, textureRgba8, texWidth * 4);
-        cl->setPermanentTextureState(tex, nvrhi::ResourceStates::ShaderResource);
+        nvrhi::BufferDesc bd;
+        bd.debugName = "MeshRenderPass InstanceBuffer";
+        bd.byteSize = m_MaxInstances * sizeof(MeshInstanceCPU);
+        bd.structStride = sizeof(MeshInstanceCPU);
+        bd.initialState = nvrhi::ResourceStates::CopyDest;
+        bd.isIndexBuffer = false;
+        bd.isVertexBuffer = false;
+        bd.isConstantBuffer = false;
+        bd.canHaveUAVs = false;
+        bd.keepInitialState = true;
+        m_InstanceBuffer = m_Device->createBuffer(bd);
     }
-    model.texture = tex;
 
-    cl->close();
-    m_Device->executeCommandList(cl);
-
-    // Create binding set for this model (per-frame, per-draw, texture, sampler, point lights)
-    nvrhi::BindingSetDesc bs;
-    bs.bindings = {
-        nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameCB),
-        nvrhi::BindingSetItem::ConstantBuffer(1, m_PerDrawCB),
-        nvrhi::BindingSetItem::Texture_SRV(2, model.texture),
-        nvrhi::BindingSetItem::Sampler(3, m_Sampler),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer)
-    };
-    model.bindingSet = m_Device->createBindingSet(bs, m_BindingLayout);
-
-    m_Models.push_back(model);
-    return ModelHandle{ static_cast<uint32_t>(m_Models.size() - 1) };
+    return true;
 }
 
 void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
@@ -433,71 +373,127 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
             commandList->writeBuffer(m_PointLightBuffer, pointLights.data(), static_cast<uint32_t>(pointLights.size() * sizeof(PointLightCPU)));
         }
 
+        // Group entities by (MeshId, MaterialId) for optimal batching
+        struct BatchKey {
+            uint32_t meshId;
+            uint32_t materialId;
+            bool operator==(const BatchKey& other) const {
+                return meshId == other.meshId && materialId == other.materialId;
+            }
+        };
+        struct BatchKeyHash {
+            size_t operator()(const BatchKey& k) const {
+                return std::hash<uint32_t>()(k.meshId) ^ (std::hash<uint32_t>()(k.materialId) << 1);
+            }
+        };
+
+        std::unordered_map<BatchKey, std::vector<EntityId>, BatchKeyHash> batches;
+        for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, MeshComponent>())
+        {
+            const auto* meshComp = snapshot.WorldSnapshotPtr->GetComponent<MeshComponent>(entity);
+            if (!meshComp || !meshComp->Visible)
+                continue;
+
+            const auto* materialComp = snapshot.WorldSnapshotPtr->GetComponent<MaterialComponent>(entity);
+            uint32_t materialId = materialComp ? materialComp->MaterialId : 0;
+
+            BatchKey key{ .meshId=meshComp->MeshId, .materialId=materialId };
+            batches[key].push_back(entity);
+        }
+
+        // Render each batch with instancing
         nvrhi::GraphicsState state;
         state.pipeline = m_Pipeline;
         state.framebuffer = frameBuffer;
         state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
 
-        for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, MeshComponent>())
+        for (const auto& [batchKey, entities] : batches)
         {
-            const auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
-            const auto* mesh = snapshot.WorldSnapshotPtr->GetComponent<MeshComponent>(entity);
-            if (!transform || !mesh || !mesh->Visible)
+            if (entities.empty())
                 continue;
 
-            // Validate mesh handle
-            if (mesh->MeshId >= m_Models.size())
-                continue;
-
-            const Model& model = m_Models[mesh->MeshId];
-
-            // Build world transform: T * Rz * Ry * Rx * S (Euler order chosen arbitrarily)
-            glm::mat4 T = glm::translate(glm::mat4(1.0f), transform->Position);
-            glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), transform->Rotation.x, glm::vec3(1.f, 0.f, 0.f));
-            glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), transform->Rotation.y, glm::vec3(0.f, 1.f, 0.f));
-            glm::mat4 Rz = glm::rotate(glm::mat4(1.0f), transform->Rotation.z, glm::vec3(0.f, 0.f, 1.f));
-            glm::mat4 S = glm::scale(glm::mat4(1.0f), transform->Scale);
-            glm::mat4 M = T * Rz * Ry * Rx * S;
-
-            glm::mat3 M3(M);
-            glm::mat3 N3 = glm::transpose(glm::inverse(M3));
-
-            // Material defaults
-            glm::vec4 baseColor(1.0f);
-            uint32_t flags = model.useTexture ? 1u : 0u; // default to model's texture preference
-
-            if (snapshot.WorldSnapshotPtr->HasComponent<MaterialComponent>(entity))
+            // Query systems for GPU resources
+            auto meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(batchKey.meshId);
+            if (!meshResources.valid)
             {
-                const auto* material = snapshot.WorldSnapshotPtr->GetComponent<MaterialComponent>(entity);
-                if (material)
-                {
-                    baseColor = material->BaseColor;
-                    // Interpret bit 0 as "UseTexture"; if set, use the model's bound texture for now
-                    if ((material->Flags & 1u) != 0u)
-                        flags |= 1u;
-                    else
-                        flags &= ~1u;
-                }
+                SM_WARN("MeshRenderPass: Invalid mesh ID %u", batchKey.meshId);
+                continue;
             }
 
-            // Update per-draw data
-            PerDrawCB pd{};
-            pd.Model = M;
-            pd.NormalMatrix = glm::mat4(N3);
-            pd.BaseColor = baseColor;
-            pd.Flags = flags;
-            commandList->writeBuffer(m_PerDrawCB, &pd, sizeof(pd));
+            auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(batchKey.materialId);
+            if (!materialResources.valid)
+            {
+                SM_WARN("MeshRenderPass: Invalid material ID %u", batchKey.materialId);
+                continue;
+            }
 
-            // Bind and draw
-            state.bindings = { model.bindingSet };
-            state.vertexBuffers = { nvrhi::VertexBufferBinding(model.vertexBuffer, 0, 0) };
-            state.indexBuffer = nvrhi::IndexBufferBinding(model.indexBuffer, nvrhi::Format::R32_UINT, 0);
+            const uint32_t instanceCount = std::min(static_cast<uint32_t>(entities.size()), m_MaxInstances);
+
+            // Build instance data
+            std::vector<MeshInstanceCPU> instances;
+            instances.reserve(instanceCount);
+
+            for (size_t i = 0; i < instanceCount; ++i)
+            {
+                EntityId entity = entities[i];
+                const auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
+                const auto* material = snapshot.WorldSnapshotPtr->GetComponent<MaterialComponent>(entity);
+
+                if (!transform)
+                    continue;
+
+                // Build world transform: T * Rz * Ry * Rx * S
+                glm::mat4 T = glm::translate(glm::mat4(1.0f), transform->Position);
+                glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), transform->Rotation.x, glm::vec3(1.f, 0.f, 0.f));
+                glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), transform->Rotation.y, glm::vec3(0.f, 1.f, 0.f));
+                glm::mat4 Rz = glm::rotate(glm::mat4(1.0f), transform->Rotation.z, glm::vec3(0.f, 0.f, 1.f));
+                glm::mat4 S = glm::scale(glm::mat4(1.0f), transform->Scale);
+                glm::mat4 M = T * Rz * Ry * Rx * S;
+
+                glm::mat3 M3(M);
+                glm::mat3 N3 = glm::transpose(glm::inverse(M3));
+
+                // Material properties
+                glm::vec4 baseColor = material ? material->BaseColor : glm::vec4(1.0f);
+                uint32_t flags = (material && (material->Flags & 1u)) ? 1u : 0u;
+
+                MeshInstanceCPU inst{};
+                inst.Model = M;
+                inst.NormalMatrix = glm::mat4(N3);
+                inst.BaseColor = baseColor;
+                inst.Flags = flags;
+
+                instances.push_back(inst);
+            }
+
+            if (instances.empty())
+                continue;
+
+            // Upload instance data
+            commandList->writeBuffer(m_InstanceBuffer, instances.data(), instances.size() * sizeof(MeshInstanceCPU));
+
+            // Create binding set dynamically for this batch
+            nvrhi::BindingSetDesc bindingDesc;
+            bindingDesc.bindings = {
+                nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameCB),
+                nvrhi::BindingSetItem::ConstantBuffer(1, m_PerDrawCB),
+                nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
+                nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+            };
+            nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
+
+            // Set state and draw ALL instances in one call
+            state.bindings = { bindingSet };
+            state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
+            state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
 
             commandList->setGraphicsState(state);
 
             nvrhi::DrawArguments args{};
-            args.vertexCount = model.indexCount; // for indexed draws, NVRHI uses vertexCount as index count
-            args.instanceCount = 1;
+            args.vertexCount = meshResources.indexCount;
+            args.instanceCount = static_cast<uint32_t>(instances.size());
             args.startIndexLocation = 0;
             args.startVertexLocation = 0;
             commandList->drawIndexed(args);
@@ -511,20 +507,10 @@ void MeshRenderPass::Shutdown()
     m_InputLayout = nullptr;
     m_BindingLayout = nullptr;
 
-    for (auto& m : m_Models)
-    {
-        m.bindingSet = nullptr;
-        m.texture = nullptr;
-        m.vertexBuffer = nullptr;
-        m.indexBuffer = nullptr;
-    }
-    m_Models.clear();
-
     m_PerFrameCB = nullptr;
     m_PerDrawCB = nullptr;
-    m_Sampler = nullptr;
     m_PointLightBuffer = nullptr;
-    m_DefaultWhite = nullptr;
+    m_InstanceBuffer = nullptr;
     m_VS = nullptr;
     m_PS = nullptr;
     m_Device = nullptr;

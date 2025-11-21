@@ -91,7 +91,6 @@ struct RendererCommand {
             uint32_t Width;
             uint32_t Height;
             uint32_t* Texture; // optional RGBA8 pixels (w*h entries)
-            size_t TextureSize;
         } MaterialRequest;
 
         struct {
@@ -116,7 +115,6 @@ enum class RendererResponseType : uint8_t {
     Invalid = 0,
     MeshUpload = 1,
     MaterialUpload = 2,
-    ModelUpload = 3
 };
 struct RendererResponse {
     RendererResponseType Type{};

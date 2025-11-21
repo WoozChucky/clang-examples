@@ -2,12 +2,18 @@
 
 #include <fstream>
 #include <cstdio>
+#include <Windows.h>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <ImGuizmo.h>
 #include <glm/gtc/type_ptr.hpp>
+
+#include "MeshSystem.h"
+#include "MaterialSystem.h"
+#include "MeshLoader.h"
+#include "MaterialLoader.h"
 
 #include "ApplicationContext.h"
 #include "registered_font.h"
@@ -126,8 +132,10 @@ static ImGuiKey GlfwKeyToImGuiKey(int key) {
     }
 }
 
-bool ImGuiRenderer::Init(GLFWwindow* window, nvrhi::IDevice* device, ApplicationContext* appContext) {
+bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem) {
     m_AppContext = appContext;
+    m_MeshSystem = meshSystem;
+    m_MaterialSystem = materialSystem;
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -873,9 +881,45 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
                             static bool modified = false;
 
-                            // Mesh ID editor
-                            if (ImGui::InputScalar("Mesh ID", ImGuiDataType_U32, &editMesh.MeshId)) {
-                                modified = true;
+                            // Mesh ID editor with dropdown
+                            if (m_MeshSystem) {
+                                const uint32_t meshCount = m_MeshSystem->GetMeshCount();
+                                if (meshCount > 0) {
+                                    // Build combo items
+                                    std::vector<std::string> meshItems;
+                                    meshItems.reserve(meshCount);
+                                    for (uint32_t i = 0; i < meshCount; ++i) {
+                                        meshItems.push_back("Mesh " + std::to_string(i));
+                                    }
+
+                                    // Current selection
+                                    int currentMeshIdx = static_cast<int>(editMesh.MeshId);
+                                    if (currentMeshIdx >= static_cast<int>(meshCount)) {
+                                        currentMeshIdx = 0; // Default to first mesh if invalid
+                                    }
+
+                                    // Combo dropdown
+                                    if (ImGui::BeginCombo("Mesh ID", meshItems[currentMeshIdx].c_str())) {
+                                        for (uint32_t i = 0; i < meshCount; ++i) {
+                                            const bool isSelected = (currentMeshIdx == static_cast<int>(i));
+                                            if (ImGui::Selectable(meshItems[i].c_str(), isSelected)) {
+                                                editMesh.MeshId = i;
+                                                modified = true;
+                                            }
+                                            if (isSelected) {
+                                                ImGui::SetItemDefaultFocus();
+                                            }
+                                        }
+                                        ImGui::EndCombo();
+                                    }
+                                } else {
+                                    ImGui::TextDisabled("No meshes loaded");
+                                }
+                            } else {
+                                // Fallback if MeshSystem is not available
+                                if (ImGui::InputScalar("Mesh ID", ImGuiDataType_U32, &editMesh.MeshId)) {
+                                    modified = true;
+                                }
                             }
 
                             // Visibility toggle
@@ -927,6 +971,21 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                             ImGui::Text("Base Color:");
                             if (ImGui::ColorEdit4("##BaseColor", &editMaterial.BaseColor.r)) {
                                 modified = true;
+                            }
+                            ImGui::Spacing();
+
+                            // Flags editor - Use Texture checkbox (bit 0)
+                            bool useTexture = (editMaterial.Flags & 1u) != 0;
+                            if (ImGui::Checkbox("Use Texture", &useTexture)) {
+                                if (useTexture) {
+                                    editMaterial.Flags |= 1u;  // Set bit 0
+                                } else {
+                                    editMaterial.Flags &= ~1u; // Clear bit 0
+                                }
+                                modified = true;
+                            }
+                            if (ImGui::IsItemHovered()) {
+                                ImGui::SetTooltip("Enable texture sampling in shader (requires valid Material ID with texture)");
                             }
                             ImGui::Spacing();
 
@@ -1019,6 +1078,162 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         ImGui::End();
 
+        // Mesh Manager Window
+        ImGui::Begin("Mesh Manager");
+
+        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Mesh System");
+        ImGui::Separator();
+
+        if (m_MeshSystem) {
+            const uint32_t meshCount = m_MeshSystem->GetMeshCount();
+            ImGui::Text("Loaded Meshes: %u", meshCount);
+
+            ImGui::Spacing();
+
+            // Display list of loaded meshes
+            if (meshCount > 0) {
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Available Meshes:");
+                for (uint32_t i = 0; i < meshCount; ++i) {
+                    ImGui::BulletText("Mesh %u", i);
+                }
+                ImGui::Separator();
+            }
+
+            // Load mesh from file button
+            static char statusMessage[512] = "";
+            static ImVec4 statusColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+
+            if (ImGui::Button("Load Mesh from File", ImVec2(200, 0))) {
+                char filePath[512] = "";
+                const char* filter = "3D Model Files\0*.obj;*.fbx;*.gltf;*.glb;*.dae\0"
+                                     "OBJ Files (*.obj)\0*.obj\0"
+                                     "FBX Files (*.fbx)\0*.fbx\0"
+                                     "GLTF Files (*.gltf;*.glb)\0*.gltf;*.glb\0"
+                                     "All Files (*.*)\0*.*\0\0";
+
+                if (OpenFileDialog(filePath, sizeof(filePath), filter)) {
+                    // File selected, load it using MeshLoader
+                    std::vector<MeshVertex> vertices;
+                    std::vector<uint32_t> indices;
+                    std::string error;
+
+                    if (MeshLoader::LoadMeshFromFile(filePath, vertices, indices, error)) {
+                        // Successfully loaded, upload to GPU via MeshSystem
+                        MeshHandle handle = m_MeshSystem->AddMesh(
+                            vertices.data(), static_cast<uint32_t>(vertices.size()),
+                            indices.data(), static_cast<uint32_t>(indices.size())
+                        );
+
+                        if (handle.Index != UINT32_MAX) {
+                            snprintf(statusMessage, sizeof(statusMessage),
+                                    "Success! Loaded mesh %u (%zu vertices, %zu indices)",
+                                    handle.Index, vertices.size(), indices.size());
+                            statusColor = ImVec4(0.4f, 1.0f, 0.4f, 1.0f); // Green
+                        } else {
+                            snprintf(statusMessage, sizeof(statusMessage),
+                                    "Failed to upload mesh to GPU");
+                            statusColor = ImVec4(1.0f, 0.4f, 0.4f, 1.0f); // Red
+                        }
+                    } else {
+                        // Failed to load
+                        snprintf(statusMessage, sizeof(statusMessage),
+                                "Failed to load mesh: %s", error.c_str());
+                        statusColor = ImVec4(1.0f, 0.4f, 0.4f, 1.0f); // Red
+                    }
+                }
+            }
+
+            // Display status message if any
+            if (statusMessage[0] != '\0') {
+                ImGui::Spacing();
+                ImGui::TextColored(statusColor, "%s", statusMessage);
+            }
+
+        } else {
+            ImGui::TextDisabled("MeshSystem not available");
+        }
+
+        ImGui::End();
+
+        // Material Manager Window
+        ImGui::Begin("Material Manager");
+
+        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Material System");
+        ImGui::Separator();
+
+        if (m_MaterialSystem) {
+            const uint32_t materialCount = m_MaterialSystem->GetMaterialCount();
+            ImGui::Text("Loaded Materials: %u", materialCount);
+
+            ImGui::Spacing();
+
+            // Display list of loaded materials
+            if (materialCount > 0) {
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Available Materials:");
+                for (uint32_t i = 0; i < materialCount; ++i) {
+                    ImGui::BulletText("Material %u", i);
+                }
+                ImGui::Separator();
+            }
+
+            // Load material from file button
+            static char statusMessage[512] = "";
+            static ImVec4 statusColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+
+            if (ImGui::Button("Load Material from File", ImVec2(200, 0))) {
+                char filePath[512] = "";
+                const char* filter = "Image Files\0*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.hdr\0"
+                                     "PNG Files (*.png)\0*.png\0"
+                                     "JPEG Files (*.jpg;*.jpeg)\0*.jpg;*.jpeg\0"
+                                     "BMP Files (*.bmp)\0*.bmp\0"
+                                     "TGA Files (*.tga)\0*.tga\0"
+                                     "HDR Files (*.hdr)\0*.hdr\0"
+                                     "All Files (*.*)\0*.*\0\0";
+
+                if (OpenFileDialog(filePath, sizeof(filePath), filter)) {
+                    // File selected, load it using MaterialLoader
+                    std::vector<uint32_t> pixels;
+                    uint32_t width = 0;
+                    uint32_t height = 0;
+                    std::string error;
+
+                    if (MaterialLoader::LoadMaterialFromFile(filePath, pixels, width, height, error)) {
+                        // Successfully loaded, upload to GPU via MaterialSystem
+                        MaterialHandle handle = m_MaterialSystem->AddMaterial(
+                            pixels.data(), width, height
+                        );
+
+                        if (handle.Index != UINT32_MAX) {
+                            snprintf(statusMessage, sizeof(statusMessage),
+                                    "Success! Loaded material %u (%ux%u pixels)",
+                                    handle.Index, width, height);
+                            statusColor = ImVec4(0.4f, 1.0f, 0.4f, 1.0f); // Green
+                        } else {
+                            snprintf(statusMessage, sizeof(statusMessage),
+                                    "Failed to upload material to GPU");
+                            statusColor = ImVec4(1.0f, 0.4f, 0.4f, 1.0f); // Red
+                        }
+                    } else {
+                        // Failed to load
+                        snprintf(statusMessage, sizeof(statusMessage),
+                                "Failed to load image: %s", error.c_str());
+                        statusColor = ImVec4(1.0f, 0.4f, 0.4f, 1.0f); // Red
+                    }
+                }
+            }
+
+            // Display status message if any
+            if (statusMessage[0] != '\0') {
+                ImGui::Spacing();
+                ImGui::TextColored(statusColor, "%s", statusMessage);
+            }
+
+        } else {
+            ImGui::TextDisabled("MaterialSystem not available");
+        }
+
+        ImGui::End();
+
         ImGui::PopFont();
     }
 
@@ -1045,6 +1260,8 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 void ImGuiRenderer::Shutdown() {
     m_ImGuiNvrhi.reset();
     m_ImGuiNvrhi = nullptr;
+    m_MeshSystem = nullptr;
+    m_MaterialSystem = nullptr;
     ImGui::DestroyContext();
 }
 
@@ -1132,6 +1349,27 @@ void ImGuiRenderer::ProcessInputEvents() {
             }
         }
     }
+}
+
+#include <commdlg.h>
+
+bool ImGuiRenderer::OpenFileDialog(char* outPath, size_t outPathSize, const char* filter) {
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = outPath;
+    ofn.lpstrFile[0] = '\0';
+    ofn.nMaxFile = static_cast<DWORD>(outPathSize);
+    ofn.lpstrFilter = filter;
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+
+    return GetOpenFileNameA(&ofn) != 0;
 }
 
 

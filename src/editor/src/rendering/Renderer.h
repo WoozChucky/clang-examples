@@ -14,6 +14,10 @@
 #include "FrameAllocator.h"
 #include "ImGuiRenderer.h"
 
+// Systems for managing GPU resources
+#include "MeshSystem.h"
+#include "MaterialSystem.h"
+
 // For mesh upload request/response API
 #include "passes/MeshRenderPass.h"
 
@@ -94,10 +98,14 @@ public:
     void AddRenderPass(std::unique_ptr<IRenderPass> pass);
     void RemoveRenderPass(IRenderPass* pass);
 
-    ModelHandle AddModel(const MeshVertex* v, uint32_t vc,
-                      const uint32_t* i, uint32_t ic,
-                      bool useTex,
-                      const uint32_t* rgba8, uint32_t w, uint32_t h);
+    // Resource upload APIs
+    MeshHandle AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
+                       const uint32_t* indices, uint32_t indexCount);
+    MaterialHandle AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight);
+
+    // Access to resource systems
+    MeshSystem* GetMeshSystem() { return &m_MeshSystem; }
+    MaterialSystem* GetMaterialSystem() { return &m_MaterialSystem; }
 
 private:
 
@@ -119,4 +127,8 @@ private:
     RendererBackendSettings     m_BackendSettings{};
 
     std::vector<std::unique_ptr<IRenderPass>>   m_RenderPasses;
+
+    // Resource management systems
+    MeshSystem                  m_MeshSystem;
+    MaterialSystem              m_MaterialSystem;
 };

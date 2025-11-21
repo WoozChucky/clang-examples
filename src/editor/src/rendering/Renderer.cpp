@@ -15,16 +15,6 @@
 
 #include "passes/UiRenderPass.h"
 
-struct ModelRequest
-{
-    std::vector<MeshVertex> vertices;
-    std::vector<uint32_t> indices;
-    bool useTexture = false;
-    std::vector<uint32_t> textureRgba8; // optional RGBA8 pixels (w*h entries)
-    uint32_t texWidth = 0, texHeight = 0;
-    uint64_t ticketId = 0; // assigned on enqueue
-};
-
 bool Renderer::Init(const RendererAPI api) {
     switch (api) {
         case RendererAPI::DirectX11:
@@ -72,8 +62,63 @@ bool Renderer::Init(const RendererAPI api) {
 
     m_GpuTimer.Init(m_Device, 256);
 
+    // Initialize resource systems with default resources
+    {
+        // Create default magenta checkerboard texture (16x16 RGBA8) for missing textures
+        nvrhi::TextureHandle defaultWhite;
+        {
+            constexpr uint32_t texSize = 16;
+            constexpr uint32_t magenta = 0xFFFF00FFu; // RGBA8: magenta (R=255, G=0, B=255, A=255)
+            constexpr uint32_t black = 0xFF000000u;   // RGBA8: black (R=0, G=0, B=0, A=255)
+
+            nvrhi::TextureDesc td;
+            td.debugName = "Renderer DefaultMissingTexture";
+            td.width = texSize; td.height = texSize; td.depth = 1;
+            td.arraySize = 1; td.mipLevels = 1;
+            td.sampleCount = 1;
+            td.dimension = nvrhi::TextureDimension::Texture2D;
+            td.format = nvrhi::Format::RGBA8_UNORM;
+            td.initialState = nvrhi::ResourceStates::CopyDest;
+            td.isShaderResource = true;
+            defaultWhite = m_Device->createTexture(td);
+
+            // Generate magenta checkerboard pattern (2x2 checker cells = 8x8 pixels per cell)
+            uint32_t pixels[texSize * texSize];
+            constexpr uint32_t checkerSize = 8; // Size of each checker square in pixels
+            for (uint32_t y = 0; y < texSize; ++y) {
+                for (uint32_t x = 0; x < texSize; ++x) {
+                    const bool checkerX = (x / checkerSize) % 2 == 0;
+                    const bool checkerY = (y / checkerSize) % 2 == 0;
+                    const bool isMagenta = checkerX == checkerY; // XOR pattern
+                    pixels[y * texSize + x] = isMagenta ? magenta : black;
+                }
+            }
+
+            const auto cl = m_Device->createCommandList();
+            cl->open();
+            cl->beginTrackingTextureState(defaultWhite, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
+            cl->writeTexture(defaultWhite, 0, 0, pixels, texSize * sizeof(uint32_t));
+            cl->setPermanentTextureState(defaultWhite, nvrhi::ResourceStates::ShaderResource);
+            cl->close();
+            m_Device->executeCommandList(cl);
+        }
+
+        // Create default sampler
+        nvrhi::SamplerHandle defaultSampler;
+        {
+            nvrhi::SamplerDesc sd;
+            sd.setAllFilters(true);
+            sd.setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
+            defaultSampler = m_Device->createSampler(sd);
+        }
+
+        // Initialize systems
+        m_MeshSystem.Initialize(m_Device);
+        m_MaterialSystem.Initialize(m_Device, defaultWhite, defaultSampler);
+    }
+
     m_ImGuiRenderer = std::make_unique<ImGuiRenderer>();
-    if (!m_ImGuiRenderer->Init(m_Window, m_Device, m_AppContext)) {
+    if (!m_ImGuiRenderer->Init(m_Device, m_AppContext, &m_MeshSystem, &m_MaterialSystem)) {
         SM_ERROR("Failed to initialize ImGuiRenderer");
         return false;
     }
@@ -81,7 +126,6 @@ bool Renderer::Init(const RendererAPI api) {
     SM_TRACE("Renderer initialized with API: %d", static_cast<int>(m_Backend->GetAPI()));
 
     // Initialize and add render passes
-
     auto primitivePass = std::make_unique<PrimitiveRenderPass>();
     if (!primitivePass->Initialize(m_Device, this)) {
         SM_ERROR("Failed to initialize PrimitiveRenderPass");
@@ -122,6 +166,10 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
         }
     }
     m_RenderPasses.clear();
+
+    // Cleanup resource systems
+    m_MaterialSystem.Shutdown();
+    m_MeshSystem.Shutdown();
 
     if (m_CommandList) {
         m_CommandList = nullptr;
@@ -261,41 +309,11 @@ void Renderer::RemoveRenderPass(IRenderPass* pass) {
     }
 }
 
-ModelHandle Renderer::AddModel(const MeshVertex* v, uint32_t vc,
-                  const uint32_t* i, uint32_t ic,
-                  bool useTex,
-                  const uint32_t* rgba8, uint32_t w, uint32_t h) {
-    ModelRequest req{};
-    if (v && vc)
-        req.vertices.assign(v, v + vc);
-    if (i && ic)
-        req.indices.assign(i, i + ic);
-    req.useTexture = useTex;
-    if (useTex && rgba8 && w > 0 && h > 0)
-    {
-        // textureRgba8 vector holds w*h uint32 pixels (RGBA8 packed)
-        req.textureRgba8.assign(rgba8, rgba8 + (static_cast<size_t>(w) * static_cast<size_t>(h)));
-        req.texWidth = w; req.texHeight = h;
-    }
+MeshHandle Renderer::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
+                              const uint32_t* indices, uint32_t indexCount) {
+    return m_MeshSystem.AddMesh(vertices, vertexCount, indices, indexCount);
+}
 
-    MeshRenderPass* meshPass = nullptr;
-    for (auto& p : m_RenderPasses)
-    {
-        meshPass = dynamic_cast<MeshRenderPass*>(p.get());
-        if (meshPass) break;
-    }
-
-    if (!meshPass) {
-        SM_ERROR("Failed to add model: MeshRenderPass not found");
-        return ModelHandle{ UINT32_MAX };
-    }
-
-    const auto handle = meshPass->AddModel(
-            req.vertices.data(), static_cast<uint32_t>(req.vertices.size()),
-            req.indices.data(),  static_cast<uint32_t>(req.indices.size()),
-            req.useTexture,
-            req.textureRgba8.empty() ? nullptr : req.textureRgba8.data(),
-            req.texWidth, req.texHeight);
-
-    return handle;
+MaterialHandle Renderer::AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight) {
+    return m_MaterialSystem.AddMaterial(textureRgba8, texWidth, texHeight);
 }

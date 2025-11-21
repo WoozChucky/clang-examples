@@ -6,6 +6,8 @@
 
 #include "imgui_nvrhi.h"
 
+class MeshSystem;
+class MaterialSystem;
 class RegisteredFont;
 struct ApplicationContext;
 struct SimulationSnapshot;
@@ -17,7 +19,7 @@ public:
         Shutdown();
     }
 
-    bool Init(GLFWwindow* window, nvrhi::IDevice* device, ApplicationContext* appContext);
+    bool Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem);
     void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot);
     void Shutdown();
 private:
@@ -29,8 +31,14 @@ private:
     void TransformEnd();
     void EditTransform(float* cameraView, float* cameraProjection, float* matrix);
 
+    // File dialog helper (Windows native)
+    // Returns true if file was selected, false if cancelled
+    bool OpenFileDialog(char* outPath, size_t outPathSize, const char* filter);
+
 private:
     std::vector<std::shared_ptr<RegisteredFont>> m_fonts;
     std::unique_ptr<ImGui_NVRHI> m_ImGuiNvrhi;
     ApplicationContext* m_AppContext = nullptr;
+    MeshSystem* m_MeshSystem = nullptr;
+    MaterialSystem* m_MaterialSystem = nullptr;
 };

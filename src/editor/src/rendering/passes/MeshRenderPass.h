@@ -8,6 +8,8 @@
 #include "IRenderPass.h"
 
 class Renderer;
+class MeshSystem;
+class MaterialSystem;
 
 // A simple 3D mesh render pass that supports POSITION, COLOR, UV
 // Pixel shader can either sample a texture or use the vertex color
@@ -25,14 +27,6 @@ public:
                 FrameAllocator* frameAllocator) override;
     void Shutdown() override;
     void OnResize(uint32_t width, uint32_t height) override;
-
-    // Adds (uploads) a model to the pass storage. Optional texture in RGBA8.
-    // If useTexture is false or texture data is null, a default white texture will be bound.
-    ModelHandle AddModel(const MeshVertex* vertices, uint32_t vertexCount,
-                         const uint32_t* indices, uint32_t indexCount,
-                         bool useTexture,
-                         const uint32_t* textureRgba8 = nullptr,
-                         uint32_t texWidth = 0, uint32_t texHeight = 0);
 
 private:
     struct DirectionalLight
@@ -60,16 +54,6 @@ private:
         uint32_t  _pad[3]{}; // padding to 16-byte alignment
     };
 
-    struct Model
-    {
-        nvrhi::BufferHandle vertexBuffer;
-        nvrhi::BufferHandle indexBuffer;
-        uint32_t indexCount = 0;
-        bool     useTexture = false;
-        nvrhi::TextureHandle texture;   // may be null -> default white
-        nvrhi::BindingSetHandle bindingSet; // references per-frame/per-draw CBs + texture + sampler
-    };
-
 private:
     nvrhi::IDevice* m_Device = nullptr;
     Renderer* m_Renderer = nullptr;
@@ -84,8 +68,6 @@ private:
     // Common resources
     nvrhi::BufferHandle m_PerFrameCB;
     nvrhi::BufferHandle m_PerDrawCB;
-    nvrhi::SamplerHandle m_Sampler;
-    nvrhi::TextureHandle m_DefaultWhite;
 
     // Point lights GPU buffer (StructuredBuffer SRV)
     struct PointLightCPU
@@ -101,5 +83,17 @@ private:
     nvrhi::BufferHandle m_PointLightBuffer;
     uint32_t m_MaxPointLights = 256;
 
-    std::vector<Model> m_Models;
+    // Instance data for instanced rendering
+    struct MeshInstanceCPU
+    {
+        glm::mat4 Model;
+        glm::mat4 NormalMatrix;
+        glm::vec4 BaseColor;
+        uint32_t Flags;
+        uint32_t _pad[3]; // 16-byte alignment
+    };
+    static_assert(sizeof(MeshInstanceCPU) % 16 == 0, "MeshInstanceCPU must be 16-byte aligned");
+
+    nvrhi::BufferHandle m_InstanceBuffer;
+    uint32_t m_MaxInstances = 4096;
 };

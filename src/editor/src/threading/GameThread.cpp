@@ -1,6 +1,7 @@
 #include "GameThread.h"
 
 #include <windows.h>
+#include <cstddef>
 #include <filesystem>
 #include <thread>
 #include <chrono>
@@ -17,6 +18,7 @@
 #include "tiny_obj_loader.h"
 
 #include "lib.h"
+#include "MaterialLoader.h"
 #include "Timing.h"
 #include "assimp/scene.h"
 
@@ -171,43 +173,52 @@ void GameThread::RunLoop() {
                         continue;
                     }
 
-                    // Prepare a RendererCommand but only allocate buffers if we can push
-                    RendererCommand cmd{};
-                    cmd.Type = RendererCommandType::RequestModel;
-                    cmd.TicketId = res.ticketId;
-                    cmd.ModelRequest.UseTexture = false;
-                    cmd.ModelRequest.Width = 0;
-                    cmd.ModelRequest.Height = 0;
-                    cmd.ModelRequest.Texture = nullptr;
-                    cmd.ModelRequest.TextureSize = 0;
+                    // Send mesh upload command
+                    RendererCommand meshCmd{};
+                    meshCmd.Type = RendererCommandType::RequestMesh;
+                    meshCmd.TicketId = res.ticketId; // Use entity ID as ticket
+                    meshCmd.MeshRequest.VertexCount = res.vertices.size();
+                    meshCmd.MeshRequest.IndexCount = res.indices.size();
+                    meshCmd.MeshRequest.Vertices = nullptr;
+                    meshCmd.MeshRequest.Indices = nullptr;
 
-                    // Allocate and copy data
-                    cmd.ModelRequest.VertexCount = res.vertices.size();
-                    cmd.ModelRequest.IndexCount = res.indices.size();
-                    cmd.ModelRequest.Vertices = nullptr;
-                    cmd.ModelRequest.Indices = nullptr;
-
-                    if (cmd.ModelRequest.VertexCount > 0)
+                    if (meshCmd.MeshRequest.VertexCount > 0)
                     {
-                        cmd.ModelRequest.Vertices = static_cast<MeshVertex*>(std::malloc(cmd.ModelRequest.VertexCount * sizeof(MeshVertex)));
-                        std::memcpy(cmd.ModelRequest.Vertices, res.vertices.data(), cmd.ModelRequest.VertexCount * sizeof(MeshVertex));
+                        meshCmd.MeshRequest.Vertices = static_cast<MeshVertex*>(std::malloc(meshCmd.MeshRequest.VertexCount * sizeof(MeshVertex)));
+                        std::memcpy(meshCmd.MeshRequest.Vertices, res.vertices.data(), meshCmd.MeshRequest.VertexCount * sizeof(MeshVertex));
                     }
-                    if (cmd.ModelRequest.IndexCount > 0)
+                    if (meshCmd.MeshRequest.IndexCount > 0)
                     {
-                        cmd.ModelRequest.Indices = static_cast<uint32_t*>(std::malloc(cmd.ModelRequest.IndexCount * sizeof(uint32_t)));
-                        std::memcpy(cmd.ModelRequest.Indices, res.indices.data(), cmd.ModelRequest.IndexCount * sizeof(uint32_t));
+                        meshCmd.MeshRequest.Indices = static_cast<uint32_t*>(std::malloc(meshCmd.MeshRequest.IndexCount * sizeof(uint32_t)));
+                        std::memcpy(meshCmd.MeshRequest.Indices, res.indices.data(), meshCmd.MeshRequest.IndexCount * sizeof(uint32_t));
                     }
 
-                    if (!m_AppContext->GRCommandRing.Push(cmd))
+                    if (!m_AppContext->GRCommandRing.Push(meshCmd))
                     {
-                        SM_WARN("GRCommandRing full, retrying model upload next frame (ticket %llu)", (unsigned long long)res.ticketId);
-                        // Free allocated memory to avoid leaks; requeue the result for retry
-                        if (cmd.ModelRequest.Vertices) std::free(cmd.ModelRequest.Vertices);
-                        if (cmd.ModelRequest.Indices) std::free(cmd.ModelRequest.Indices);
+                        SM_WARN("GRCommandRing full, retrying mesh upload next frame (ticket %llu)", (unsigned long long)res.ticketId);
+                        if (meshCmd.MeshRequest.Vertices) std::free(meshCmd.MeshRequest.Vertices);
+                        if (meshCmd.MeshRequest.Indices) std::free(meshCmd.MeshRequest.Indices);
                         std::lock_guard<std::mutex> lg(m_JobMutex);
                         m_CompletedJobs.push(std::move(res));
-                        // Break to avoid tight loop; leave remaining in 'local' for next frame
                         break;
+                    }
+
+                    if (!res.Texture)
+                        continue; // No texture to upload
+
+                    // Send material upload command (with default white for now, no texture loading yet)
+                    RendererCommand materialCmd{};
+                    materialCmd.Type = RendererCommandType::RequestMaterial;
+                    materialCmd.TicketId = res.ticketId; // Same ticket ID to associate with entity
+                    materialCmd.MaterialRequest.Width = res.Width;
+                    materialCmd.MaterialRequest.Height = res.Height;
+                    materialCmd.MaterialRequest.Texture = res.Texture;
+
+                    if (!m_AppContext->GRCommandRing.Push(materialCmd))
+                    {
+                        SM_WARN("GRCommandRing full, retrying material upload next frame (ticket %llu)", (unsigned long long)res.ticketId);
+                        // Material command failed, but mesh command succeeded - this is a problem
+                        // For now, continue and hope it succeeds next frame
                     }
                 }
             }
@@ -217,12 +228,26 @@ void GameThread::RunLoop() {
                 RendererResponse response;
                 while (m_AppContext->RGCommandRing.Pop(response)) {
 			        switch (response.Type) {
-			            case RendererResponseType::ModelUpload: {
-                            if (response.Model.Valid) {
+			            case RendererResponseType::MeshUpload: {
+                            if (response.Mesh.Valid) {
                                 auto meshComponent = gameState.World.GetComponent<MeshComponent>(response.TicketId);
-                                if (!meshComponent) continue;
-                                meshComponent->MeshId = response.Model.Handle.Index;
-                                meshComponent->Visible = true;
+                                if (meshComponent) {
+                                    meshComponent->MeshId = response.Mesh.Handle.Index;
+                                    meshComponent->Visible = true;
+                                    SM_TRACE("GameThread: MeshUpload complete for entity %llu, meshId=%u",
+                                             (unsigned long long)response.TicketId, response.Mesh.Handle.Index);
+                                }
+                            }
+                            break;
+                        }
+                        case RendererResponseType::MaterialUpload: {
+                            if (response.Material.Valid) {
+                                auto materialComponent = gameState.World.GetComponent<MaterialComponent>(response.TicketId);
+                                if (materialComponent) {
+                                    materialComponent->MaterialId = response.Material.Handle.Index;
+                                    SM_TRACE("GameThread: MaterialUpload complete for entity %llu, materialId=%u",
+                                             (unsigned long long)response.TicketId, response.Material.Handle.Index);
+                                }
                             }
                             break;
                         }
@@ -383,6 +408,7 @@ void GameThread::EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPa
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
+#include <filesystem>
 
 void GameThread::WorkerThreadFunc()
 {
@@ -467,7 +493,26 @@ void GameThread::WorkerThreadFunc()
             if (mesh->mMaterialIndex >= 0) {
                 aiMaterial* material = sceneRef->mMaterials[mesh->mMaterialIndex];
                 if (material) {
-                    SM_TRACE("TODO: Process material for mesh '%s'", mesh->mName.C_Str());
+                    aiString texPath;
+                    if (material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS) {
+                        std::string fullTexPath = std::string(texPath.C_Str());
+
+                        std::vector<uint32_t> pixels;
+                        uint32_t width = 0;
+                        uint32_t height = 0;
+                        std::string error;
+                        if (!MaterialLoader::LoadMaterialFromFile(fullTexPath.c_str(), pixels, width, height, error)) {
+                            SM_WARN("Failed to load material '%s': %s", fullTexPath.c_str(), error.c_str());
+                        } else {
+                            result.Width = width;
+                            result.Height = height;
+                            result.Texture = nullptr;
+                            if (!pixels.empty()) {
+                                result.Texture = static_cast<uint32_t*>(std::malloc(static_cast<unsigned long long>(width * height) * sizeof(uint32_t)));
+                                std::memcpy(result.Texture, pixels.data(), static_cast<unsigned long long>(width * height) * sizeof(uint32_t));
+                            }
+                        }
+                    }
                 }
             }
 
@@ -478,8 +523,6 @@ void GameThread::WorkerThreadFunc()
             for (size_t i = 0; i < node->mNumMeshes; i++) {
                 aiMesh* mesh = sceneRef->mMeshes[node->mMeshes[i]];
                 auto [vertex, index] = processMesh(mesh, sceneRef);
-                //result.vertices.insert(result.vertices.end(), vertex.begin(), vertex.end());
-                //result.indices.insert(result.indices.end(), index.begin(), index.end());
                 result.vertices = std::move(vertex);
                 result.indices = std::move(index);
             }

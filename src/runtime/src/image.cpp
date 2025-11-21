@@ -2,7 +2,7 @@
 
 #include <lib.h>
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "../../editor/src/stb_image.h"
 
 void* image_load(const char* path, int* width, int* height, int* channels)
 {

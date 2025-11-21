@@ -19,6 +19,10 @@ add_executable(editor
         
     # Shader Compilation
     src/rendering/shader/ShaderCompiler.cpp
+        
+    # Rendering Systems
+    src/rendering/MeshSystem.cpp
+    src/rendering/MaterialSystem.cpp
 
     # Rendering Backends
     src/rendering/backends/RendererBackendDX12.cpp
@@ -33,6 +37,10 @@ add_executable(editor
     src/plugins/DotNetPluginHost.cpp
     src/plugins/DotNetPluginManager.cpp
     
+    # Utilities
+    src/utilities/MeshLoader.cpp
+    src/utilities/MaterialLoader.cpp
+    
     # Third-party (keep Tracy here for now)
     ../../third_party/tracy/public/TracyClient.cpp
 )
@@ -44,6 +52,7 @@ target_include_directories(editor PRIVATE
     src/threading
     src/rendering
     src/plugins
+    src/utilities
 )
 
 set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE_EXPERIMENTAL;")
