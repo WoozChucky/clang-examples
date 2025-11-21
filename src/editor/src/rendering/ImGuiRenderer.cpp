@@ -2,7 +2,8 @@
 
 #include <fstream>
 #include <cstdio>
-#include <Windows.h>
+#include <windows.h>
+#include <commdlg.h>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -1167,12 +1168,44 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
             ImGui::Spacing();
 
-            // Display list of loaded materials
+            // Track selected material
+            static int selectedMaterialId = -1;
+
+            // Display list of loaded materials with selection
             if (materialCount > 0) {
                 ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Available Materials:");
                 for (uint32_t i = 0; i < materialCount; ++i) {
-                    ImGui::BulletText("Material %u", i);
+                    char label[64];
+                    snprintf(label, sizeof(label), "Material %u", i);
+                    const bool isSelected = (selectedMaterialId == static_cast<int>(i));
+                    if (ImGui::Selectable(label, isSelected)) {
+                        selectedMaterialId = static_cast<int>(i);
+                    }
                 }
+                ImGui::Separator();
+
+                // Show preview of selected material
+                if (selectedMaterialId >= 0 && selectedMaterialId < static_cast<int>(materialCount)) {
+                    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Material Preview:");
+                    ImGui::Spacing();
+
+                    auto materialResources = m_MaterialSystem->GetMaterialResources(static_cast<uint32_t>(selectedMaterialId));
+                    if (materialResources.valid && materialResources.texture) {
+                        // Cast nvrhi texture to ImTextureID for ImGui::Image()
+                        ImTextureID texId = (ImTextureID)(nvrhi::ITexture*)materialResources.texture.Get();
+
+                        // Display texture preview (256x256 size)
+                        constexpr float previewSize = 256.0f;
+                        ImGui::Image(texId, ImVec2(previewSize, previewSize));
+
+                        ImGui::Text("Material ID: %d", selectedMaterialId);
+                    } else {
+                        ImGui::TextDisabled("(No texture available for this material)");
+                    }
+                } else {
+                    ImGui::TextDisabled("Select a material to see preview");
+                }
+
                 ImGui::Separator();
             }
 
@@ -1350,8 +1383,6 @@ void ImGuiRenderer::ProcessInputEvents() {
         }
     }
 }
-
-#include <commdlg.h>
 
 bool ImGuiRenderer::OpenFileDialog(char* outPath, size_t outPathSize, const char* filter) {
     OPENFILENAMEA ofn;
