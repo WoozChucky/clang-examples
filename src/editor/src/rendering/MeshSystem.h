@@ -26,6 +26,7 @@ public:
     struct MeshResources {
         nvrhi::BufferHandle vertexBuffer;
         nvrhi::BufferHandle indexBuffer;
+        uint32_t vertexCount = 0;
         uint32_t indexCount = 0;
         bool valid = false;
     };
@@ -36,6 +37,14 @@ public:
     uint32_t GetMeshCount() const;
     bool IsValidMeshId(uint32_t meshId) const;
 
+    // Get bounding box for mesh visualization
+    struct BoundingBox {
+        glm::vec3 min{0.0f};
+        glm::vec3 max{0.0f};
+        bool valid = false;
+    };
+    BoundingBox GetMeshBounds(uint32_t meshId) const;
+
     // Cleanup all resources
     void Shutdown();
 
@@ -43,7 +52,10 @@ private:
     struct MeshEntry {
         nvrhi::BufferHandle vertexBuffer;
         nvrhi::BufferHandle indexBuffer;
+        uint32_t vertexCount = 0;
         uint32_t indexCount = 0;
+        glm::vec3 boundsMin{0.0f};
+        glm::vec3 boundsMax{0.0f};
     };
 
     nvrhi::IDevice* m_Device = nullptr;

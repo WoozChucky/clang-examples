@@ -17,7 +17,18 @@ MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
     }
 
     MeshEntry entry{};
+    entry.vertexCount = vertexCount;
     entry.indexCount = indexCount;
+
+    // Compute bounding box from vertices
+    entry.boundsMin = glm::vec3(FLT_MAX);
+    entry.boundsMax = glm::vec3(-FLT_MAX);
+    for (uint32_t i = 0; i < vertexCount; ++i)
+    {
+        const glm::vec3 pos(vertices[i].px, vertices[i].py, vertices[i].pz);
+        entry.boundsMin = glm::min(entry.boundsMin, pos);
+        entry.boundsMax = glm::max(entry.boundsMax, pos);
+    }
 
     // Create command list for upload
     auto cl = m_Device->createCommandList(nvrhi::CommandListParameters().setQueueType(nvrhi::CommandQueue::Graphics));
@@ -88,6 +99,7 @@ MeshSystem::MeshResources MeshSystem::GetMeshResources(uint32_t meshId) const
     const MeshEntry& entry = m_Meshes[meshId];
     resources.vertexBuffer = entry.vertexBuffer;
     resources.indexBuffer = entry.indexBuffer;
+    resources.vertexCount = entry.vertexCount;
     resources.indexCount = entry.indexCount;
     resources.valid = true;
 
@@ -102,6 +114,24 @@ uint32_t MeshSystem::GetMeshCount() const
 bool MeshSystem::IsValidMeshId(uint32_t meshId) const
 {
     return meshId < m_Meshes.size();
+}
+
+MeshSystem::BoundingBox MeshSystem::GetMeshBounds(uint32_t meshId) const
+{
+    BoundingBox bounds{};
+
+    if (meshId >= m_Meshes.size())
+    {
+        SM_WARN("MeshSystem::GetMeshBounds: Invalid mesh ID %u", meshId);
+        return bounds;
+    }
+
+    const MeshEntry& entry = m_Meshes[meshId];
+    bounds.min = entry.boundsMin;
+    bounds.max = entry.boundsMax;
+    bounds.valid = true;
+
+    return bounds;
 }
 
 void MeshSystem::Shutdown()

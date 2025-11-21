@@ -1091,12 +1091,115 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
             ImGui::Spacing();
 
-            // Display list of loaded meshes
+            // Track selected mesh
+            static int selectedMeshId = -1;
+
+            // Display list of loaded meshes with selection
             if (meshCount > 0) {
                 ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Available Meshes:");
                 for (uint32_t i = 0; i < meshCount; ++i) {
-                    ImGui::BulletText("Mesh %u", i);
+                    char label[64];
+                    snprintf(label, sizeof(label), "Mesh %u", i);
+                    const bool isSelected = (selectedMeshId == static_cast<int>(i));
+                    if (ImGui::Selectable(label, isSelected)) {
+                        selectedMeshId = static_cast<int>(i);
+                    }
                 }
+                ImGui::Separator();
+
+                // Show preview of selected mesh
+                if (selectedMeshId >= 0 && selectedMeshId < static_cast<int>(meshCount)) {
+                    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Mesh Preview:");
+                    ImGui::Spacing();
+
+                    auto meshBounds = m_MeshSystem->GetMeshBounds(static_cast<uint32_t>(selectedMeshId));
+                    auto meshResources = m_MeshSystem->GetMeshResources(static_cast<uint32_t>(selectedMeshId));
+
+                    if (meshBounds.valid && meshResources.valid) {
+                        // Draw wireframe bounding box visualization
+                        constexpr float previewSize = 200.0f;
+                        const ImVec2 previewPos = ImGui::GetCursorScreenPos();
+
+                        // Reserve space for preview
+                        ImGui::Dummy(ImVec2(previewSize, previewSize));
+
+                        ImDrawList* drawList = ImGui::GetWindowDrawList();
+                        const ImVec2 center(previewPos.x + previewSize * 0.5f, previewPos.y + previewSize * 0.5f);
+
+                        // Calculate mesh center and size
+                        const glm::vec3 meshCenter = (meshBounds.min + meshBounds.max) * 0.5f;
+                        const glm::vec3 meshSize = meshBounds.max - meshBounds.min;
+                        const float maxExtent = glm::max(glm::max(meshSize.x, meshSize.y), meshSize.z);
+                        const float scale = maxExtent > 0.0f ? (previewSize * 0.4f) / maxExtent : 1.0f;
+
+                        // Animate rotation
+                        static float rotationAngle = 0.0f;
+                        rotationAngle += 0.5f * static_cast<float>(io.DeltaTime);
+                        const float cosA = std::cos(rotationAngle);
+                        const float sinA = std::sin(rotationAngle);
+
+                        // Define 8 corners of bounding box (relative to mesh center)
+                        glm::vec3 corners[8];
+                        for (int i = 0; i < 8; ++i) {
+                            corners[i] = glm::vec3(
+                                (i & 1) ? meshBounds.max.x : meshBounds.min.x,
+                                (i & 2) ? meshBounds.max.y : meshBounds.min.y,
+                                (i & 4) ? meshBounds.max.z : meshBounds.min.z
+                            ) - meshCenter;
+                        }
+
+                        // Project to 2D with isometric-like view and rotation
+                        ImVec2 projected[8];
+                        for (int i = 0; i < 8; ++i) {
+                            // Apply Y-axis rotation
+                            const float x = corners[i].x * cosA - corners[i].z * sinA;
+                            const float y = corners[i].y;
+                            const float z = corners[i].x * sinA + corners[i].z * cosA;
+
+                            // Isometric projection (45-degree angles)
+                            projected[i].x = center.x + (x - z) * scale * 0.866f;
+                            projected[i].y = center.y - (y - (x + z) * 0.5f) * scale * 0.866f;
+                        }
+
+                        // Draw edges of the bounding box
+                        const ImU32 edgeColor = IM_COL32(100, 200, 255, 255);
+                        const float thickness = 2.0f;
+
+                        // Bottom face (z=min)
+                        drawList->AddLine(projected[0], projected[1], edgeColor, thickness);
+                        drawList->AddLine(projected[1], projected[3], edgeColor, thickness);
+                        drawList->AddLine(projected[3], projected[2], edgeColor, thickness);
+                        drawList->AddLine(projected[2], projected[0], edgeColor, thickness);
+
+                        // Top face (z=max)
+                        drawList->AddLine(projected[4], projected[5], edgeColor, thickness);
+                        drawList->AddLine(projected[5], projected[7], edgeColor, thickness);
+                        drawList->AddLine(projected[7], projected[6], edgeColor, thickness);
+                        drawList->AddLine(projected[6], projected[4], edgeColor, thickness);
+
+                        // Vertical edges
+                        drawList->AddLine(projected[0], projected[4], edgeColor, thickness);
+                        drawList->AddLine(projected[1], projected[5], edgeColor, thickness);
+                        drawList->AddLine(projected[2], projected[6], edgeColor, thickness);
+                        drawList->AddLine(projected[3], projected[7], edgeColor, thickness);
+
+                        ImGui::Spacing();
+
+                        // Display mesh statistics below visualization
+                        ImGui::Text("Mesh ID: %d", selectedMeshId);
+                        ImGui::Text("Vertices: %u", meshResources.vertexCount);
+                        ImGui::Text("Indices: %u", meshResources.indexCount);
+                        ImGui::Text("Triangles: %u", meshResources.indexCount / 3);
+                        ImGui::Text("Bounds: (%.2f, %.2f, %.2f) - (%.2f, %.2f, %.2f)",
+                                   meshBounds.min.x, meshBounds.min.y, meshBounds.min.z,
+                                   meshBounds.max.x, meshBounds.max.y, meshBounds.max.z);
+                    } else {
+                        ImGui::TextDisabled("(No mesh data available)");
+                    }
+                } else {
+                    ImGui::TextDisabled("Select a mesh to see preview");
+                }
+
                 ImGui::Separator();
             }
 
