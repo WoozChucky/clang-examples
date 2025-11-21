@@ -3,8 +3,6 @@
 #include <nvrhi/nvrhi.h>
 #include <GLFW/glfw3.h>
 #include <vector>
-#include <cstdint>
-#include <mutex>
 
 #include "ApplicationContext.h"
 #include "RendererBackend.h"
@@ -12,7 +10,7 @@
 
 #include "Camera.h"
 #include "FrameAllocator.h"
-#include "ImGuiRenderer.h"
+#include "imgui/ImGuiRenderer.h"
 
 // Systems for managing GPU resources
 #include "MeshSystem.h"

@@ -8,18 +8,18 @@
 
 class MeshSystem;
 class MaterialSystem;
+class MeshPreviewRenderer;
+class Renderer;
 class RegisteredFont;
 struct ApplicationContext;
 struct SimulationSnapshot;
 
 class ImGuiRenderer final {
 public:
-    ImGuiRenderer() = default;
-    ~ImGuiRenderer() {
-        Shutdown();
-    }
+    ImGuiRenderer(); // Constructor defined in .cpp to allow unique_ptr with forward-declared type
+    ~ImGuiRenderer(); // Destructor defined in .cpp to allow unique_ptr with forward-declared type
 
-    bool Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem);
+    bool Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem, Renderer* renderer);
     void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot);
     void Shutdown();
 private:
@@ -38,7 +38,19 @@ private:
 private:
     std::vector<std::shared_ptr<RegisteredFont>> m_fonts;
     std::unique_ptr<ImGui_NVRHI> m_ImGuiNvrhi;
+    std::unique_ptr<MeshPreviewRenderer> m_MeshPreviewRenderer;
     ApplicationContext* m_AppContext = nullptr;
     MeshSystem* m_MeshSystem = nullptr;
     MaterialSystem* m_MaterialSystem = nullptr;
+
+    // Mesh preview camera state
+    struct MeshPreviewState {
+        float cameraDistance = 3.0f;
+        float cameraYaw = 0.0f;
+        float cameraPitch = 0.3f;
+        bool isDragging = false;
+        float lastMouseX = 0.0f;
+        float lastMouseY = 0.0f;
+    };
+    MeshPreviewState m_MeshPreviewState;
 };

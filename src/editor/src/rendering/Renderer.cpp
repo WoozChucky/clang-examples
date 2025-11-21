@@ -118,7 +118,7 @@ bool Renderer::Init(const RendererAPI api) {
     }
 
     m_ImGuiRenderer = std::make_unique<ImGuiRenderer>();
-    if (!m_ImGuiRenderer->Init(m_Device, m_AppContext, &m_MeshSystem, &m_MaterialSystem)) {
+    if (!m_ImGuiRenderer->Init(m_Device, m_AppContext, &m_MeshSystem, &m_MaterialSystem, this)) {
         SM_ERROR("Failed to initialize ImGuiRenderer");
         return false;
     }

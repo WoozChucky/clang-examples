@@ -13,9 +13,12 @@ add_executable(editor
     # Rendering
     src/rendering/Renderer.cpp
     src/rendering/RendererBackend.cpp
-    src/rendering/ImGuiRenderer.cpp
-    src/rendering/imgui_nvrhi.cpp
-    src/rendering/registered_font.cpp
+        
+    #ImGui
+    src/rendering/imgui/ImGuiRenderer.cpp
+    src/rendering/imgui/imgui_nvrhi.cpp
+    src/rendering/imgui/registered_font.cpp
+    src/rendering/imgui/MeshPreviewRenderer.cpp
         
     # Shader Compilation
     src/rendering/shader/ShaderCompiler.cpp

@@ -11,10 +11,11 @@
 #include <ImGuizmo.h>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "MeshSystem.h"
-#include "MaterialSystem.h"
+#include "../MeshSystem.h"
+#include "../MaterialSystem.h"
 #include "MeshLoader.h"
 #include "MaterialLoader.h"
+#include "MeshPreviewRenderer.h"
 
 #include "ApplicationContext.h"
 #include "registered_font.h"
@@ -133,7 +134,7 @@ static ImGuiKey GlfwKeyToImGuiKey(int key) {
     }
 }
 
-bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem) {
+bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem, Renderer* renderer) {
     m_AppContext = appContext;
     m_MeshSystem = meshSystem;
     m_MaterialSystem = materialSystem;
@@ -180,6 +181,14 @@ bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext,
 
     m_ImGuiNvrhi = std::make_unique<ImGui_NVRHI>();
     m_ImGuiNvrhi->init(device);
+
+    // Initialize mesh preview renderer
+    m_MeshPreviewRenderer = std::make_unique<MeshPreviewRenderer>();
+    if (!m_MeshPreviewRenderer->Initialize(device, renderer, 256, 256))
+    {
+        SM_ERROR("ImGuiRenderer::Init: Failed to initialize MeshPreviewRenderer");
+        m_MeshPreviewRenderer.reset();
+    }
 
     CreateFontFromFile("assets/LiberationSans-Regular.ttf", 14.f);
 
@@ -1115,73 +1124,105 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                     auto meshBounds = m_MeshSystem->GetMeshBounds(static_cast<uint32_t>(selectedMeshId));
                     auto meshResources = m_MeshSystem->GetMeshResources(static_cast<uint32_t>(selectedMeshId));
 
-                    if (meshBounds.valid && meshResources.valid) {
-                        // Draw wireframe bounding box visualization
-                        constexpr float previewSize = 200.0f;
-                        const ImVec2 previewPos = ImGui::GetCursorScreenPos();
+                    if (meshBounds.valid && meshResources.valid && m_MeshPreviewRenderer) {
+                        // 3D mesh preview with camera controls
+                        constexpr float previewSize = 256.0f;
 
-                        // Reserve space for preview
-                        ImGui::Dummy(ImVec2(previewSize, previewSize));
-
-                        ImDrawList* drawList = ImGui::GetWindowDrawList();
-                        const ImVec2 center(previewPos.x + previewSize * 0.5f, previewPos.y + previewSize * 0.5f);
-
-                        // Calculate mesh center and size
-                        const glm::vec3 meshCenter = (meshBounds.min + meshBounds.max) * 0.5f;
+                        // Calculate default camera distance based on mesh size
                         const glm::vec3 meshSize = meshBounds.max - meshBounds.min;
                         const float maxExtent = glm::max(glm::max(meshSize.x, meshSize.y), meshSize.z);
-                        const float scale = maxExtent > 0.0f ? (previewSize * 0.4f) / maxExtent : 1.0f;
+                        const float defaultDistance = maxExtent * 2.0f;
 
-                        // Animate rotation
-                        static float rotationAngle = 0.0f;
-                        rotationAngle += 0.5f * static_cast<float>(io.DeltaTime);
-                        const float cosA = std::cos(rotationAngle);
-                        const float sinA = std::sin(rotationAngle);
-
-                        // Define 8 corners of bounding box (relative to mesh center)
-                        glm::vec3 corners[8];
-                        for (int i = 0; i < 8; ++i) {
-                            corners[i] = glm::vec3(
-                                (i & 1) ? meshBounds.max.x : meshBounds.min.x,
-                                (i & 2) ? meshBounds.max.y : meshBounds.min.y,
-                                (i & 4) ? meshBounds.max.z : meshBounds.min.z
-                            ) - meshCenter;
+                        // Reset camera to default on first view of this mesh
+                        static int lastViewedMesh = -1;
+                        if (lastViewedMesh != selectedMeshId)
+                        {
+                            lastViewedMesh = selectedMeshId;
+                            m_MeshPreviewState.cameraDistance = defaultDistance;
+                            m_MeshPreviewState.cameraYaw = 0.0f;
+                            m_MeshPreviewState.cameraPitch = 0.3f;
                         }
 
-                        // Project to 2D with isometric-like view and rotation
-                        ImVec2 projected[8];
-                        for (int i = 0; i < 8; ++i) {
-                            // Apply Y-axis rotation
-                            const float x = corners[i].x * cosA - corners[i].z * sinA;
-                            const float y = corners[i].y;
-                            const float z = corners[i].x * sinA + corners[i].z * cosA;
+                        // Render mesh to offscreen texture
+                        nvrhi::ITexture* previewTexture = m_MeshPreviewRenderer->RenderMeshPreview(
+                            m_MeshSystem,
+                            static_cast<uint32_t>(selectedMeshId),
+                            m_MeshPreviewState.cameraDistance,
+                            m_MeshPreviewState.cameraYaw,
+                            m_MeshPreviewState.cameraPitch
+                        );
 
-                            // Isometric projection (45-degree angles)
-                            projected[i].x = center.x + (x - z) * scale * 0.866f;
-                            projected[i].y = center.y - (y - (x + z) * 0.5f) * scale * 0.866f;
+                        if (previewTexture)
+                        {
+                            const ImVec2 previewPos = ImGui::GetCursorScreenPos();
+
+                            // Display rendered preview
+                            ImGui::Image(
+                                reinterpret_cast<ImTextureID>(previewTexture),
+                                ImVec2(previewSize, previewSize),
+                                ImVec2(0, 0), ImVec2(1, 1),
+                                ImVec4(1, 1, 1, 1),
+                                ImVec4(0.3f, 0.3f, 0.3f, 1.0f) // Border
+                            );
+
+                            // Camera controls (drag to rotate, wheel to zoom)
+                            if (ImGui::IsItemHovered())
+                            {
+                                // Mouse wheel zoom
+                                if (io.MouseWheel != 0.0f)
+                                {
+                                    m_MeshPreviewState.cameraDistance *= (1.0f - io.MouseWheel * 0.1f);
+                                    m_MeshPreviewState.cameraDistance = glm::clamp(
+                                        m_MeshPreviewState.cameraDistance,
+                                        maxExtent * 0.5f,
+                                        maxExtent * 10.0f
+                                    );
+                                }
+
+                                // Mouse drag to rotate
+                                if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                                {
+                                    if (!m_MeshPreviewState.isDragging)
+                                    {
+                                        m_MeshPreviewState.isDragging = true;
+                                        m_MeshPreviewState.lastMouseX = io.MousePos.x;
+                                        m_MeshPreviewState.lastMouseY = io.MousePos.y;
+                                    }
+                                    else
+                                    {
+                                        const float deltaX = io.MousePos.x - m_MeshPreviewState.lastMouseX;
+                                        const float deltaY = io.MousePos.y - m_MeshPreviewState.lastMouseY;
+
+                                        m_MeshPreviewState.cameraYaw += deltaX * 0.01f;
+                                        m_MeshPreviewState.cameraPitch -= deltaY * 0.01f;
+
+                                        // Clamp pitch to avoid gimbal lock
+                                        m_MeshPreviewState.cameraPitch = glm::clamp(
+                                            m_MeshPreviewState.cameraPitch,
+                                            -1.5f, 1.5f
+                                        );
+
+                                        m_MeshPreviewState.lastMouseX = io.MousePos.x;
+                                        m_MeshPreviewState.lastMouseY = io.MousePos.y;
+                                    }
+                                }
+                                else
+                                {
+                                    m_MeshPreviewState.isDragging = false;
+                                }
+                            }
+                            else
+                            {
+                                m_MeshPreviewState.isDragging = false;
+                            }
+
+                            // Display controls hint
+                            ImGui::TextDisabled("(Drag to rotate, scroll to zoom)");
                         }
-
-                        // Draw edges of the bounding box
-                        const ImU32 edgeColor = IM_COL32(100, 200, 255, 255);
-                        const float thickness = 2.0f;
-
-                        // Bottom face (z=min)
-                        drawList->AddLine(projected[0], projected[1], edgeColor, thickness);
-                        drawList->AddLine(projected[1], projected[3], edgeColor, thickness);
-                        drawList->AddLine(projected[3], projected[2], edgeColor, thickness);
-                        drawList->AddLine(projected[2], projected[0], edgeColor, thickness);
-
-                        // Top face (z=max)
-                        drawList->AddLine(projected[4], projected[5], edgeColor, thickness);
-                        drawList->AddLine(projected[5], projected[7], edgeColor, thickness);
-                        drawList->AddLine(projected[7], projected[6], edgeColor, thickness);
-                        drawList->AddLine(projected[6], projected[4], edgeColor, thickness);
-
-                        // Vertical edges
-                        drawList->AddLine(projected[0], projected[4], edgeColor, thickness);
-                        drawList->AddLine(projected[1], projected[5], edgeColor, thickness);
-                        drawList->AddLine(projected[2], projected[6], edgeColor, thickness);
-                        drawList->AddLine(projected[3], projected[7], edgeColor, thickness);
+                        else
+                        {
+                            ImGui::TextDisabled("(Preview rendering failed)");
+                        }
 
                         ImGui::Spacing();
 
@@ -1393,9 +1434,22 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
     }
 }
 
+ImGuiRenderer::ImGuiRenderer() = default;
+
+ImGuiRenderer::~ImGuiRenderer() {
+    Shutdown();
+}
+
 void ImGuiRenderer::Shutdown() {
     m_ImGuiNvrhi.reset();
     m_ImGuiNvrhi = nullptr;
+
+    if (m_MeshPreviewRenderer)
+    {
+        m_MeshPreviewRenderer->Shutdown();
+        m_MeshPreviewRenderer.reset();
+    }
+
     m_MeshSystem = nullptr;
     m_MaterialSystem = nullptr;
     ImGui::DestroyContext();
