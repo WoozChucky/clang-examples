@@ -311,13 +311,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
     }
 
-    commandList->clearDepthStencilTexture(
-        frameBuffer->getDesc().depthAttachment.texture,
-        nvrhi::TextureSubresourceSet(),
-        true,
-        1.0f,
-        false,
-        0);
+    commandList->clearDepthStencilTexture(frameBuffer->getDesc().depthAttachment.texture, nvrhi::AllSubresources, true, 1.0f, false, 0);
 
     // ECS-driven rendering: TransformComponent + MeshComponent are required; MaterialComponent is optional
     if (snapshot.WorldSnapshotPtr)

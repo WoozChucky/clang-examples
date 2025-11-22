@@ -12,7 +12,7 @@ bool Application::Init() {
     }
 
     m_GameThread = std::make_unique<GameThread>(m_AppContext);
-    m_RenderThread = std::make_unique<RenderThread>(m_AppContext, m_PlatformThread->GetWindow(), RendererAPI::DirectX12);
+    m_RenderThread = std::make_unique<RenderThread>(m_AppContext, m_PlatformThread->GetWindow(), RendererAPI::Vulkan);
     return true;
 }
 

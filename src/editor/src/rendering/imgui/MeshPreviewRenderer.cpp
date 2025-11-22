@@ -78,7 +78,7 @@ float4 main(PSIn input) : SV_Target
     float NdotL = max(dot(N, L), 0.0);
 
     // Basic material color (gray with slight blue tint)
-    float3 baseColor = float3(0.7, 0.75, 0.8);
+    float3 baseColor = float3(0.7, 0.75, 0.95);
 
     // Combine ambient + diffuse
     float3 ambient = baseColor * uAmbient;
@@ -134,6 +134,14 @@ bool MeshPreviewRenderer::Initialize(nvrhi::IDevice* device, Renderer* renderer,
     layoutDesc.bindings = {
         nvrhi::BindingLayoutItem::ConstantBuffer(0)
     };
+    nvrhi::VulkanBindingOffsets& offsets =
+       nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
+
+    if (m_Device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+    {
+        layoutDesc.setBindingOffsets(offsets);
+    }
+
     m_BindingLayout = m_Device->createBindingLayout(layoutDesc);
 
     if (!m_BindingLayout)
