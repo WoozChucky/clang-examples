@@ -8,16 +8,12 @@
 #include "RendererBackend.h"
 #include "IRenderPass.h"
 
-#include "Camera.h"
 #include "FrameAllocator.h"
 #include "imgui/ImGuiRenderer.h"
 
 // Systems for managing GPU resources
 #include "MeshSystem.h"
 #include "MaterialSystem.h"
-
-// For mesh upload request/response API
-#include "passes/MeshRenderPass.h"
 
 struct GpuTimer
 {
@@ -98,7 +94,7 @@ public:
 
     // Resource upload APIs
     MeshHandle AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
-                       const uint32_t* indices, uint32_t indexCount);
+                       const uint32_t* indices, uint32_t indexCount, SubMesh* subMeshes = nullptr, uint32_t subMeshCount = 0);
     MaterialHandle AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight);
 
     // Access to resource systems

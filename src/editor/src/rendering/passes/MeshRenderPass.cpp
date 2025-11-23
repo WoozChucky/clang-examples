@@ -293,7 +293,6 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         pso.inputLayout = m_InputLayout;
         pso.bindingLayouts = { m_BindingLayout };
         pso.primType = nvrhi::PrimitiveType::TriangleList;
-        // Depth disabled for now (no depth buffer in target)
         pso.renderState.depthStencilState.depthTestEnable = true;
         pso.renderState.depthStencilState.depthWriteEnable = true;
         pso.renderState.rasterState.cullMode = nvrhi::RasterCullMode::Back;
@@ -310,6 +309,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         pso.renderState.blendState.setRenderTarget(0, rt);
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
     }
+
+    commandList->beginMarker("MeshRenderPass");
 
     commandList->clearDepthStencilTexture(frameBuffer->getDesc().depthAttachment.texture, nvrhi::AllSubresources, true, 1.0f, false, 0);
 
@@ -493,6 +494,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
             commandList->drawIndexed(args);
         }
     }
+
+    commandList->endMarker();
 }
 
 void MeshRenderPass::Shutdown()

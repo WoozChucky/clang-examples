@@ -323,7 +323,7 @@ void ImGuiRenderer::EditTransform(float* cameraView, float* cameraProjection, fl
     ImGuizmo::Manipulate(cameraView, cameraProjection, m_GizmoOperation, m_GizmoMode, matrix, nullptr, m_GizmoUseSnap ? &m_GizmoSnap[0] : nullptr);
 }
 
-void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot) {
+void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot, float gpuFrameTimeMs) {
     ZoneScopedN("ImGui");
     {
         ZoneScopedN("ImGui_ProcessInput");
@@ -359,6 +359,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         ZoneScopedN("ImGui:Stack");
         ImGui::NewFrame();
 
+        // Load the ECS world snapshot atomically from ApplicationContext
+        std::shared_ptr<const ECS> worldSnapshot = std::atomic_load(&m_AppContext->LatestWorldSnapshot);
+
         ImGui::PushFont(m_fonts[0]->GetScaledFont(), 14.f);
 
         // Main Menu Bar (File / Edit / About) with placeholder items
@@ -369,7 +372,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                 if (ImGui::MenuItem("New", "Ctrl+N")) { /* no-op */ }
                 if (ImGui::MenuItem("Open...", "Ctrl+O")) { /* no-op */ }
                 ImGui::Separator();
-                if (ImGui::MenuItem("Save", "Ctrl+S")) { /* no-op */ }
+                if (ImGui::MenuItem("Save", "Ctrl+S") && worldSnapshot) {
+                    SM_TRACE("Saving Thing...");
+                }
                 if (ImGui::MenuItem("Save As...")) { /* no-op */ }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit")) { /* no-op */ }
@@ -404,36 +409,13 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         // Ensure a DockSpace
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
-        // Build layout once
-        static bool s_dockBuilt = false;
-        if (!s_dockBuilt)
-        {
-            ImGuiID dockspace_id = ImGui::GetMainViewport()->ID; // Dock node for main viewport
-
-            // Rebuild the dockspace to a known layout
-            ImGui::DockBuilderRemoveNode(dockspace_id);                      // clear any previous layout
-            ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
-
-            ImGuiID dock_id_right = 0;
-            ImGuiID dock_id_main  = dockspace_id;
-
-            // Split main dockspace: create a right dock at 28% width; remainder stays as main
-            ImGui::DockBuilderSplitNode(dock_id_main, ImGuiDir_Right, 0.28f, &dock_id_right, &dock_id_main);
-
-            // Dock your windows by exact title text
-            ImGui::DockBuilderDockWindow("3D Engine Overlay", dock_id_right);
-            ImGui::DockBuilderDockWindow("Hello, world!",      dock_id_main);
-
-            ImGui::DockBuilderFinish(dockspace_id);
-            s_dockBuilt = true;
-        }
-
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
 
         ImGui::Begin("Hello, world!");
 
         ImGui::Text("Renderer average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        ImGui::Text("GPU %.3fms",gpuFrameTimeMs);
         ImGui::Text("Game TPS: %.2f/%.2f", snapshot.ActualTPS, snapshot.TargetTPS);
 
         ImGui::Separator();
@@ -502,9 +484,6 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         // ECS Inspector Window - demonstrates reading from ECS snapshot AND modifying via commands
         ImGui::Begin("ECS Inspector & Editor");
-
-        // Load the ECS world snapshot atomically from ApplicationContext
-        std::shared_ptr<const ECS> worldSnapshot = std::atomic_load(&m_AppContext->LatestWorldSnapshot);
 
         if (worldSnapshot) {
             ImGui::Text("ECS World Snapshot (Tick: %llu)", snapshot.Tick);
@@ -618,7 +597,6 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                         if (ImGui::MenuItem("Add Material Component")) {
                             MaterialComponent newMaterial{};
                             newMaterial.MaterialId = 0;
-                            newMaterial.TextureId = 0;
                             newMaterial.BaseColor = glm::vec4(1.0f);
                             newMaterial.Flags = 0;
 
@@ -974,10 +952,6 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                             static bool modified = false;
                             // Material ID editor
                             if (ImGui::InputScalar("Material ID", ImGuiDataType_U32, &editMaterial.MaterialId)) {
-                                modified = true;
-                            }
-                            // Texture ID editor
-                            if (ImGui::InputScalar("Texture ID", ImGuiDataType_U32, &editMaterial.TextureId)) {
                                 modified = true;
                             }
                             // Base color editor

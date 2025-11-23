@@ -269,6 +269,8 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
         m_Pipeline = m_Device->createGraphicsPipeline(uiDesc, fbi);
     }
 
+    commandList->beginMarker("UIRenderPass");
+
     if (m_PerFrameConstantBuffer) {
         const auto vp = frameBuffer->getFramebufferInfo().getViewport();
         const float w = vp.width();
@@ -424,6 +426,8 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
             // Note: No need to delete glyphInstances - frame allocator owns memory and will reset at end of frame
         }
     }
+
+    commandList->endMarker();
 }
 
 void UiRenderPass::Shutdown() {

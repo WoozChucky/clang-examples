@@ -13,6 +13,13 @@
 #include <glm/vec4.hpp>
 
 // #############################################################################
+//                           Entity & Component IDs
+// #############################################################################
+
+using EntityId = uint64_t;
+constexpr EntityId INVALID_ENTITY = 0;
+
+// #############################################################################
 //                           Component Types (Examples)
 // #############################################################################
 
@@ -27,9 +34,13 @@ struct MeshComponent {
     bool Visible = false;
 };
 
+struct SubMesh {
+    uint32_t IndexStart = 0;
+    uint32_t IndexCount = 0;
+};
+
 struct MaterialComponent {
     uint32_t MaterialId = 0;
-    uint32_t TextureId = 0;
     glm::vec4 BaseColor{1.0f};
     // Bit flags controlling material behavior
     // bit 0 (1): UseTexture — if set, renderer should sample a texture
@@ -59,12 +70,13 @@ struct LightningComponent {
     float Range = 1.0f;
 };
 
-// #############################################################################
-//                           Entity & Component IDs
-// #############################################################################
+struct ParentComponent {
+    EntityId Parent = INVALID_ENTITY;
+};
 
-using EntityId = uint64_t;
-constexpr EntityId INVALID_ENTITY = 0;
+struct ChildComponent {
+    std::unordered_set<EntityId> Children;
+};
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

@@ -8,7 +8,8 @@ void MeshSystem::Initialize(nvrhi::IDevice* device)
 }
 
 MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
-                                const uint32_t* indices, uint32_t indexCount)
+                                const uint32_t* indices, uint32_t indexCount,
+                                SubMesh* subMeshes, uint32_t subMeshCount)
 {
     if (!m_Device || !vertices || vertexCount == 0 || !indices || indexCount == 0)
     {
@@ -19,6 +20,10 @@ MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
     MeshEntry entry{};
     entry.vertexCount = vertexCount;
     entry.indexCount = indexCount;
+    if (subMeshes && subMeshCount > 0)
+    {
+        entry.subMeshes.assign(subMeshes, subMeshes + subMeshCount);
+    }
 
     // Compute bounding box from vertices
     entry.boundsMin = glm::vec3(FLT_MAX);
@@ -140,6 +145,7 @@ void MeshSystem::Shutdown()
     {
         entry.vertexBuffer = nullptr;
         entry.indexBuffer = nullptr;
+        entry.subMeshes.clear();
     }
     m_Meshes.clear();
     m_Device = nullptr;

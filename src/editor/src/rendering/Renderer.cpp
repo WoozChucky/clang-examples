@@ -73,12 +73,14 @@ bool Renderer::Init(const RendererAPI api) {
 
             nvrhi::TextureDesc td;
             td.debugName = "Renderer DefaultMissingTexture";
-            td.width = texSize; td.height = texSize; td.depth = 1;
-            td.arraySize = 1; td.mipLevels = 1;
+            td.width = texSize;
+            td.height = texSize;
+            td.depth = 1;
+            td.arraySize = 1;
+            td.mipLevels = 1;
             td.sampleCount = 1;
             td.dimension = nvrhi::TextureDimension::Texture2D;
             td.format = nvrhi::Format::RGBA8_UNORM;
-            td.initialState = nvrhi::ResourceStates::CopyDest;
             td.isShaderResource = true;
             defaultWhite = m_Device->createTexture(td);
 
@@ -96,9 +98,10 @@ bool Renderer::Init(const RendererAPI api) {
 
             const auto cl = m_Device->createCommandList();
             cl->open();
-            cl->beginTrackingTextureState(defaultWhite, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
+            cl->beginTrackingTextureState(defaultWhite, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
             cl->writeTexture(defaultWhite, 0, 0, pixels, texSize * sizeof(uint32_t));
             cl->setPermanentTextureState(defaultWhite, nvrhi::ResourceStates::ShaderResource);
+            cl->commitBarriers();
             cl->close();
             m_Device->executeCommandList(cl);
         }
@@ -190,7 +193,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
 
     if (!m_Backend || !m_Device || !m_CommandList) {
         SM_ERROR("Failed to render: renderer not fully initialized (backend=%p, device=%p, cmdlist=%p)",
-                 (void*)m_Backend, (void*)m_Device.Get(), (void*)m_CommandList.Get());
+                 static_cast<void *>(m_Backend), static_cast<void *>(m_Device.Get()), static_cast<void *>(m_CommandList.Get()));
         return 0.0f;
     }
 
@@ -239,7 +242,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 m_GpuTimer.Advance();
             }
 
-            m_ImGuiRenderer->Render(frameBuffer, deltaTime, snapshot);
+            m_ImGuiRenderer->Render(frameBuffer, deltaTime, snapshot, secs);
 
             {
                 ZoneScopedN("Present");
@@ -310,8 +313,8 @@ void Renderer::RemoveRenderPass(IRenderPass* pass) {
 }
 
 MeshHandle Renderer::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
-                              const uint32_t* indices, uint32_t indexCount) {
-    return m_MeshSystem.AddMesh(vertices, vertexCount, indices, indexCount);
+                              const uint32_t* indices, uint32_t indexCount, SubMesh* subMeshes, uint32_t subMeshCount) {
+    return m_MeshSystem.AddMesh(vertices, vertexCount, indices, indexCount, subMeshes, subMeshCount);
 }
 
 MaterialHandle Renderer::AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight) {

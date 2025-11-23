@@ -20,7 +20,7 @@ public:
     ~ImGuiRenderer(); // Destructor defined in .cpp to allow unique_ptr with forward-declared type
 
     bool Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem, Renderer* renderer);
-    void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot);
+    void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot, float gpuFrameTimeMs);
     void Shutdown();
 private:
     std::shared_ptr<RegisteredFont> CreateFontFromFile(const char* fontFile, float fontSize);

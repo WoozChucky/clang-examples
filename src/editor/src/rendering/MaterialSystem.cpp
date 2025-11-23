@@ -54,8 +54,10 @@ MaterialHandle MaterialSystem::AddMaterial(const uint32_t* textureRgba8, uint32_
     td.sampleCount = 1;
     td.dimension = nvrhi::TextureDimension::Texture2D;
     td.format = nvrhi::Format::RGBA8_UNORM;
-    td.initialState = nvrhi::ResourceStates::CopyDest;
     td.isShaderResource = true;
+
+    // TODO: Add support for generating mipmaps if needed
+
     entry.texture = m_Device->createTexture(td);
 
     if (!entry.texture)
@@ -65,9 +67,10 @@ MaterialHandle MaterialSystem::AddMaterial(const uint32_t* textureRgba8, uint32_
         return MaterialHandle{ UINT32_MAX };
     }
 
-    cl->beginTrackingTextureState(entry.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
+    cl->beginTrackingTextureState(entry.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
     cl->writeTexture(entry.texture, 0, 0, textureRgba8, texWidth * 4);
     cl->setPermanentTextureState(entry.texture, nvrhi::ResourceStates::ShaderResource);
+    cl->commitBarriers();
 
     // Execute upload commands
     cl->close();

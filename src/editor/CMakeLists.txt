@@ -43,6 +43,7 @@ add_executable(editor
     # Utilities
     src/utilities/MeshLoader.cpp
     src/utilities/MaterialLoader.cpp
+    src/utilities/WorldManager.cpp
     
     # Third-party (keep Tracy here for now)
     ../../third_party/tracy/public/TracyClient.cpp

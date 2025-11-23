@@ -61,23 +61,19 @@ void GameThread::RunLoop() {
     {
         auto cubeEntityId = gameState.World.CreateEntity();
         auto cubeTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-        auto cubeMesh = MeshComponent{ .MeshId = 0, .Visible = false };
         auto cubeMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 1.f, 1.f, 1.0f} };
         gameState.World.AddComponent(cubeEntityId, cubeTransform);
         gameState.World.AddComponent(cubeEntityId, cubeMaterial);
-        gameState.World.AddComponent(cubeEntityId, cubeMesh);
         // Enqueue model loading job to background worker
-        EnqueueModelLoadJob(cubeEntityId, "assets/models/mage.obj", "assets/models"); // stanford-bunny
+        EnqueueModelLoadJob(cubeEntityId, "assets/models/cube-textured-multiple.obj", "assets/models"); // stanford-bunny
     }
 
     {
         auto sphereEntityId = gameState.World.CreateEntity();
         auto sphereTransform = TransformComponent{.Position = glm::vec3{-5.f, 0.f, -5.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-        auto sphereMesh = MeshComponent{ .MeshId = 0, .Visible = false };
         auto sphereMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 1.0f} };
         gameState.World.AddComponent(sphereEntityId, sphereTransform);
         gameState.World.AddComponent(sphereEntityId, sphereMaterial);
-        gameState.World.AddComponent(sphereEntityId, sphereMesh);
         // Enqueue model loading job to background worker
         EnqueueModelLoadJob(sphereEntityId, "assets/models/sphere.obj", "assets/models");
     }
@@ -179,8 +175,10 @@ void GameThread::RunLoop() {
                     meshCmd.TicketId = res.ticketId; // Use entity ID as ticket
                     meshCmd.MeshRequest.VertexCount = res.vertices.size();
                     meshCmd.MeshRequest.IndexCount = res.indices.size();
+                    meshCmd.MeshRequest.SubMeshCount = res.subMeshes.size() > 1 ? res.subMeshes.size() : 0;
                     meshCmd.MeshRequest.Vertices = nullptr;
                     meshCmd.MeshRequest.Indices = nullptr;
+                    meshCmd.MeshRequest.SubMeshes = nullptr;
 
                     if (meshCmd.MeshRequest.VertexCount > 0)
                     {
@@ -192,12 +190,18 @@ void GameThread::RunLoop() {
                         meshCmd.MeshRequest.Indices = static_cast<uint32_t*>(std::malloc(meshCmd.MeshRequest.IndexCount * sizeof(uint32_t)));
                         std::memcpy(meshCmd.MeshRequest.Indices, res.indices.data(), meshCmd.MeshRequest.IndexCount * sizeof(uint32_t));
                     }
+                    if (meshCmd.MeshRequest.SubMeshCount > 0)
+                    {
+                        meshCmd.MeshRequest.SubMeshes = static_cast<SubMesh*>(std::malloc(meshCmd.MeshRequest.SubMeshCount * sizeof(SubMesh)));
+                        std::memcpy(meshCmd.MeshRequest.SubMeshes, res.subMeshes.data(), meshCmd.MeshRequest.SubMeshCount * sizeof(SubMesh));
+                    }
 
                     if (!m_AppContext->GRCommandRing.Push(meshCmd))
                     {
                         SM_WARN("GRCommandRing full, retrying mesh upload next frame (ticket %llu)", (unsigned long long)res.ticketId);
                         if (meshCmd.MeshRequest.Vertices) std::free(meshCmd.MeshRequest.Vertices);
                         if (meshCmd.MeshRequest.Indices) std::free(meshCmd.MeshRequest.Indices);
+                        if (meshCmd.MeshRequest.SubMeshes) std::free(meshCmd.MeshRequest.SubMeshes);
                         std::lock_guard<std::mutex> lg(m_JobMutex);
                         m_CompletedJobs.push(std::move(res));
                         break;
@@ -230,13 +234,19 @@ void GameThread::RunLoop() {
 			        switch (response.Type) {
 			            case RendererResponseType::MeshUpload: {
                             if (response.Mesh.Valid) {
+
                                 auto meshComponent = gameState.World.GetComponent<MeshComponent>(response.TicketId);
-                                if (meshComponent) {
-                                    meshComponent->MeshId = response.Mesh.Handle.Index;
-                                    meshComponent->Visible = true;
-                                    SM_TRACE("GameThread: MeshUpload complete for entity %llu, meshId=%u",
-                                             (unsigned long long)response.TicketId, response.Mesh.Handle.Index);
+                                if (!meshComponent) {
+                                    MeshComponent mesh{};
+                                    gameState.World.AddComponent(response.TicketId, mesh);
+                                    meshComponent = gameState.World.GetComponent<MeshComponent>(response.TicketId);
                                 }
+
+                                meshComponent->MeshId = response.Mesh.Handle.Index;
+                                meshComponent->Visible = true;
+
+                                SM_TRACE("GameThread: MeshUpload complete for entity %llu, meshId=%u",
+                                         response.TicketId, response.Mesh.Handle.Index);
                             }
                             break;
                         }
@@ -245,6 +255,7 @@ void GameThread::RunLoop() {
                                 auto materialComponent = gameState.World.GetComponent<MaterialComponent>(response.TicketId);
                                 if (materialComponent) {
                                     materialComponent->MaterialId = response.Material.Handle.Index;
+                                    materialComponent->Flags |= 1u; // Set "use texture" flag
                                     SM_TRACE("GameThread: MaterialUpload complete for entity %llu, materialId=%u",
                                              (unsigned long long)response.TicketId, response.Material.Handle.Index);
                                 }
@@ -442,13 +453,12 @@ void GameThread::WorkerThreadFunc()
             aiProcess_Triangulate |
             aiProcess_GenSmoothNormals |
             aiProcess_FlipUVs |
-            // aiProcess_ConvertToLeftHanded | // Might not need this, and instead use aiProcess_FlipUVs
             aiProcess_JoinIdenticalVertices);
 
         if (!scene) {
-            SM_ERROR("Assimp failed to load OBJ '%s': %s", job.objPath.c_str(), importer.GetErrorString());
+            SM_ERROR("Assimp failed to load scene '%s': %s", job.objPath.c_str(), importer.GetErrorString());
             result.success = false;
-            result.error = std::string("Assimp failed to load OBJ: ") + importer.GetErrorString();
+            result.error = std::string("Assimp failed to load scene: ") + importer.GetErrorString();
             {
                 std::lock_guard<std::mutex> lg(m_JobMutex);
                 m_CompletedJobs.push(std::move(result));
@@ -494,6 +504,19 @@ void GameThread::WorkerThreadFunc()
                 aiMaterial* material = sceneRef->mMaterials[mesh->mMaterialIndex];
                 if (material) {
                     aiString texPath;
+                    for (size_t i = 0; i < material->mNumProperties; ++i) {
+                        auto prop = material->mProperties[i];
+                        SM_TRACE("Material property: key='%s', semantic=%d, index=%d type=%d length=%u",
+                                 prop->mKey.C_Str(), prop->mSemantic, prop->mIndex,
+                                 static_cast<int>(prop->mType), prop->mDataLength);
+                    }
+                    // The material might be a texture image, or a color
+                    auto color = aiColor4D{};
+                    if (AI_SUCCESS == material->Get(AI_MATKEY_COLOR_DIFFUSE, color)) {
+                        SM_TRACE("Material diffuse color: r=%.3f g=%.3f b=%.3f a=%.3f",
+                                 color.r, color.g, color.b, color.a);
+                    }
+
                     if (material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS) {
                         std::string fullTexPath = std::string(texPath.C_Str());
 
@@ -519,23 +542,33 @@ void GameThread::WorkerThreadFunc()
             return std::make_tuple(vertices, indices);
         };
 
-        std::function<void(aiNode*, const aiScene*)> processNode = [&](aiNode* node, const aiScene* sceneRef) {
-            for (size_t i = 0; i < node->mNumMeshes; i++) {
-                aiMesh* mesh = sceneRef->mMeshes[node->mMeshes[i]];
+        std::vector<MeshVertex> vertices;
+        std::vector<uint32_t> indices;
+
+        std::function<void(const aiNode*, const aiScene*, std::vector<MeshVertex>& vertices, std::vector<uint32_t>& indices)> processNode
+        = [&](const aiNode* node, const aiScene* sceneRef, std::vector<MeshVertex>& totalVertices, std::vector<uint32_t>& totalIndices) {
+
+            const auto totalMeshes = node->mNumMeshes;
+
+            for (size_t m = 0; m < totalMeshes; ++m) {
+                aiMesh* mesh = sceneRef->mMeshes[node->mMeshes[m]];
                 auto [vertex, index] = processMesh(mesh, sceneRef);
-                result.vertices = std::move(vertex);
-                result.indices = std::move(index);
+                result.subMeshes.push_back(SubMesh{
+                    .IndexStart = static_cast<uint32_t>(totalIndices.size()),
+                    .IndexCount = static_cast<uint32_t>(index.size())}
+                );
+                totalVertices.insert(totalVertices.end(), vertex.begin(), vertex.end());
+                totalIndices.insert(totalIndices.end(), index.begin(), index.end());
             }
 
             for (size_t i = 0; i < node->mNumChildren; i++) {
-                processNode(node->mChildren[i], sceneRef);
+                processNode(node->mChildren[i], sceneRef, totalVertices, totalIndices);
             }
         };
 
-        processNode(scene->mRootNode, scene);
+        processNode(scene->mRootNode, scene, result.vertices, result.indices);
 
-        result.success = true;
-
+        result.success = result.vertices.size() > 0;
 
         {
             std::lock_guard<std::mutex> lg(m_JobMutex);

@@ -85,6 +85,8 @@ struct RendererCommand {
             size_t VertexCount;
             uint32_t* Indices;
             size_t IndexCount;
+            SubMesh* SubMeshes;
+            size_t SubMeshCount;
         } MeshRequest;
 
         struct {
@@ -92,18 +94,6 @@ struct RendererCommand {
             uint32_t Height;
             uint32_t* Texture; // optional RGBA8 pixels (w*h entries)
         } MaterialRequest;
-
-        struct {
-            MeshVertex* Vertices;
-            size_t VertexCount;
-            uint32_t* Indices;
-            size_t IndexCount;
-            bool UseTexture;
-            uint32_t Width;
-            uint32_t Height;
-            uint32_t* Texture; // optional RGBA8 pixels (w*h entries)
-            size_t TextureSize;
-        } ModelRequest;
     };
 };
 
@@ -129,13 +119,6 @@ struct RendererResponse {
             bool Valid;
             MaterialHandle Handle;
         } Material;
-
-        struct {
-            bool Valid;
-            ModelHandle Handle;
-            //MeshHandle Mesh;
-            //MaterialHandle Material;
-        } Model;
     };
 };
 
@@ -165,9 +148,9 @@ struct ApplicationContext {
     static constexpr int RendererCommandRingSize = 64;
     // Platform -> Render (Stuff like pause, vsync, resize)
     SpscRing<RendererCommand, RendererCommandRingSize> PRCommandRing{};
-    // Game -> Render (request meshes, texture handles, uploads, etc)
+    // Game -> Render (request meshes, material handles, uploads, etc)
     SpscRing<RendererCommand, RendererCommandRingSize> GRCommandRing{};
-    // Render -> Game (responses to mesh/model requests)
+    // Render -> Game (responses to mesh/material requests)
     SpscRing<RendererResponse, RendererCommandRingSize> RGCommandRing{};
 
     // Game -> Render latest snapshot (seqlocked)

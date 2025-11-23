@@ -43,6 +43,8 @@ private:
         std::string error;
         std::vector<MeshVertex> vertices{};
         std::vector<uint32_t> indices{};
+        std::vector<SubMesh> subMeshes{}; // will contain elements if model has multiple sub-meshes
+        // For now only 1 material is supported for the whole model, we will expand on this later
         uint32_t Width{0};
         uint32_t Height{0};
         uint32_t* Texture{nullptr}; // optional RGBA8 pixels (w*h entries)

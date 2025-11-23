@@ -56,16 +56,18 @@ void RenderThread::RunLoop()
         while (m_AppContext->GRCommandRing.Pop(cmd)) {
             switch (cmd.Type) {
                 case RendererCommandType::RequestMesh: {
-                    SM_TRACE("Mesh Requested (ticket %llu)", (unsigned long long)cmd.TicketId);
+                    SM_TRACE("Mesh Requested (ticket %llu)", cmd.TicketId);
 
                     const auto meshHandle = m_Renderer->AddMesh(
                         cmd.MeshRequest.Vertices, static_cast<uint32_t>(cmd.MeshRequest.VertexCount),
-                        cmd.MeshRequest.Indices, static_cast<uint32_t>(cmd.MeshRequest.IndexCount)
+                        cmd.MeshRequest.Indices, static_cast<uint32_t>(cmd.MeshRequest.IndexCount),
+                        cmd.MeshRequest.SubMeshes, static_cast<uint32_t>(cmd.MeshRequest.SubMeshCount)
                     );
 
                     // Free allocated memory from GameThread
                     if (cmd.MeshRequest.Vertices) std::free(cmd.MeshRequest.Vertices);
                     if (cmd.MeshRequest.Indices) std::free(cmd.MeshRequest.Indices);
+                    if (cmd.MeshRequest.SubMeshes) std::free(cmd.MeshRequest.SubMeshes);
 
                     RendererResponse response{};
                     response.Type = RendererResponseType::MeshUpload;

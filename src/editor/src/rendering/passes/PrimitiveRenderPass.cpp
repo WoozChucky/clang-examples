@@ -256,6 +256,8 @@ void PrimitiveRenderPass::Render(
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
     }
 
+    commandList->beginMarker("PrimiviteRenderPass");
+
     // Common VP for this frame
     glm::mat4 V = snapshot.GameCamera.get_view_matrix();
     glm::mat4 P = snapshot.GameCamera.get_projection_matrix();
@@ -315,6 +317,8 @@ void PrimitiveRenderPass::Render(
 
         commandList->drawIndexed(args);
     }
+
+    commandList->endMarker();
 }
 
 void PrimitiveRenderPass::Shutdown() {
