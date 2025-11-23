@@ -91,8 +91,17 @@ target_link_libraries(ImGuizmo PRIVATE imgui)
 option(ASSIMP_BUILD_TESTS "" OFF)
 option(ASSIMP_INSTALL "" OFF)
 add_subdirectory(assimp)
-# Set folder for GLFW targets
+# Set folder for Assimp targets
 get_directory_property(assimp_targets DIRECTORY assimp BUILDSYSTEM_TARGETS)
 foreach(target ${assimp_targets})
   set_target_properties(${target} PROPERTIES FOLDER ThirdParty/assimp)
+endforeach()
+
+option(JSON_BuildTests "" OFF)
+#option(JSON_Install "" OFF)
+add_subdirectory(json)
+# Set folder for nholman:json targets
+get_directory_property(json_targets DIRECTORY json BUILDSYSTEM_TARGETS)
+foreach(target ${json_targets})
+  set_target_properties(${target} PROPERTIES FOLDER ThirdParty/json)
 endforeach()

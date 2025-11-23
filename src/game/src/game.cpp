@@ -9,6 +9,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include "../../editor/src/utilities/WorldManager.h"
+
 static GameState* g_GameState = nullptr;
 static bool gKeysDown[KEY_LAST + 1] = {};
 static bool gKeysPressedThisFrame[KEY_LAST + 1] = {}; // NEW: Track single-frame presses
@@ -65,6 +67,13 @@ void GameUpdate(GameState* state) {
 			const auto entityId = g_GameState->World.CreateEntity();
 			SM_TRACE("Added new Entity (%llu)", entityId)
 		}
+
+        if (IsKeyPressedThisFrame(KEY_F10)) {
+            if (WorldManager::LoadWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, &g_GameState->World)) {
+                SM_TRACE("Loaded world snapshot from disk")
+            }
+            return;
+        }
     }
 
     switch (g_GameState->StateId)

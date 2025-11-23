@@ -22,6 +22,7 @@
 
 #include "ApplicationContext.h"
 #include "registered_font.h"
+#include "WorldManager.h"
 #include "tracy/Tracy.hpp"
 
 
@@ -373,7 +374,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                 if (ImGui::MenuItem("Open...", "Ctrl+O")) { /* no-op */ }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Save", "Ctrl+S") && worldSnapshot) {
-                    SM_TRACE("Saving Thing...");
+                    WorldManager::SaveWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, worldSnapshot.get());
                 }
                 if (ImGui::MenuItem("Save As...")) { /* no-op */ }
                 ImGui::Separator();

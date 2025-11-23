@@ -3,7 +3,7 @@
 #include "ECS.h"
 
 namespace WorldManager {
-
-    bool SaveWorldSnapshot(const std::string& filepath, const ECS& world);
-
+    const auto DEFAULT_WORLD_SNAPSHOT_PATH = "world.json";
+    bool SaveWorldSnapshot(const std::string& filepath, const ECS* world);
+    bool LoadWorldSnapshot(const std::string& filepath, ECS* world);
 }
