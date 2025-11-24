@@ -102,7 +102,7 @@ void GameUpdate(GameState* state) {
              auto lightningTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
              g_GameState->World.AddComponent(directionalLightningEntity, lightningTransform);
              g_GameState->World.AddComponent(directionalLightningEntity, lightning);
-             g_DirectionalLightEntity = directionalLightningEntity;
+             // g_DirectionalLightEntity = directionalLightningEntity;
 
 	        auto pointLightEntity = g_GameState->World.CreateEntity();
             auto pointLight = LightningComponent{

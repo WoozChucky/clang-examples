@@ -32,6 +32,8 @@ public:
         bool valid = false;
     };
 
+    static constexpr uint32_t MissingMesh = { 0 }; // Reserved default mesh handle
+
     MeshResources GetMeshResources(uint32_t meshId) const;
 
     // Query mesh count and validity (for UI/editor purposes)

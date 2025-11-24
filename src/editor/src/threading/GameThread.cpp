@@ -59,23 +59,15 @@ void GameThread::RunLoop() {
     m_Worker = std::thread(&GameThread::WorkerThreadFunc, this);
 
     {
-        auto cubeEntityId = gameState.World.CreateEntity();
-        auto cubeTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-        auto cubeMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 1.f, 1.f, 1.0f} };
-        gameState.World.AddComponent(cubeEntityId, cubeTransform);
-        gameState.World.AddComponent(cubeEntityId, cubeMaterial);
-        // Enqueue model loading job to background worker
-        EnqueueModelLoadJob(cubeEntityId, "assets/models/cube-textured-multiple.obj", "assets/models"); // stanford-bunny
-    }
-
-    {
-        auto sphereEntityId = gameState.World.CreateEntity();
-        auto sphereTransform = TransformComponent{.Position = glm::vec3{-5.f, 0.f, -5.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-        auto sphereMaterial = MaterialComponent{ .BaseColor = glm::vec4{1.f, 0.f, 0.f, 1.0f} };
-        gameState.World.AddComponent(sphereEntityId, sphereTransform);
-        gameState.World.AddComponent(sphereEntityId, sphereMaterial);
-        // Enqueue model loading job to background worker
-        EnqueueModelLoadJob(sphereEntityId, "assets/models/sphere.obj", "assets/models");
+        // Loop trough all *.obj files in assets/models and enqueue load jobs
+        const std::string modelDir = "assets/models";;
+        for (const auto& entry : std::filesystem::directory_iterator(modelDir)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".obj") {
+                const std::string objPath = entry.path().string();
+                const std::string mtlBaseDir = entry.path().parent_path().string();
+                EnqueueModelLoadJob(INVALID_ENTITY, objPath, mtlBaseDir);
+            }
+        }
     }
 
 	// Initialize default settings
@@ -234,6 +226,7 @@ void GameThread::RunLoop() {
 			        switch (response.Type) {
 			            case RendererResponseType::MeshUpload: {
                             if (response.Mesh.Valid) {
+                                if (!gameState.World.IsValidEntity(response.TicketId)) continue;
 
                                 auto meshComponent = gameState.World.GetComponent<MeshComponent>(response.TicketId);
                                 if (!meshComponent) {
@@ -252,6 +245,8 @@ void GameThread::RunLoop() {
                         }
                         case RendererResponseType::MaterialUpload: {
                             if (response.Material.Valid) {
+                                if (!gameState.World.IsValidEntity(response.TicketId)) continue;
+
                                 auto materialComponent = gameState.World.GetComponent<MaterialComponent>(response.TicketId);
                                 if (materialComponent) {
                                     materialComponent->MaterialId = response.Material.Handle.Index;

@@ -65,9 +65,9 @@ bool Renderer::Init(const RendererAPI api) {
     // Initialize resource systems with default resources
     {
         // Create default magenta checkerboard texture (16x16 RGBA8) for missing textures
-        nvrhi::TextureHandle defaultWhite;
+        nvrhi::TextureHandle missingMaterialTexture;
         {
-            constexpr uint32_t texSize = 16;
+            constexpr uint32_t texSize = 256;
             constexpr uint32_t magenta = 0xFFFF00FFu; // RGBA8: magenta (R=255, G=0, B=255, A=255)
             constexpr uint32_t black = 0xFF000000u;   // RGBA8: black (R=0, G=0, B=0, A=255)
 
@@ -82,11 +82,11 @@ bool Renderer::Init(const RendererAPI api) {
             td.dimension = nvrhi::TextureDimension::Texture2D;
             td.format = nvrhi::Format::RGBA8_UNORM;
             td.isShaderResource = true;
-            defaultWhite = m_Device->createTexture(td);
+            missingMaterialTexture = m_Device->createTexture(td);
 
             // Generate magenta checkerboard pattern (2x2 checker cells = 8x8 pixels per cell)
             uint32_t pixels[texSize * texSize];
-            constexpr uint32_t checkerSize = 8; // Size of each checker square in pixels
+            constexpr uint32_t checkerSize = 16; // Size of each checker square in pixels
             for (uint32_t y = 0; y < texSize; ++y) {
                 for (uint32_t x = 0; x < texSize; ++x) {
                     const bool checkerX = (x / checkerSize) % 2 == 0;
@@ -98,9 +98,9 @@ bool Renderer::Init(const RendererAPI api) {
 
             const auto cl = m_Device->createCommandList();
             cl->open();
-            cl->beginTrackingTextureState(defaultWhite, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
-            cl->writeTexture(defaultWhite, 0, 0, pixels, texSize * sizeof(uint32_t));
-            cl->setPermanentTextureState(defaultWhite, nvrhi::ResourceStates::ShaderResource);
+            cl->beginTrackingTextureState(missingMaterialTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
+            cl->writeTexture(missingMaterialTexture, 0, 0, pixels, texSize * sizeof(uint32_t));
+            cl->setPermanentTextureState(missingMaterialTexture, nvrhi::ResourceStates::ShaderResource);
             cl->commitBarriers();
             cl->close();
             m_Device->executeCommandList(cl);
@@ -117,7 +117,7 @@ bool Renderer::Init(const RendererAPI api) {
 
         // Initialize systems
         m_MeshSystem.Initialize(m_Device);
-        m_MaterialSystem.Initialize(m_Device, defaultWhite, defaultSampler);
+        m_MaterialSystem.Initialize(m_Device, missingMaterialTexture, defaultSampler);
     }
 
     m_ImGuiRenderer = std::make_unique<ImGuiRenderer>();

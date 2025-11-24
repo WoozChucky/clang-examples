@@ -1,17 +1,17 @@
 #include "MaterialSystem.h"
 #include "lib.h"
 
-void MaterialSystem::Initialize(nvrhi::IDevice* device, nvrhi::TextureHandle defaultWhite, nvrhi::SamplerHandle defaultSampler)
+void MaterialSystem::Initialize(nvrhi::IDevice* device, const nvrhi::TextureHandle &missingMaterial, const nvrhi::SamplerHandle &defaultSampler)
 {
     m_Device = device;
-    m_DefaultWhite = defaultWhite;
+    m_MissingMaterial = missingMaterial;
     m_DefaultSampler = defaultSampler;
     m_Materials.clear();
 
-    // Create default fallback material at index 0 (white texture, default sampler)
+    // Create default fallback material at index 0 (magenta checkerboard texture, default sampler)
     // This ensures objects without materials can still render
     MaterialEntry defaultMaterial{};
-    defaultMaterial.texture = m_DefaultWhite;
+    defaultMaterial.texture = m_MissingMaterial;
     defaultMaterial.sampler = m_DefaultSampler;
     m_Materials.push_back(defaultMaterial);
 
@@ -32,7 +32,7 @@ MaterialHandle MaterialSystem::AddMaterial(const uint32_t* textureRgba8, uint32_
     // If no texture data provided, use default white texture
     if (!textureRgba8 || texWidth == 0 || texHeight == 0)
     {
-        entry.texture = m_DefaultWhite;
+        entry.texture = m_MissingMaterial;
         const uint32_t materialId = static_cast<uint32_t>(m_Materials.size());
         m_Materials.push_back(entry);
         SM_TRACE("MaterialSystem::AddMaterial: Created material %u with default white texture", materialId);
@@ -117,7 +117,7 @@ void MaterialSystem::Shutdown()
         entry.sampler = nullptr;
     }
     m_Materials.clear();
-    m_DefaultWhite = nullptr;
+    m_MissingMaterial = nullptr;
     m_DefaultSampler = nullptr;
     m_Device = nullptr;
 }

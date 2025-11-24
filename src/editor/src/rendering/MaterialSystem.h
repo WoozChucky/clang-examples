@@ -15,7 +15,7 @@ public:
     ~MaterialSystem() = default;
 
     // Initialize the system with device reference and default resources
-    void Initialize(nvrhi::IDevice* device, nvrhi::TextureHandle defaultWhite, nvrhi::SamplerHandle defaultSampler);
+    void Initialize(nvrhi::IDevice* device, const nvrhi::TextureHandle &missingMaterial, const nvrhi::SamplerHandle &defaultSampler);
 
     // Upload material/texture data and return a handle
     // If texture data is null, uses default white texture
@@ -28,6 +28,8 @@ public:
         nvrhi::SamplerHandle sampler;
         bool valid = false;
     };
+
+    static constexpr uint32_t MissingMaterial = { 0 }; // Reserved default mesh handle
 
     MaterialResources GetMaterialResources(uint32_t materialId) const;
 
@@ -44,7 +46,7 @@ private:
     };
 
     nvrhi::IDevice* m_Device = nullptr;
-    nvrhi::TextureHandle m_DefaultWhite;
+    nvrhi::TextureHandle m_MissingMaterial;
     nvrhi::SamplerHandle m_DefaultSampler;
     std::vector<MaterialEntry> m_Materials;
 };

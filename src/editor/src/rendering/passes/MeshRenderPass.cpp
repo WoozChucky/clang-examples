@@ -359,7 +359,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         perFrame.DirectionalLight.Direction = lightningDirection;
         perFrame.DirectionalLight.Color = lightningColor;
         perFrame.PointLightCount = static_cast<uint32_t>(pointLights.size());
-        perFrame.Ambient = 0.01f; // hardcoded ambient for now
+        perFrame.Ambient = 0.1f; // hardcoded ambient for now
         commandList->writeBuffer(m_PerFrameCB, &perFrame, sizeof(perFrame));
 
         // Upload point lights data (if any)
@@ -390,7 +390,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                 continue;
 
             const auto* materialComp = snapshot.WorldSnapshotPtr->GetComponent<MaterialComponent>(entity);
-            uint32_t materialId = materialComp ? materialComp->MaterialId : 0;
+            uint32_t materialId = materialComp ? materialComp->MaterialId : MaterialSystem::MissingMaterial;
 
             BatchKey key{ .meshId=meshComp->MeshId, .materialId=materialId };
             batches[key].push_back(entity);
@@ -412,14 +412,14 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
             if (!meshResources.valid)
             {
                 SM_WARN("MeshRenderPass: Invalid mesh ID %u", batchKey.meshId);
-                continue;
+               meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(MeshSystem::MissingMesh);
             }
 
             auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(batchKey.materialId);
             if (!materialResources.valid)
             {
                 SM_WARN("MeshRenderPass: Invalid material ID %u", batchKey.materialId);
-                continue;
+                materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
             }
 
             const uint32_t instanceCount = std::min(static_cast<uint32_t>(entities.size()), m_MaxInstances);

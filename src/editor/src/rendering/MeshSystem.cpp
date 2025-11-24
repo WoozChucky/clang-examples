@@ -5,6 +5,63 @@ void MeshSystem::Initialize(nvrhi::IDevice* device)
 {
     m_Device = device;
     m_Meshes.clear();
+
+    {
+        // Add a default mesh to avoid invalid handle issues
+        std::vector<MeshVertex> vertices =
+        {
+            // +Z (Front)
+            {-1.0f,-1.0f, 1.0f,  0.0f, 0.0f, 1.0f, 0.0f,0.0f},
+            { 1.0f,-1.0f, 1.0, 0.0f, 0.0f, 1.f, 1.f,0.0f},
+            { 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f,1.0f},
+            {-1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f,1.0f},
+            // -Z (Back)
+            { 1.0f,-1.0f,-1.0f, 0.0f, 0.0f,-1.0f, 0.0f,0.0f},
+            {-1.0f,-1.0f,-1.0f, 0.0f, 0.0f,-1.0f, 1.0f,0.0f},
+            {-1.0f, 1.0f,-1.0f, 0.0f, 0.0f,-1.0f, 1.0f,1.0f},
+            { 1.0f, 1.0f,-1.0f, 0.0f, 0.0f,-1.0f, 0.0f,1.0f},
+            // +X (Right)
+            { 1.0f,-1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f,0.0f},
+            { 1.0f,-1.0f,-1.0f, 1.0f, 0.0f, 0.0f, 1.0f,0.0f},
+            { 1.0f, 1.0f,-1.0f, 1.0f, 0.0f, 0.0f, 1.0f,1.0f},
+            { 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f,1.0f},
+            // -X (Left)
+            {-1.0f,-1.0f,-1.0f, 1.0f, 0.0f, 0.0f, 0.0f,0.0f},
+            {-1.0f,-1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,0.0f},
+            {-1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,1.0f},
+            {-1.0f, 1.0f,-1.0f, 1.0f, 0.0f, 0.0f, 0.0f,1.0f},
+            // +Y (Top)
+            {-1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f,0.0f},
+            { 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f,0.0f},
+            { 1.0f, 1.0f,-1.0f, 0.0f, 1.0f, 0.0f, 1.0f,1.0f},
+            {-1.0f, 1.0f,-1.0f, 0.0f, 1.0f, 0.0f, 0.0f,1.0f},
+            // -Y (Bottom)
+            {-1.0f,-1.0f,-1.0f, 0.0f,-1.0f, 0.0f, 0.0f,0.0f},
+            { 1.0f,-1.0f,-1.0f, 0.0f,-1.0f, 0.0f, 1.0f,0.0f},
+            { 1.0f,-1.0f, 1.0f, 0.0f,-1.0f, 0.0f, 1.0f,1.0f},
+            {-1.0f,-1.0f, 1.0f, 0.0f,-1.0f, 0.0f, 0.0f,1.0f},
+        };
+
+        std::vector<uint32_t> indices =
+        {
+           // front
+           0, 1, 2, 2, 3, 0,
+           // back
+           4, 5, 6, 6, 7, 4,
+           // right
+           8, 9,10,10,11, 8,
+           // left
+           12,13,14,14,15,12,
+           // top
+           16,17,18,18,19,16,
+           // bottom
+           20,21,22,22,23,20
+        };;
+
+        AddMesh(vertices.data(), static_cast<uint32_t>(vertices.size()),
+                 indices.data(), static_cast<uint32_t>(indices.size()),
+                 nullptr, 0);
+    }
 }
 
 MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
@@ -116,12 +173,12 @@ uint32_t MeshSystem::GetMeshCount() const
     return static_cast<uint32_t>(m_Meshes.size());
 }
 
-bool MeshSystem::IsValidMeshId(uint32_t meshId) const
+bool MeshSystem::IsValidMeshId(const uint32_t meshId) const
 {
     return meshId < m_Meshes.size();
 }
 
-MeshSystem::BoundingBox MeshSystem::GetMeshBounds(uint32_t meshId) const
+MeshSystem::BoundingBox MeshSystem::GetMeshBounds(const uint32_t meshId) const
 {
     BoundingBox bounds{};
 

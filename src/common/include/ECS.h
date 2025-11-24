@@ -204,7 +204,11 @@ public:
 
     template<typename T>
     const T* GetComponent(EntityId entity) const {
-        return GetComponentArray<T>()->Get(entity);
+        const auto componentArray = GetComponentArray<T>();
+        if (!componentArray) {
+            return nullptr;
+        }
+        return componentArray->Get(entity);
     }
 
     template<typename T>
