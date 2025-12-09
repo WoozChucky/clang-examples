@@ -5,6 +5,7 @@
 #include <assimp/postprocess.h>
 
 #include "lib.h"
+#include "MaterialLoader.h"
 
 namespace MeshLoader
 {
@@ -13,7 +14,9 @@ namespace MeshLoader
         aiMesh* mesh,
         const aiScene* scene,
         std::vector<MeshVertex>& outVertices,
-        std::vector<uint32_t>& outIndices)
+        std::vector<uint32_t>& outIndices,
+        std::vector<SubMesh>& outSubMeshes,
+        std::vector<MeshMaterial>& outMaterials)
     {
         const uint32_t baseVertex = static_cast<uint32_t>(outVertices.size());
 
@@ -56,6 +59,9 @@ namespace MeshLoader
             outVertices.push_back(vertex);
         }
 
+        SubMesh subMesh{};
+        subMesh.IndexStart = static_cast<uint32_t>(outIndices.size());
+
         // Extract indices
         for (size_t i = 0; i < mesh->mNumFaces; ++i)
         {
@@ -66,15 +72,50 @@ namespace MeshLoader
             }
         }
 
+        subMesh.IndexCount = static_cast<uint32_t>(outIndices.size()) - subMesh.IndexStart;
+
         // Log material info (for future material loading support)
-        if (mesh->mMaterialIndex >= 0)
-        {
+        if (mesh->mMaterialIndex) {
             aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
-            if (material)
-            {
-                SM_TRACE("MeshLoader: Mesh '%s' has material (future: load material here)", mesh->mName.C_Str());
+            if (material) {
+                aiString texPath;
+                for (size_t i = 0; i < material->mNumProperties; ++i) {
+                    auto prop = material->mProperties[i];
+                    SM_TRACE("Material property: key='%s', semantic=%d, index=%d type=%d length=%u",
+                             prop->mKey.C_Str(), prop->mSemantic, prop->mIndex,
+                             static_cast<int>(prop->mType), prop->mDataLength);
+                }
+                // The material might be a texture image, or a color
+                auto color = aiColor4D{};
+                if (AI_SUCCESS == material->Get(AI_MATKEY_COLOR_DIFFUSE, color)) {
+                    SM_TRACE("Material diffuse color: r=%.3f g=%.3f b=%.3f a=%.3f",
+                             color.r, color.g, color.b, color.a);
+                }
+
+                if (material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS) {
+                    std::string fullTexPath = std::string(texPath.C_Str());
+
+                    std::vector<uint32_t> pixels;
+                    uint32_t width = 0;
+                    uint32_t height = 0;
+                    std::string error;
+                    if (!MaterialLoader::LoadMaterialFromFile(fullTexPath.c_str(), pixels, width, height, error)) {
+                        SM_WARN("Failed to load material '%s': %s", fullTexPath.c_str(), error.c_str());
+                    } else {
+                        MeshMaterial meshMat{};
+                        meshMat.Width = width;
+                        meshMat.Height = height;
+                        meshMat.MaterialIndex = mesh->mMaterialIndex;
+                        subMesh.MaterialIndex = meshMat.MaterialIndex;
+                        meshMat.TextureData = std::move(pixels);
+                        outMaterials.push_back(std::move(meshMat));
+                        SM_TRACE("Loaded material from '%s' (%ux%u)", fullTexPath.c_str(), width, height);
+                    }
+                }
             }
         }
+
+        outSubMeshes.push_back(subMesh);
     }
 
     // Recursive helper to process scene node hierarchy
@@ -82,19 +123,19 @@ namespace MeshLoader
         aiNode* node,
         const aiScene* scene,
         std::vector<MeshVertex>& outVertices,
-        std::vector<uint32_t>& outIndices)
+        std::vector<uint32_t>& outIndices,
+        std::vector<SubMesh>& outSubMeshes,
+        std::vector<MeshMaterial>& outMaterials)
     {
         // Process all meshes in this node
-        for (size_t i = 0; i < node->mNumMeshes; ++i)
-        {
-            aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            ProcessMesh(mesh, scene, outVertices, outIndices);
+        for (size_t m = 0; m < node->mNumMeshes; ++m) {
+            aiMesh* mesh = scene->mMeshes[node->mMeshes[m]];
+            ProcessMesh(mesh, scene, outVertices, outIndices, outSubMeshes, outMaterials);
         }
 
         // Recursively process child nodes
-        for (size_t i = 0; i < node->mNumChildren; ++i)
-        {
-            ProcessNode(node->mChildren[i], scene, outVertices, outIndices);
+        for (size_t i = 0; i < node->mNumChildren; i++) {
+            ProcessNode(node->mChildren[i], scene, outVertices, outIndices, outSubMeshes, outMaterials);
         }
     }
 
@@ -102,6 +143,8 @@ namespace MeshLoader
         const char* filePath,
         std::vector<MeshVertex>& outVertices,
         std::vector<uint32_t>& outIndices,
+        std::vector<SubMesh>& outSubMeshes,
+        std::vector<MeshMaterial>& outMaterials,
         std::string& outError)
     {
         if (!filePath)
@@ -134,7 +177,7 @@ namespace MeshLoader
         }
 
         // Process the scene hierarchy
-        ProcessNode(scene->mRootNode, scene, outVertices, outIndices);
+        ProcessNode(scene->mRootNode, scene, outVertices, outIndices, outSubMeshes, outMaterials);
 
         // Validate results
         if (outVertices.empty() || outIndices.empty())

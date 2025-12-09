@@ -415,13 +415,6 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(MeshSystem::MissingMesh);
             }
 
-            auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(batchKey.materialId);
-            if (!materialResources.valid)
-            {
-                SM_WARN("MeshRenderPass: Invalid material ID %u", batchKey.materialId);
-                materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
-            }
-
             const uint32_t instanceCount = std::min(static_cast<uint32_t>(entities.size()), m_MaxInstances);
 
             // Build instance data
@@ -467,31 +460,80 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
             // Upload instance data
             commandList->writeBuffer(m_InstanceBuffer, instances.data(), instances.size() * sizeof(MeshInstanceCPU));
 
-            // Create binding set dynamically for this batch
-            nvrhi::BindingSetDesc bindingDesc;
-            bindingDesc.bindings = {
-                nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameCB),
-                nvrhi::BindingSetItem::ConstantBuffer(1, m_PerDrawCB),
-                nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
-                nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
-            };
-            nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
-            // Set state and draw ALL instances in one call
-            state.bindings = { bindingSet };
-            state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
-            state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
+            if (meshResources.subMeshes.size() > 0) {
 
-            commandList->setGraphicsState(state);
+                nvrhi::DrawArguments args{};
+                for (const auto &subMesh: meshResources.subMeshes)
+                {
+                    auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(subMesh.MaterialIndex);
+                    if (!materialResources.valid)
+                    {
+                        SM_WARN("MeshRenderPass: Invalid material ID %u", batchKey.materialId);
+                        materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
+                    }
 
-            nvrhi::DrawArguments args{};
-            args.vertexCount = meshResources.indexCount;
-            args.instanceCount = static_cast<uint32_t>(instances.size());
-            args.startIndexLocation = 0;
-            args.startVertexLocation = 0;
-            commandList->drawIndexed(args);
+                    // Create binding set dynamically for this batch
+                    nvrhi::BindingSetDesc bindingDesc;
+                    bindingDesc.bindings = {
+                        nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameCB),
+                        nvrhi::BindingSetItem::ConstantBuffer(1, m_PerDrawCB),
+                        nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
+                        nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
+                        nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer),
+                        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                    };
+                    nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
+
+                    // Set state and draw ALL instances in one call
+                    state.bindings = { bindingSet };
+                    state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
+                    state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
+
+                    commandList->setGraphicsState(state);
+
+                    args.vertexCount = subMesh.IndexCount;
+                    args.instanceCount = static_cast<uint32_t>(instances.size());
+                    args.startIndexLocation = subMesh.IndexStart;
+                    args.startVertexLocation = 0;
+                    commandList->drawIndexed(args);
+                }
+
+            } else {
+
+                auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(batchKey.materialId);
+                if (!materialResources.valid)
+                {
+                    SM_WARN("MeshRenderPass: Invalid material ID %u", batchKey.materialId);
+                    materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
+                }
+
+                // Create binding set dynamically for this batch
+                nvrhi::BindingSetDesc bindingDesc;
+                bindingDesc.bindings = {
+                    nvrhi::BindingSetItem::ConstantBuffer(0, m_PerFrameCB),
+                    nvrhi::BindingSetItem::ConstantBuffer(1, m_PerDrawCB),
+                    nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
+                    nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer),
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                };
+                nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
+
+                // Set state and draw ALL instances in one call
+                state.bindings = { bindingSet };
+                state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
+                state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
+
+                commandList->setGraphicsState(state);
+
+                nvrhi::DrawArguments args{};
+                args.vertexCount = meshResources.indexCount;
+                args.instanceCount = static_cast<uint32_t>(instances.size());
+                args.startIndexLocation = 0;
+                args.startVertexLocation = 0;
+                commandList->drawIndexed(args);
+            }
         }
     }
 

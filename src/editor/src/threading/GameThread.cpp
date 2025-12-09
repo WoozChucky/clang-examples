@@ -447,7 +447,7 @@ void GameThread::WorkerThreadFunc()
         const aiScene* scene = importer.ReadFile(job.objPath,
             aiProcess_Triangulate |
             aiProcess_GenSmoothNormals |
-            aiProcess_FlipUVs |
+            // aiProcess_FlipUVs |
             aiProcess_JoinIdenticalVertices);
 
         if (!scene) {

@@ -79,6 +79,7 @@ MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
     entry.indexCount = indexCount;
     if (subMeshes && subMeshCount > 0)
     {
+        // A submesh is just a pair of (indexStart, indexCount) into the index buffer
         entry.subMeshes.assign(subMeshes, subMeshes + subMeshCount);
     }
 
@@ -148,6 +149,27 @@ MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
     return MeshHandle{ meshId };
 }
 
+void MeshSystem::AssociateMeshMaterial(MeshHandle meshHandle, MaterialHandle materialHandle, uint32_t materialIndex) {
+
+    if (meshHandle.Index >= m_Meshes.size())
+    {
+        SM_WARN("MeshSystem::AssociateMeshMaterial: Invalid mesh ID %u", meshHandle.Index);
+        return;
+    }
+
+    MeshEntry& entry = m_Meshes[meshHandle.Index];
+
+    for (auto &subMesh: entry.subMeshes) {
+        if (subMesh.MaterialIndex == materialIndex) {
+            subMesh.MaterialIndex = materialHandle.Index;
+            SM_TRACE("MeshSystem::AssociateMeshMaterial: Associated material %u with mesh %u sub-mesh %u",
+                     materialHandle.Index, meshHandle.Index, materialIndex);
+            return;
+        }
+    }
+
+}
+
 MeshSystem::MeshResources MeshSystem::GetMeshResources(uint32_t meshId) const
 {
     MeshResources resources{};
@@ -163,6 +185,7 @@ MeshSystem::MeshResources MeshSystem::GetMeshResources(uint32_t meshId) const
     resources.indexBuffer = entry.indexBuffer;
     resources.vertexCount = entry.vertexCount;
     resources.indexCount = entry.indexCount;
+    resources.subMeshes = entry.subMeshes;
     resources.valid = true;
 
     return resources;

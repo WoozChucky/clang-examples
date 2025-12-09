@@ -1238,19 +1238,31 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                     // File selected, load it using MeshLoader
                     std::vector<MeshVertex> vertices;
                     std::vector<uint32_t> indices;
+                    std::vector<MeshLoader::MeshMaterial> materials;
+                    std::vector<SubMesh> subMeshes;
                     std::string error;
 
-                    if (MeshLoader::LoadMeshFromFile(filePath, vertices, indices, error)) {
+                    if (MeshLoader::LoadMeshFromFile(filePath, vertices, indices, subMeshes, materials, error)) {
+                        bool hasSubMeshes = !subMeshes.empty();
                         // Successfully loaded, upload to GPU via MeshSystem
-                        MeshHandle handle = m_MeshSystem->AddMesh(
+                        MeshHandle meshHandle = m_MeshSystem->AddMesh(
                             vertices.data(), static_cast<uint32_t>(vertices.size()),
-                            indices.data(), static_cast<uint32_t>(indices.size())
+                            indices.data(), static_cast<uint32_t>(indices.size()),
+                            hasSubMeshes ? subMeshes.data() : nullptr,
+                            hasSubMeshes ? static_cast<uint32_t>(subMeshes.size()) : 0
                         );
 
-                        if (handle.Index != UINT32_MAX) {
+                        for (const auto& mat : materials) {
+                            MaterialHandle materialHandle = m_MaterialSystem->AddMaterial(
+                                mat.TextureData.data(), mat.Width, mat.Height
+                            );
+                            m_MeshSystem->AssociateMeshMaterial(meshHandle, materialHandle, mat.MaterialIndex);
+                        }
+
+                        if (meshHandle.Index != UINT32_MAX) {
                             snprintf(statusMessage, sizeof(statusMessage),
                                     "Success! Loaded mesh %u (%zu vertices, %zu indices)",
-                                    handle.Index, vertices.size(), indices.size());
+                                    meshHandle.Index, vertices.size(), indices.size());
                             statusColor = ImVec4(0.4f, 1.0f, 0.4f, 1.0f); // Green
                         } else {
                             snprintf(statusMessage, sizeof(statusMessage),

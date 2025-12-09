@@ -37,6 +37,7 @@ struct MeshComponent {
 struct SubMesh {
     uint32_t IndexStart = 0;
     uint32_t IndexCount = 0;
+    uint32_t MaterialIndex = 0;
 };
 
 struct MaterialComponent {

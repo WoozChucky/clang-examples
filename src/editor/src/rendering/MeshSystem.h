@@ -23,10 +23,13 @@ public:
                        const uint32_t* indices, uint32_t indexCount,
                        SubMesh* subMeshes = nullptr, uint32_t subMeshCount = 0);
 
+    void AssociateMeshMaterial(MeshHandle meshHandle, MaterialHandle materialHandle, uint32_t materialIndex);
+
     // Query GPU resources by mesh ID
     struct MeshResources {
         nvrhi::BufferHandle vertexBuffer;
         nvrhi::BufferHandle indexBuffer;
+        std::vector<SubMesh> subMeshes;
         uint32_t vertexCount = 0;
         uint32_t indexCount = 0;
         bool valid = false;
