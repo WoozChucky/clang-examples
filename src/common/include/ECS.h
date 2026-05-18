@@ -542,23 +542,24 @@ world.AddComponent(player, MeshComponent{1, 0, true});
 world.AddComponent(enemy, TransformComponent{{10, 0, 0}, {0, 0, 0}, {1, 1, 1}});
 world.AddComponent(enemy, MeshComponent{2, 1, true});
 
-// Query single component
-if (auto* transform = world.GetComponent<TransformComponent>(player)) {
-    transform->Position.x += 1.0f; // Move player
+// Read a single component (const — snapshot-safe)
+if (const auto* transform = world.GetComponent<TransformComponent>(player)) {
+    float x = transform->Position.x; // read only
 }
 
-// Query multiple components at once (C++17 structured bindings)
+// Mutate a single component via Modify (COW-safe, GameThread only)
+world.Modify<TransformComponent>(player, [](TransformComponent& t) {
+    t.Position.x += 1.0f; // Move player
+});
+
+world.Modify<MeshComponent>(player, [](MeshComponent& m) {
+    m.Visible = false; // Hide mesh
+});
+
+// Read multiple components at once (C++17 structured bindings)
 if (auto [transform, mesh] = world.GetComponents<TransformComponent, MeshComponent>(player); transform && mesh) {
-    transform->Position.x += 1.0f; // Move player
-    mesh->Visible = false; // Hide mesh
-}
-
-// Alternative: unpack to named variables
-auto [playerTransform, playerMesh] = world.GetComponents<TransformComponent, MeshComponent>(player);
-if (playerTransform && playerMesh) {
-    // Both components exist
-    playerTransform->Position.y += 5.0f;
-    playerMesh->MaterialId = 2;
+    float x = transform->Position.x; // read only
+    bool vis = mesh->Visible;        // read only
 }
 
 // Check if entity has component
@@ -571,27 +572,30 @@ if (world.HasComponents<TransformComponent, MeshComponent>(player)) {
     // Entity has both components
 }
 
-// Iterate all entities with specific components (simple system)
+// Iterate all entities with specific components (simple system, read-only)
 for (EntityId entity : world.View<TransformComponent, MeshComponent>()) {
-    auto* transform = world.GetComponent<TransformComponent>(entity);
-    auto* mesh = world.GetComponent<MeshComponent>(entity);
-    // Render mesh at transform position
+    const auto* transform = world.GetComponent<TransformComponent>(entity);
+    const auto* mesh = world.GetComponent<MeshComponent>(entity);
+    // Render mesh at transform position (read only)
 }
 
-// Or use structured bindings in the loop
-for (EntityId entity : world.View<TransformComponent, MeshComponent>()) {
-    auto [transform, mesh] = world.GetComponents<TransformComponent, MeshComponent>(entity);
-    if (transform && mesh) {
-        // Render mesh at transform position
+// Bulk-mutate all transforms in a system (COW-safe, one clone per tick)
+{
+    ComponentArray<TransformComponent>& transforms = world.MutateArray<TransformComponent>();
+    for (size_t i = 0; i < transforms.Size(); ++i) {
+        TransformComponent& transform = transforms.GetComponents()[i];
+        EntityId entity = transforms.GetEntity(i);
+        transform.Position.y += 0.1f; // write
     }
 }
 
-// Advanced: Direct component array iteration (cache-friendly for systems)
-auto* transforms = world.GetComponentArray<TransformComponent>();
-for (size_t i = 0; i < transforms->Size(); ++i) {
-    TransformComponent& transform = transforms->GetComponents()[i];
-    EntityId entity = transforms->GetEntity(i);
-    // Process transform
+// Read-only dense iteration via GetArray (snapshot-safe)
+if (const auto* transforms = world.GetArray<TransformComponent>()) {
+    for (size_t i = 0; i < transforms->Size(); ++i) {
+        const TransformComponent& transform = transforms->GetComponents()[i];
+        EntityId entity = transforms->GetEntity(i);
+        // read transform
+    }
 }
 
 // Destroy entity (removes all components automatically)
