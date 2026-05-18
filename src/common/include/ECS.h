@@ -531,12 +531,24 @@ public:
         m_ComponentStore.Cleanup();
     }
 
-    [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot() const {
-        auto snapshot = std::make_shared<ECS>();
-        snapshot->m_EntityStore = m_EntityStore;     // Copy entity IDs
-        snapshot->m_ComponentStore = m_ComponentStore; // Copy component arrays
-        return snapshot;
-	}
+    /**
+     * @brief Publishes an immutable snapshot of the world for cross-thread reads.
+     *
+     * Performs a shallow copy of the component-array map (refcount bumps), a deep
+     * copy of EntityStore, and resets the master's per-tick dirty set. After
+     * return, the next mutation on any component type clones-on-write to keep
+     * the returned snapshot isolated.
+     *
+     * @threading GameThread only (single-writer rule).
+     * @snapshot The returned ECS exposes only const accessors.
+     */
+    [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot() {
+        auto snap = std::make_shared<ECS>();
+        snap->m_EntityStore = m_EntityStore;                     // value copy
+        snap->m_ComponentStore.CopyArraysFrom(m_ComponentStore); // shallow shared_ptr copy
+        m_ComponentStore.ClearDirty();
+        return snap;
+    }
 
 private:
     EntityStore m_EntityStore;

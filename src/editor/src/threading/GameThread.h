@@ -26,7 +26,7 @@ private:
     bool Running() const;
     // Main loop helpers
     void SimulateStep(double dt);
-    void PublishSnapshot(const GameState& state, const FrameTimeStats& frameStats);
+    void PublishSnapshot(GameState& state, const FrameTimeStats& frameStats);
 
     // Background job system (minimal): single worker for model loading
     struct ModelLoadJob

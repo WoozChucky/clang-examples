@@ -369,7 +369,7 @@ void GameThread::SimulateStep(const double dt) {
 	if (m_simX < -1.0f) { m_simX = -1.0f; m_simVX = std::fabs(m_simVX); }
 }
 
-void GameThread::PublishSnapshot(const GameState& state, const FrameTimeStats& frameStats) {
+void GameThread::PublishSnapshot(GameState& state, const FrameTimeStats& frameStats) {
 	ZoneScopedN("PublishSnapshot");
 	const uint64_t tick = m_TickCounter++;
 

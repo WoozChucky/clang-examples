@@ -197,6 +197,89 @@ static void T04_destroy_entity_only_clones_owning_arrays()
     EXPECT(!world.HasComponent<TransformComponent>(e));
 }
 
+static void T05_snapshot_isolates_reads_from_writes()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1.0f, 2.0f, 3.0f}, {}, {1, 1, 1}});
+
+    auto snap = world.CreateSnapshot();
+    EXPECT_EQ(snap->GetComponent<TransformComponent>(e)->Position.x, 1.0f);
+
+    world.Modify<TransformComponent>(e, [](auto& t) { t.Position.x = 999.0f; });
+
+    // Snapshot still sees the original value.
+    EXPECT_EQ(snap->GetComponent<TransformComponent>(e)->Position.x, 1.0f);
+    // Master sees the new value.
+    EXPECT_EQ(world.GetComponent<TransformComponent>(e)->Position.x, 999.0f);
+}
+
+static void T06_snapshot_unchanged_arrays_share_storage()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1, 0, 0}, {}, {1, 1, 1}});
+    world.AddComponent(e, MeshComponent{1, true});
+
+    auto snap = world.CreateSnapshot();
+
+    const auto* snapMesh   = snap->GetArray<MeshComponent>();
+    const auto* worldMesh  = world.GetArray<MeshComponent>();
+    EXPECT_EQ(static_cast<const void*>(snapMesh), static_cast<const void*>(worldMesh));
+
+    // Touch Transform only.
+    world.Modify<TransformComponent>(e, [](auto& t) { t.Position.x = 7.0f; });
+
+    // Mesh array still shared (no clone).
+    const auto* worldMeshAfter = world.GetArray<MeshComponent>();
+    EXPECT_EQ(static_cast<const void*>(snapMesh), static_cast<const void*>(worldMeshAfter));
+
+    // Transform array now DIFFERENT (it was cloned).
+    const auto* snapTransform  = snap->GetArray<TransformComponent>();
+    const auto* worldTransform = world.GetArray<TransformComponent>();
+    EXPECT_NE(static_cast<const void*>(snapTransform), static_cast<const void*>(worldTransform));
+}
+
+static void T09_create_snapshot_clears_dirty()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1, 0, 0}, {}, {1, 1, 1}});
+
+    auto snap1 = world.CreateSnapshot();
+    const auto* snap1Arr = snap1->GetArray<TransformComponent>();
+
+    // After snapshot, dirty cleared — next mutation must clone again.
+    world.Modify<TransformComponent>(e, [](auto& t) { t.Position.x = 2.0f; });
+
+    const auto* worldArrAfter = world.GetArray<TransformComponent>();
+    EXPECT_NE(static_cast<const void*>(snap1Arr), static_cast<const void*>(worldArrAfter));
+    EXPECT_EQ(snap1->GetComponent<TransformComponent>(e)->Position.x, 1.0f);
+    EXPECT_EQ(world.GetComponent<TransformComponent>(e)->Position.x, 2.0f);
+}
+
+static void T10_multi_snapshot_lifetime()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1, 0, 0}, {}, {1, 1, 1}});
+
+    auto snap1 = world.CreateSnapshot();
+    world.Modify<TransformComponent>(e, [](auto& t) { t.Position.x = 2.0f; });
+
+    auto snap2 = world.CreateSnapshot();
+    world.Modify<TransformComponent>(e, [](auto& t) { t.Position.x = 3.0f; });
+
+    EXPECT_EQ(snap1->GetComponent<TransformComponent>(e)->Position.x, 1.0f);
+    EXPECT_EQ(snap2->GetComponent<TransformComponent>(e)->Position.x, 2.0f);
+    EXPECT_EQ(world.GetComponent<TransformComponent>(e)->Position.x, 3.0f);
+
+    snap1.reset();  // drop the oldest
+
+    // snap2 still readable, unchanged.
+    EXPECT_EQ(snap2->GetComponent<TransformComponent>(e)->Position.x, 2.0f);
+}
+
 int main()
 {
     T00_smoke();
@@ -210,6 +293,10 @@ int main()
     T_mutate_array_bulk_write();
     T03_destroy_entity_clears_all_components();
     T04_destroy_entity_only_clones_owning_arrays();
+    T05_snapshot_isolates_reads_from_writes();
+    T06_snapshot_unchanged_arrays_share_storage();
+    T09_create_snapshot_clears_dirty();
+    T10_multi_snapshot_lifetime();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);
