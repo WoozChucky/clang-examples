@@ -1,6 +1,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <thread>
 
 #include "lib.h"
 #include "ECS.h"
@@ -313,6 +314,61 @@ static void T_removecomponent_after_snapshot_clones()
     EXPECT(!world.HasComponent<TransformComponent>(e));
 }
 
+static void T11_destroyed_entity_id_reuse()
+{
+    ECS world;
+    const auto e1 = world.CreateEntity();
+    world.AddComponent(e1, TransformComponent{{1, 0, 0}, {}, {1, 1, 1}});
+
+    world.DestroyEntity(e1);
+
+    const auto e2 = world.CreateEntity();
+    EXPECT(!world.HasComponent<TransformComponent>(e2));
+
+    auto snap = world.CreateSnapshot();
+    EXPECT(!snap->HasComponent<TransformComponent>(e2));
+}
+
+static void T12_concurrent_smoke()
+{
+    ECS world;
+    std::vector<EntityId> ids;
+    ids.reserve(1000);
+    for (int i = 0; i < 1000; ++i) {
+        const auto e = world.CreateEntity();
+        world.AddComponent(e, TransformComponent{{(float)i, 0, 0}, {}, {1, 1, 1}});
+        ids.push_back(e);
+    }
+
+    auto snap = world.CreateSnapshot();
+
+    std::atomic<bool> stop{false};
+    std::thread reader([&]{
+        while (!stop.load(std::memory_order_relaxed)) {
+            for (const auto e : ids) {
+                const auto* t = snap->GetComponent<TransformComponent>(e);
+                if (!t) { ++g_Failures; break; }
+            }
+        }
+    });
+
+    for (int iter = 0; iter < 1000; ++iter) {
+        for (const auto e : ids) {
+            world.Modify<TransformComponent>(e, [&](auto& t) { t.Position.x += 0.1f; });
+        }
+    }
+
+    stop.store(true, std::memory_order_relaxed);
+    reader.join();
+
+    // Snapshot positions must be the initial values, untouched by master writes.
+    for (size_t i = 0; i < ids.size(); ++i) {
+        const auto* t = snap->GetComponent<TransformComponent>(ids[i]);
+        EXPECT(t != nullptr);
+        if (t) EXPECT_EQ(t->Position.x, (float)i);
+    }
+}
+
 int main()
 {
     T00_smoke();
@@ -332,6 +388,8 @@ int main()
     T10_multi_snapshot_lifetime();
     T_addcomponent_after_snapshot_clones();
     T_removecomponent_after_snapshot_clones();
+    T11_destroyed_entity_id_reuse();
+    T12_concurrent_smoke();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);
