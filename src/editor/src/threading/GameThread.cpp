@@ -225,36 +225,32 @@ void GameThread::RunLoop() {
                 while (m_AppContext->RGCommandRing.Pop(response)) {
 			        switch (response.Type) {
 			            case RendererResponseType::MeshUpload: {
-                            if (response.Mesh.Valid) {
-                                if (!gameState.World.IsValidEntity(response.TicketId)) continue;
+                            if (!response.Mesh.Valid) break;
+                            if (!gameState.World.IsValidEntity(response.TicketId)) continue;
 
-                                auto meshComponent = gameState.World.GetComponent<MeshComponent>(response.TicketId);
-                                if (!meshComponent) {
-                                    MeshComponent mesh{};
-                                    gameState.World.AddComponent(response.TicketId, mesh);
-                                    meshComponent = gameState.World.GetComponent<MeshComponent>(response.TicketId);
-                                }
-
-                                meshComponent->MeshId = response.Mesh.Handle.Index;
-                                meshComponent->Visible = true;
-
-                                SM_TRACE("GameThread: MeshUpload complete for entity %llu, meshId=%u",
-                                         response.TicketId, response.Mesh.Handle.Index);
+                            if (!gameState.World.HasComponent<MeshComponent>(response.TicketId)) {
+                                gameState.World.AddComponent(response.TicketId, MeshComponent{});
                             }
+                            gameState.World.Modify<MeshComponent>(response.TicketId, [&](auto& m) {
+                                m.MeshId  = response.Mesh.Handle.Index;
+                                m.Visible = true;
+                            });
+
+                            SM_TRACE("GameThread: MeshUpload complete for entity %llu, meshId=%u",
+                                     response.TicketId, response.Mesh.Handle.Index);
                             break;
                         }
                         case RendererResponseType::MaterialUpload: {
-                            if (response.Material.Valid) {
-                                if (!gameState.World.IsValidEntity(response.TicketId)) continue;
+                            if (!response.Material.Valid) break;
+                            if (!gameState.World.IsValidEntity(response.TicketId)) continue;
 
-                                auto materialComponent = gameState.World.GetComponent<MaterialComponent>(response.TicketId);
-                                if (materialComponent) {
-                                    materialComponent->MaterialId = response.Material.Handle.Index;
-                                    materialComponent->Flags |= 1u; // Set "use texture" flag
-                                    SM_TRACE("GameThread: MaterialUpload complete for entity %llu, materialId=%u",
-                                             (unsigned long long)response.TicketId, response.Material.Handle.Index);
-                                }
-                            }
+                            gameState.World.Modify<MaterialComponent>(response.TicketId, [&](auto& m) {
+                                m.MaterialId = response.Material.Handle.Index;
+                                m.Flags     |= 1u;
+                            });
+
+                            SM_TRACE("GameThread: MaterialUpload complete for entity %llu, materialId=%u",
+                                     (unsigned long long)response.TicketId, response.Material.Handle.Index);
                             break;
                         }
                         default: {
