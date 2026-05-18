@@ -55,10 +55,60 @@ static void T01_clone_produces_independent_copy()
     EXPECT_EQ(cloned->Get(1)->Position.x, 1.0f);
 }
 
+static void T08_mutate_array_clones_once_per_tick()
+{
+    ComponentStore store;
+    auto* preStorage = static_cast<const void*>(store.GetArray<TransformComponent>());
+    // Cold lookup: returns nullptr because nothing registered yet.
+    EXPECT_EQ(preStorage, nullptr);
+
+    auto& a1 = store.MutateArray<TransformComponent>();
+    a1.Add(1, TransformComponent{{1, 2, 3}, {}, {1, 1, 1}});
+    auto* addrAfterFirst = static_cast<const void*>(&a1);
+
+    auto& a2 = store.MutateArray<TransformComponent>();
+    // Same tick: returns the same already-cloned array. No additional clone.
+    EXPECT_EQ(static_cast<const void*>(&a2), addrAfterFirst);
+
+    // Reset dirty set (simulates CreateSnapshot publishing).
+    store.ClearDirty();
+
+    auto& a3 = store.MutateArray<TransformComponent>();
+    // After ClearDirty, next mutation triggers a fresh clone — address may differ.
+    // What we definitely require: a3 still contains entity 1 with the same value.
+    EXPECT(a3.Has(1));
+    EXPECT_EQ(a3.Get(1)->Position.x, 1.0f);
+}
+
+static void T_get_array_const_returns_nullptr_for_unregistered()
+{
+    ComponentStore store;
+    const auto* arr = store.GetArray<MeshComponent>();
+    EXPECT_EQ(arr, nullptr);
+}
+
+static void T_copy_arrays_from_shares_storage()
+{
+    ComponentStore master;
+    master.MutateArray<TransformComponent>().Add(1, TransformComponent{{7,0,0}, {}, {1,1,1}});
+
+    ComponentStore snap;
+    snap.CopyArraysFrom(master);
+
+    // Reads through snap see the same data.
+    const auto* arr = snap.GetArray<TransformComponent>();
+    EXPECT(arr != nullptr);
+    EXPECT(arr->Has(1));
+    EXPECT_EQ(arr->Get(1)->Position.x, 7.0f);
+}
+
 int main()
 {
     T00_smoke();
     T01_clone_produces_independent_copy();
+    T08_mutate_array_clones_once_per_tick();
+    T_get_array_const_returns_nullptr_for_unregistered();
+    T_copy_arrays_from_shares_storage();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

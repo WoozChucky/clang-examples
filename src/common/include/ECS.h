@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
@@ -8,6 +9,8 @@
 #include <typeindex>
 #include <string>
 #include <algorithm>
+#include <thread>
+#include <type_traits>
 
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -261,8 +264,78 @@ public:
         m_ComponentArrays.clear();
     }
 
+    /**
+     * @brief Returns a mutable reference to the component array for type T,
+     *        cloning the array on first write per tick to preserve any in-flight
+     *        snapshot.
+     * @tparam T Component type. Must be CopyConstructible.
+     * @return Reference to the master's array for T. Valid until the next
+     *         CreateSnapshot or RemoveAllComponents call.
+     * @threading GameThread only.
+     * @cow First call per tick clones the array; subsequent calls return the
+     *      same (already-cloned) array.
+     */
+    template<typename T>
+    ComponentArray<T>& MutateArray() {
+        AssertOwnerThread();
+        const auto typeIndex = std::type_index(typeid(T));
+        auto& slot = m_ComponentArrays[typeIndex];
+        if (!slot) {
+            slot = std::make_shared<ComponentArray<T>>();
+        }
+        if (m_DirtyThisTick.insert(typeIndex).second) {
+            // First mutation since last snapshot — clone.
+            slot = std::make_shared<ComponentArray<T>>(
+                       static_cast<const ComponentArray<T>&>(*slot));
+        }
+        return static_cast<ComponentArray<T>&>(*slot);
+    }
+
+    /**
+     * @brief Returns a const pointer to the array for T, or nullptr if no
+     *        component of T has been registered yet.
+     * @snapshot Safe to call through a snapshot reference; the returned array
+     *           is immutable for the snapshot's lifetime.
+     */
+    template<typename T>
+    const ComponentArray<T>* GetArray() const {
+        const auto typeIndex = std::type_index(typeid(T));
+        const auto it = m_ComponentArrays.find(typeIndex);
+        if (it == m_ComponentArrays.end()) {
+            return nullptr;
+        }
+        return static_cast<const ComponentArray<T>*>(it->second.get());
+    }
+
+    /**
+     * @brief Copies the array map (shared_ptr refcount bumps) from `other`.
+     *        Used by CreateSnapshot. The destination's dirty set is left empty.
+     */
+    void CopyArraysFrom(const ComponentStore& other) {
+        m_ComponentArrays = other.m_ComponentArrays;
+    }
+
+    /**
+     * @brief Resets the master's per-tick dirty set after a snapshot is published.
+     */
+    void ClearDirty() {
+        AssertOwnerThread();
+        m_DirtyThisTick.clear();
+    }
+
 private:
+#ifndef NDEBUG
+    std::thread::id m_OwnerThread = std::this_thread::get_id();
+    void AssertOwnerThread() const {
+        assert(std::this_thread::get_id() == m_OwnerThread &&
+               "ECS mutated from non-owner thread");
+    }
+#else
+    void AssertOwnerThread() const {}
+#endif
+
     std::unordered_map<std::type_index, std::shared_ptr<IComponentArray>> m_ComponentArrays;
+    std::unordered_set<std::type_index> m_DirtyThisTick;
 };
 
 // #############################################################################
