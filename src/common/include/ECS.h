@@ -89,6 +89,13 @@ public:
     virtual void Remove(EntityId entity) = 0;
     [[nodiscard]] virtual bool Has(EntityId entity) const = 0;
     [[nodiscard]] virtual size_t Size() const = 0;
+
+    /**
+     * @brief Deep-copies this array. Used by type-erased paths that cannot
+     *        invoke MutateArray<T> (e.g. ComponentStore::RemoveAllComponents).
+     * @return shared_ptr owning a fresh copy of the array contents.
+     */
+    [[nodiscard]] virtual std::shared_ptr<IComponentArray> Clone() const = 0;
 };
 
 template<typename T>
@@ -153,6 +160,10 @@ public:
 
     [[nodiscard]] size_t Size() const override {
         return m_Components.size();
+    }
+
+    [[nodiscard]] std::shared_ptr<IComponentArray> Clone() const override {
+        return std::make_shared<ComponentArray<T>>(*this);
     }
 
     // Iterator access for systems

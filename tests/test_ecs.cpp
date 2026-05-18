@@ -36,9 +36,29 @@ static void T00_smoke()
     EXPECT_EQ(1 + 1, 2);
 }
 
+static void T01_clone_produces_independent_copy()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(1, TransformComponent{{1.0f, 2.0f, 3.0f}, {}, {1, 1, 1}});
+    arr.Add(2, TransformComponent{{4.0f, 5.0f, 6.0f}, {}, {1, 1, 1}});
+
+    std::shared_ptr<IComponentArray> clonedBase = arr.Clone();
+    auto* cloned = static_cast<ComponentArray<TransformComponent>*>(clonedBase.get());
+
+    EXPECT_EQ(cloned->Size(), arr.Size());
+    EXPECT(cloned->Has(1));
+    EXPECT(cloned->Has(2));
+    EXPECT_EQ(cloned->Get(1)->Position.x, 1.0f);
+
+    // Mutate the original; clone must not change.
+    arr.Get(1)->Position.x = 999.0f;
+    EXPECT_EQ(cloned->Get(1)->Position.x, 1.0f);
+}
+
 int main()
 {
     T00_smoke();
+    T01_clone_produces_independent_copy();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);
