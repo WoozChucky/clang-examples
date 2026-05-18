@@ -2,57 +2,73 @@
   "version": 8,
   "configurePresets": [
     {
-      "name": "clang-win64-vs2026-community",
-      "displayName": "Clang 20 - VS2026 Community",
-      "description": "",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-        "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe",
-        "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang++.exe",
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "clang-win64-vs2026-enterprise",
-      "displayName": "Clang 20 - VS2026 Enterprise",
-      "description": "",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-        "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe",
-        "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang++.exe",
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "msvc-win64-vs2026-community",
-      "displayName": "MSVC 20 - VS2026 Community",
-      "description": "",
+      "name": "_vs2026-base",
+      "hidden": true,
       "generator": "Visual Studio 18 2026",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/out/build/${presetName}",
       "cacheVariables": {
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-        "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
-        "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_SYSTEM_VERSION": "10.0.26100.0",
-        "CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION": "10.0.26100.0",
-        "WindowsSdkDir": "C:\\Program Files (x86)\\Windows Kits\\10"
+        "CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION": "10.0.26100.0"
+      }
+    },
+    {
+      "name": "msvc-win64-vs2026-community",
+      "displayName": "MSVC - VS2026 Community",
+      "inherits": "_vs2026-base",
+      "cacheVariables": {
+        "CMAKE_GENERATOR_INSTANCE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community"
       }
     },
     {
       "name": "msvc-win64-vs2026-enterprise",
-      "displayName": "MSVC 20 - VS2026 Enterprise",
-      "description": "",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "displayName": "MSVC - VS2026 Enterprise",
+      "inherits": "_vs2026-base",
       "cacheVariables": {
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-        "CMAKE_C_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
-        "CMAKE_CXX_COMPILER": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_GENERATOR_INSTANCE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise"
       }
+    },
+    {
+      "name": "clang-win64-vs2026-community",
+      "displayName": "Clang (ClangCL) - VS2026 Community",
+      "inherits": "_vs2026-base",
+      "toolset": "ClangCL",
+      "cacheVariables": {
+        "CMAKE_GENERATOR_INSTANCE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community"
+      }
+    },
+    {
+      "name": "clang-win64-vs2026-enterprise",
+      "displayName": "Clang (ClangCL) - VS2026 Enterprise",
+      "inherits": "_vs2026-base",
+      "toolset": "ClangCL",
+      "cacheVariables": {
+        "CMAKE_GENERATOR_INSTANCE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "msvc-win64-vs2026-community",
+      "configurePreset": "msvc-win64-vs2026-community",
+      "configuration": "Debug"
+    },
+    {
+      "name": "msvc-win64-vs2026-enterprise",
+      "configurePreset": "msvc-win64-vs2026-enterprise",
+      "configuration": "Debug"
+    },
+    {
+      "name": "clang-win64-vs2026-community",
+      "configurePreset": "clang-win64-vs2026-community",
+      "configuration": "Debug"
+    },
+    {
+      "name": "clang-win64-vs2026-enterprise",
+      "configurePreset": "clang-win64-vs2026-enterprise",
+      "configuration": "Debug"
     }
   ]
 }
