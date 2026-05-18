@@ -118,22 +118,21 @@ void GameUpdate(GameState* state) {
 	        break;
 	    }
         case GameStateId::MainMenu: {
-            auto [transform, text] = g_GameState->World.GetComponents<TransformComponent, TextComponent>(textEntityId);
-            if (transform) {
-                transform->Rotation.z += glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime);
-            }
+            g_GameState->World.Modify<TransformComponent>(textEntityId, [&](auto& transform) {
+                transform.Rotation.z += glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime);
+            });
 
-	        if (text) {
+            g_GameState->World.Modify<TextComponent>(textEntityId, [&](auto& text) {
                 const auto time = static_cast<float>(g_GameState->DeltaTime);
-	            const float red = (sinf(time) + 1.0f) / 2.0f;
-	            const float green = (cosf(g_GameState->GameTime) + 1.0f) / 2.0f;
-	            const float blue = 1.0f - red;
-                text->Color = glm::vec4(red, green, blue, 1.0f);
-            }
+                const float red = (sinf(time) + 1.0f) / 2.0f;
+                const float green = (cosf(g_GameState->GameTime) + 1.0f) / 2.0f;
+                const float blue = 1.0f - red;
+                text.Color = glm::vec4(red, green, blue, 1.0f);
+            });
 
             if (g_DirectionalLightEntity != INVALID_ENTITY) {
-                auto* l = g_GameState->World.GetComponent<LightningComponent>(g_DirectionalLightEntity);
-                if (l && l->Type == LightningType::Directional) {
+                g_GameState->World.Modify<LightningComponent>(g_DirectionalLightEntity, [&](auto& l) {
+                    if (l.Type != LightningType::Directional) return;
 
                     const float cycle = glm::max(g_DayNightCycleSeconds, 0.001f);
                     const double gameTime = g_GameState->GameTime; // seconds
@@ -151,7 +150,7 @@ void GameUpdate(GameState* state) {
                     const glm::vec3 dir = glm::normalize(glm::vec3(xz, -1.0f, xz));
                     */
 
-                    l->Direction = glm::vec4(dir, 0.0f);
+                    l.Direction = glm::vec4(dir, 0.0f);
 
                     // Compute sun color over the cycle based on elevation and horizon warmness
                     // Elevation factor: 0 (night) .. 1 (midday). Our light points down at midday (dir.y ~ -1)
@@ -172,8 +171,8 @@ void GameUpdate(GameState* state) {
                     const float brightness = 0.75f + 0.75f * elevation; // [0.25 .. 1.0]
                     const glm::vec3 finalColor = baseColor * brightness;
 
-                    l->Color = glm::vec4(finalColor, 1.0f);
-                }
+                    l.Color = glm::vec4(finalColor, 1.0f);
+                });
             }
 
             break;
