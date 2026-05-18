@@ -213,11 +213,6 @@ public:
     }
 
     template<typename T>
-    T* GetComponent(EntityId entity) {
-        return GetComponentArray<T>()->Get(entity);
-    }
-
-    template<typename T>
     const T* GetComponent(EntityId entity) const {
         const auto componentArray = GetComponentArray<T>();
         if (!componentArray) {
@@ -230,17 +225,6 @@ public:
     [[nodiscard]] bool HasComponent(EntityId entity) const {
         auto array = GetComponentArray<T>();
         return array && array->Has(entity);
-    }
-
-    template<typename T>
-    ComponentArray<T>* GetComponentArray() {
-        const auto typeIndex = std::type_index(typeid(T));
-
-        if (!m_ComponentArrays.contains(typeIndex)) {
-            RegisterComponent<T>(); // Auto-register on first use
-        }
-
-        return static_cast<ComponentArray<T>*>(m_ComponentArrays[typeIndex].get());
     }
 
     template<typename T>
@@ -430,11 +414,6 @@ public:
     }
 
     template<typename T>
-    T* GetComponent(const EntityId entity) {
-        return m_ComponentStore.GetComponent<T>(entity);
-    }
-
-    template<typename T>
     const T* GetComponent(const EntityId entity) const {
         return m_ComponentStore.GetComponent<T>(entity);
     }
@@ -450,25 +429,14 @@ public:
         return (HasComponent<Components>(entity) && ...);
     }
 
-    // Get multiple components at once (returns tuple of pointers)
+    // Get multiple components at once (returns tuple of const pointers)
     // Usage: if (auto [transform, mesh] = world.GetComponents<TransformComponent, MeshComponent>(entity); transform && mesh) { ... }
-    template<typename... Components>
-    std::tuple<Components*...> GetComponents(EntityId entity) {
-        return std::make_tuple(GetComponent<Components>(entity)...);
-    }
-
-    // Const version
     template<typename... Components>
     std::tuple<const Components*...> GetComponents(EntityId entity) const {
         return std::make_tuple(GetComponent<Components>(entity)...);
     }
 
-    // Get component array for system iteration
-    template<typename T>
-    ComponentArray<T>* GetComponentArray() {
-        return m_ComponentStore.GetComponentArray<T>();
-    }
-
+    // Get component array for system iteration (read-only)
     template<typename T>
     const ComponentArray<T>* GetComponentArray() const {
         return m_ComponentStore.GetComponentArray<T>();
