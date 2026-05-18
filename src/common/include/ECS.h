@@ -105,8 +105,8 @@ public:
         // Add new component
         const size_t newIndex = m_Components.size();
         m_EntityToIndex[entity] = newIndex;
-        m_IndexToEntity[newIndex] = entity;
         m_Components.push_back(component);
+        m_IndexToEntity.push_back(entity);
     }
 
     void Remove(const EntityId entity) override {
@@ -128,7 +128,7 @@ public:
 
         // Remove old mappings
         m_EntityToIndex.erase(entity);
-        m_IndexToEntity.erase(indexOfLast);
+        m_IndexToEntity.pop_back();
 
         m_Components.pop_back();
     }
@@ -161,14 +161,13 @@ public:
 
     // Get entity for a component index (useful for systems iterating components)
     [[nodiscard]] EntityId GetEntity(const size_t index) const {
-        auto it = m_IndexToEntity.find(index);
-        return (it != m_IndexToEntity.end()) ? it->second : INVALID_ENTITY;
+        return index < m_IndexToEntity.size() ? m_IndexToEntity[index] : INVALID_ENTITY;
     }
 
 private:
     std::vector<T> m_Components;
     std::unordered_map<EntityId, size_t> m_EntityToIndex;
-    std::unordered_map<size_t, EntityId> m_IndexToEntity;
+    std::vector<EntityId> m_IndexToEntity;
 };
 
 // #############################################################################
