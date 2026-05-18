@@ -130,7 +130,7 @@ using GameExitFunc       = void(*)(GameState* state);
 ```
 
 Required exports (load fails on missing):
-- `GameGetVersion()` — returns `GAME_API_VERSION`. Editor compares; mismatch rejects load.
+- `GameGetVersion()` — returns `GAME_API_VERSION`. Editor compares; mismatch rejects load. Game.cpp's existing implementation currently returns `0`; update to `return GAME_API_VERSION;`.
 - `GameUpdate(GameState*)` — single tick.
 
 Optional exports (load succeeds on missing):
@@ -301,7 +301,8 @@ Watcher runs on `filewatch::FileWatch`'s internal background thread (already ven
 
 ```cpp
 // In GameThread::RunLoop, after initial m_GameLib.LoadOrReload(...)
-const std::string watchDir = "bin/Debug";  // VS_DEBUGGER_WORKING_DIRECTORY = RUNTIME_DIR
+// CWD at runtime is RUNTIME_DIR (set via VS_DEBUGGER_WORKING_DIRECTORY in CMake).
+const std::string watchDir = ".";
 m_GameDllWatcher = std::make_unique<filewatch::FileWatch<std::string>>(
     watchDir,
     std::regex(R"(^Game\.dll$)"),  // exact match, ignore Game_load_*.dll copies
@@ -318,7 +319,7 @@ m_GameDllWatcher = std::make_unique<filewatch::FileWatch<std::string>>(
 while (Running()) {
     // 1. Drain reload flag BEFORE input/commands/game logic.
     if (m_ReloadPending.exchange(false, std::memory_order_acquire)) {
-        m_GameLib.LoadOrReload("bin/Debug/Game.dll", &gameState);
+        m_GameLib.LoadOrReload("Game.dll", &gameState);  // relative to CWD = RUNTIME_DIR
     }
 
     // 2. Read GameThreadSettings, drain ECSCommandRing (existing).
@@ -345,7 +346,7 @@ Reload runs **before** ECS-command drain and game logic. The new DLL sees comman
 ### Initial load
 
 ```cpp
-if (!m_GameLib.LoadOrReload("bin/Debug/Game.dll", &gameState)) {
+if (!m_GameLib.LoadOrReload("Game.dll", &gameState)) {
     SM_ERROR("GameThread: initial Game.dll load failed. Editor will run without game logic until Game.dll becomes loadable.");
     // Don't abort. Watcher installed; user fixes build → next event triggers retry.
 }
