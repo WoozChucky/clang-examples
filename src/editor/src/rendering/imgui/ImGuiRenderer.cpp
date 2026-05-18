@@ -445,7 +445,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         // Spin threshold in microseconds
         int spinThresholdInt = static_cast<int>(settings.SpinThresholdMicros);
-        if (ImGui::SliderInt("Spin Threshold (μs)", &spinThresholdInt, 0, 2000, "%d μs")) {
+        if (ImGui::SliderInt("Spin Threshold (us)", &spinThresholdInt, 0, 2000, "%d us")) {
             settings.SpinThresholdMicros = static_cast<uint32_t>(spinThresholdInt);
             settingsChanged = true;
         }
