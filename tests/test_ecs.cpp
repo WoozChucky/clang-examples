@@ -159,6 +159,44 @@ static void T_mutate_array_bulk_write()
     EXPECT_EQ(world.GetComponent<TransformComponent>(e2)->Position.x, 12.0f);
 }
 
+static void T03_destroy_entity_clears_all_components()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1, 0, 0}, {}, {1, 1, 1}});
+    world.AddComponent(e, MeshComponent{42, true});
+
+    world.DestroyEntity(e);
+
+    EXPECT(!world.HasComponent<TransformComponent>(e));
+    EXPECT(!world.HasComponent<MeshComponent>(e));
+    EXPECT(!world.IsValidEntity(e));
+}
+
+static void T04_destroy_entity_only_clones_owning_arrays()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1, 0, 0}, {}, {1, 1, 1}});
+    // Register a second component TYPE without giving it to `e`.
+    const auto other = world.CreateEntity();
+    world.AddComponent(other, MeshComponent{7, true});
+
+    // Snapshot so any subsequent mutation must clone.
+    auto snap = world.CreateSnapshot();
+
+    const auto* preMesh = world.GetArray<MeshComponent>();
+    world.DestroyEntity(e);  // touches Transform only (e doesn't own a Mesh)
+    const auto* postMesh = world.GetArray<MeshComponent>();
+
+    // Mesh array must NOT have been cloned because `e` didn't have one.
+    EXPECT_EQ(static_cast<const void*>(preMesh), static_cast<const void*>(postMesh));
+    // Snapshot still sees `e` and its Transform.
+    EXPECT(snap->HasComponent<TransformComponent>(e));
+    // Master no longer sees `e`.
+    EXPECT(!world.HasComponent<TransformComponent>(e));
+}
+
 int main()
 {
     T00_smoke();
@@ -170,6 +208,8 @@ int main()
     T07_modify_no_clone_on_invalid_entity();
     T_modify_writes_through_lambda();
     T_mutate_array_bulk_write();
+    T03_destroy_entity_clears_all_components();
+    T04_destroy_entity_only_clones_owning_arrays();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

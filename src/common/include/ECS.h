@@ -256,8 +256,13 @@ public:
     }
 
     void RemoveAllComponents(EntityId entity) {
-        for (auto& [type, array] : m_ComponentArrays) {
-            array->Remove(entity);
+        AssertOwnerThread();
+        for (auto& [type, slot] : m_ComponentArrays) {
+            if (!slot->Has(entity)) continue;  // skip arrays that don't hold the entity
+            if (m_DirtyThisTick.insert(type).second) {
+                slot = slot->Clone();          // first write this tick → clone (virtual)
+            }
+            slot->Remove(entity);
         }
     }
 
