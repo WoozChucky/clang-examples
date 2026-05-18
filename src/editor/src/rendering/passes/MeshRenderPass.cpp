@@ -281,6 +281,7 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
 void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                             nvrhi::IFramebuffer* frameBuffer,
                             SimulationSnapshot& snapshot,
+                            const ECS* world,
                             double /*deltaTime*/,
                             FrameAllocator* /*frameAllocator*/)
 {
@@ -315,7 +316,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
     commandList->clearDepthStencilTexture(frameBuffer->getDesc().depthAttachment.texture, nvrhi::AllSubresources, true, 1.0f, false, 0);
 
     // ECS-driven rendering: TransformComponent + MeshComponent are required; MaterialComponent is optional
-    if (snapshot.WorldSnapshotPtr)
+    if (world)
     {
         // Gather lights
         glm::vec4 lightningDirection(0.0f, -1.0f, 0.0f, 0.0f); // default arbitrary direction
@@ -325,9 +326,9 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         std::vector<PointLightCPU> pointLights;
         pointLights.reserve(16);
 
-        for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, LightningComponent>()) {
-            const auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
-            const auto* lightning = snapshot.WorldSnapshotPtr->GetComponent<LightningComponent>(entity);
+        for (EntityId entity : world->View<TransformComponent, LightningComponent>()) {
+            const auto* transform = world->GetComponent<TransformComponent>(entity);
+            const auto* lightning = world->GetComponent<LightningComponent>(entity);
             if (!transform || !lightning) continue;
 
             if (lightning->Type == LightningType::Directional)
@@ -383,13 +384,13 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         };
 
         std::unordered_map<BatchKey, std::vector<EntityId>, BatchKeyHash> batches;
-        for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, MeshComponent>())
+        for (EntityId entity : world->View<TransformComponent, MeshComponent>())
         {
-            const auto* meshComp = snapshot.WorldSnapshotPtr->GetComponent<MeshComponent>(entity);
+            const auto* meshComp = world->GetComponent<MeshComponent>(entity);
             if (!meshComp || !meshComp->Visible)
                 continue;
 
-            const auto* materialComp = snapshot.WorldSnapshotPtr->GetComponent<MaterialComponent>(entity);
+            const auto* materialComp = world->GetComponent<MaterialComponent>(entity);
             uint32_t materialId = materialComp ? materialComp->MaterialId : MaterialSystem::MissingMaterial;
 
             BatchKey key{ .meshId=meshComp->MeshId, .materialId=materialId };
@@ -424,8 +425,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
             for (size_t i = 0; i < instanceCount; ++i)
             {
                 EntityId entity = entities[i];
-                const auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
-                const auto* material = snapshot.WorldSnapshotPtr->GetComponent<MaterialComponent>(entity);
+                const auto* transform = world->GetComponent<TransformComponent>(entity);
+                const auto* material = world->GetComponent<MaterialComponent>(entity);
 
                 if (!transform)
                     continue;

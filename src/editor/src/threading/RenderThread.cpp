@@ -119,10 +119,6 @@ void RenderThread::RunLoop()
         // Read latest snapshot from seqlock - retrieved ONCE per render loop
         SimulationSnapshot nextSnap = m_AppContext->LatestSnapshot.load();
 
-        // Note: nextSnap.WorldSnapshotPtr might point to an older snapshot that's still valid
-        // because we're holding a reference to it via worldSnapshot shared_ptr above.
-        // This is intentional - we use the snapshot we loaded, not necessarily the one in nextSnap.
-
         if (!havePrev) { prevSnap = nextSnap; havePrev = true; }
 
         // Compute render time / delta
@@ -153,7 +149,7 @@ void RenderThread::RunLoop()
         float green = 0.3f + 0.2f * static_cast<float>(std::fmod(1.0 / 640.0, 1.0));
         float blue = 0.2f;
 
-        m_Renderer->Render(renderDelta, red, green, blue, nextSnap);
+        m_Renderer->Render(renderDelta, red, green, blue, nextSnap, worldSnapshot.get());
 
         // Advance interpolation baseline
         prevSnap = nextSnap;

@@ -241,7 +241,7 @@ bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
 }
 
 void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer *frameBuffer,
-    SimulationSnapshot &snapshot, double deltaTime, FrameAllocator* frameAllocator) {
+    SimulationSnapshot &snapshot, const ECS* world, double deltaTime, FrameAllocator* frameAllocator) {
 
     if (!m_Pipeline) {
         const auto fbi = frameBuffer->getFramebufferInfo();
@@ -301,12 +301,12 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
     state.vertexBuffers = { nvrhi::VertexBufferBinding(m_VertexBuffer, 0, 0) };
     state.indexBuffer = nvrhi::IndexBufferBinding(m_IndexBuffer, nvrhi::Format::R16_UINT, 0);
 
-    if (snapshot.WorldSnapshotPtr) {
+    if (world) {
 
         // 1) Gather unique font sizes used by text entities
         std::vector<size_t> usedFontSizes;
-        for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, TextComponent>()) {
-            const auto* text = snapshot.WorldSnapshotPtr->GetComponent<TextComponent>(entity);
+        for (EntityId entity : world->View<TransformComponent, TextComponent>()) {
+            const auto* text = world->GetComponent<TextComponent>(entity);
             if (text) {
                 const size_t fontSize = text->FontSize;
                 bool found = false;
@@ -339,8 +339,8 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
             // Count glyphs for this font size
             uint32_t glyphCount = 0;
-            for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, TextComponent>()) {
-                const auto* text = snapshot.WorldSnapshotPtr->GetComponent<TextComponent>(entity);
+            for (EntityId entity : world->View<TransformComponent, TextComponent>()) {
+                const auto* text = world->GetComponent<TextComponent>(entity);
                 if (text && text->FontSize == fontSize) {
                     glyphCount += static_cast<uint32_t>(text->Text.length());
                 }
@@ -354,9 +354,9 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
             uint32_t out = 0;
 
             // Generate instances for all text entities using this font size
-            for (EntityId entity : snapshot.WorldSnapshotPtr->View<TransformComponent, TextComponent>()) {
-                auto* transform = snapshot.WorldSnapshotPtr->GetComponent<TransformComponent>(entity);
-                auto* text = snapshot.WorldSnapshotPtr->GetComponent<TextComponent>(entity);
+            for (EntityId entity : world->View<TransformComponent, TextComponent>()) {
+                auto* transform = world->GetComponent<TransformComponent>(entity);
+                auto* text = world->GetComponent<TextComponent>(entity);
 
                 if (transform && text && text->FontSize == fontSize) {
                     const std::string& str = text->Text;

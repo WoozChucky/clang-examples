@@ -2,6 +2,7 @@
 
 #include <nvrhi/nvrhi.h>
 #include "ApplicationContext.h"
+#include "ECS.h"
 
 // Forward declarations
 class Renderer;
@@ -20,6 +21,7 @@ public:
         nvrhi::ICommandList* commandList,
         nvrhi::IFramebuffer* frameBuffer,
         SimulationSnapshot& snapshot,
+        const ECS* world,
         double deltaTime,
         FrameAllocator* frameAllocator) = 0;
 

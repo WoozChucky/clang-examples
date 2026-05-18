@@ -50,9 +50,6 @@ struct SimulationSnapshot {
     OrthographicCamera2D UICamera;
     FrameTimeStats FrameStats; // Frame timing statistics
 
-    // Raw pointer to ECS world snapshot (lifetime managed separately via atomic shared_ptr)
-    // DO NOT delete this pointer - it's managed by LatestWorldSnapshot in ApplicationContext
-    const ECS* WorldSnapshotPtr = nullptr;
 };
 
 struct MeshVertex

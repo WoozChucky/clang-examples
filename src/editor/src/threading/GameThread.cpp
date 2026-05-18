@@ -387,10 +387,6 @@ void GameThread::PublishSnapshot(GameState& state, const FrameTimeStats& frameSt
 	snap.UICamera = state.UICamera;
 	snap.FrameStats = frameStats;
 
-	// Pass a raw pointer through Seqlock (Seqlock requires trivially copyable types)
-	// The shared_ptr above keeps this pointer valid
-	snap.WorldSnapshotPtr = worldSnapshot.get();
-
 	// Single-writer seqlock publish
     m_AppContext->LatestSnapshot.store(snap);
 }

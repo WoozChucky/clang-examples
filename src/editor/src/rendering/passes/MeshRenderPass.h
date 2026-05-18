@@ -23,6 +23,7 @@ public:
     void Render(nvrhi::ICommandList* commandList,
                 nvrhi::IFramebuffer* frameBuffer,
                 SimulationSnapshot& snapshot,
+                const ECS* world,
                 double deltaTime,
                 FrameAllocator* frameAllocator) override;
     void Shutdown() override;

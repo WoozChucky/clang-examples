@@ -189,7 +189,7 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     }
 }
 
-float Renderer::Render(double deltaTime, float red, float green, float blue, SimulationSnapshot& snapshot) {
+float Renderer::Render(double deltaTime, float red, float green, float blue, SimulationSnapshot& snapshot, const ECS* world) {
 
     if (!m_Backend || !m_Device || !m_CommandList) {
         SM_ERROR("Failed to render: renderer not fully initialized (backend=%p, device=%p, cmdlist=%p)",
@@ -227,7 +227,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 for (auto& pass : m_RenderPasses) {
                     ZoneScopedN("RenderPass Rec N");
                     if (pass) {
-                        pass->Render(m_CommandList, frameBuffer, snapshot, deltaTime, &m_FrameAllocator);
+                        pass->Render(m_CommandList, frameBuffer, snapshot, world, deltaTime, &m_FrameAllocator);
                     }
                 }
             }

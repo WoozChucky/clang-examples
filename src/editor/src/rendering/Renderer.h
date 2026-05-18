@@ -76,7 +76,8 @@ public:
     bool Init(RendererAPI api);
     void Shutdown(uint32_t timeoutMs = SHUTDOWN_TIMEOUT);
 
-    float Render(double deltaTime, float red, float green, float blue, SimulationSnapshot& snapshot);
+    float Render(double deltaTime, float red, float green, float blue,
+                 SimulationSnapshot& snapshot, const ECS* world);
     void Resize(uint32_t width, uint32_t height);
     void ToggleVSync();
 
