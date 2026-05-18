@@ -280,6 +280,39 @@ static void T10_multi_snapshot_lifetime()
     EXPECT_EQ(snap2->GetComponent<TransformComponent>(e)->Position.x, 2.0f);
 }
 
+static void T_addcomponent_after_snapshot_clones()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1, 0, 0}, {}, {1, 1, 1}});
+
+    auto snap = world.CreateSnapshot();
+    const auto* preArr = world.GetArray<TransformComponent>();
+
+    // AddComponent on a new entity: must NOT touch the snapshot's view.
+    const auto e2 = world.CreateEntity();
+    world.AddComponent(e2, TransformComponent{{9, 0, 0}, {}, {1, 1, 1}});
+
+    EXPECT(!snap->HasComponent<TransformComponent>(e2));
+    EXPECT(world.HasComponent<TransformComponent>(e2));
+
+    const auto* postArr = world.GetArray<TransformComponent>();
+    EXPECT_NE(static_cast<const void*>(preArr), static_cast<const void*>(postArr));
+}
+
+static void T_removecomponent_after_snapshot_clones()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1, 0, 0}, {}, {1, 1, 1}});
+
+    auto snap = world.CreateSnapshot();
+    world.RemoveComponent<TransformComponent>(e);
+
+    EXPECT(snap->HasComponent<TransformComponent>(e));
+    EXPECT(!world.HasComponent<TransformComponent>(e));
+}
+
 int main()
 {
     T00_smoke();
@@ -297,6 +330,8 @@ int main()
     T06_snapshot_unchanged_arrays_share_storage();
     T09_create_snapshot_clears_dirty();
     T10_multi_snapshot_lifetime();
+    T_addcomponent_after_snapshot_clones();
+    T_removecomponent_after_snapshot_clones();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

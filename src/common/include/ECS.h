@@ -204,12 +204,12 @@ public:
 
     template<typename T>
     void AddComponent(EntityId entity, T component) {
-        GetComponentArray<T>()->Add(entity, component);
+        MutateArray<T>().Add(entity, component);
     }
 
     template<typename T>
     void RemoveComponent(EntityId entity) {
-        GetComponentArray<T>()->Remove(entity);
+        MutateArray<T>().Remove(entity);
     }
 
     template<typename T>
