@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <thread>
 #include <type_traits>
+#include <utility>
 
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -478,6 +479,46 @@ public:
             }
         }
         return result;
+    }
+
+    /**
+     * @brief Single-entity in-place edit. Lambda receives a `T&` referring
+     *        to the cloned-for-this-tick array slot.
+     * @tparam T Component type. Must be CopyConstructible.
+     * @tparam F Callable taking `T&`. Return value discarded.
+     * @param e Entity that should hold T. No-op if invalid or lacking T.
+     * @threading GameThread only.
+     * @cow Probes Has(e) first; clones only if the entity holds the component.
+     */
+    template<typename T, typename F>
+    void Modify(EntityId e, F&& fn) {
+        const auto* readArr = m_ComponentStore.GetArray<T>();
+        if (!readArr || !readArr->Has(e)) return;
+        auto& writeArr = m_ComponentStore.MutateArray<T>();
+        if (T* c = writeArr.Get(e)) {
+            std::forward<F>(fn)(*c);
+        }
+    }
+
+    /**
+     * @brief Bulk-write access to the array for T. Clones once per tick.
+     *        Prefer this over Modify when iterating many entities of one type.
+     * @threading GameThread only.
+     * @cow Triggers a clone on first call per tick.
+     */
+    template<typename T>
+    ComponentArray<T>& MutateArray() {
+        return m_ComponentStore.MutateArray<T>();
+    }
+
+    /**
+     * @brief Bulk-read access. Use for systems iterating one component type densely.
+     * @return Pointer to const array, or nullptr if type unregistered.
+     * @snapshot Safe through a snapshot reference; immutable for snapshot lifetime.
+     */
+    template<typename T>
+    const ComponentArray<T>* GetArray() const {
+        return m_ComponentStore.GetArray<T>();
     }
 
     void Clear() {

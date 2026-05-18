@@ -102,6 +102,63 @@ static void T_copy_arrays_from_shares_storage()
     EXPECT_EQ(arr->Get(1)->Position.x, 7.0f);
 }
 
+static void T01_add_get_basic()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1.0f, 2.0f, 3.0f}, {}, {1, 1, 1}});
+
+    EXPECT(world.HasComponent<TransformComponent>(e));
+    const auto* t = world.GetComponent<TransformComponent>(e);
+    EXPECT(t != nullptr);
+    EXPECT_EQ(t->Position.x, 1.0f);
+}
+
+static void T07_modify_no_clone_on_invalid_entity()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1.0f, 0, 0}, {}, {1, 1, 1}});
+
+    const auto* preArr = world.GetArray<TransformComponent>();
+    EXPECT(preArr != nullptr);
+
+    // Modify on entity that doesn't have the component — must NOT clone.
+    const auto otherEntity = world.CreateEntity();   // no TransformComponent
+    world.Modify<TransformComponent>(otherEntity, [](auto& t) { t.Position.x = 999.0f; });
+
+    const auto* postArr = world.GetArray<TransformComponent>();
+    EXPECT_EQ(static_cast<const void*>(preArr), static_cast<const void*>(postArr));
+}
+
+static void T_modify_writes_through_lambda()
+{
+    ECS world;
+    const auto e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1.0f, 2.0f, 3.0f}, {}, {1, 1, 1}});
+
+    world.Modify<TransformComponent>(e, [](auto& t) {
+        t.Position.x = 42.0f;
+    });
+
+    EXPECT_EQ(world.GetComponent<TransformComponent>(e)->Position.x, 42.0f);
+}
+
+static void T_mutate_array_bulk_write()
+{
+    ECS world;
+    const auto e1 = world.CreateEntity();
+    const auto e2 = world.CreateEntity();
+    world.AddComponent(e1, TransformComponent{{1, 0, 0}, {}, {1, 1, 1}});
+    world.AddComponent(e2, TransformComponent{{2, 0, 0}, {}, {1, 1, 1}});
+
+    auto& arr = world.MutateArray<TransformComponent>();
+    for (auto& t : arr.GetComponents()) t.Position.x += 10.0f;
+
+    EXPECT_EQ(world.GetComponent<TransformComponent>(e1)->Position.x, 11.0f);
+    EXPECT_EQ(world.GetComponent<TransformComponent>(e2)->Position.x, 12.0f);
+}
+
 int main()
 {
     T00_smoke();
@@ -109,6 +166,10 @@ int main()
     T08_mutate_array_clones_once_per_tick();
     T_get_array_const_returns_nullptr_for_unregistered();
     T_copy_arrays_from_shares_storage();
+    T01_add_get_basic();
+    T07_modify_no_clone_on_invalid_entity();
+    T_modify_writes_through_lambda();
+    T_mutate_array_bulk_write();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);
