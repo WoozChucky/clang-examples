@@ -18,16 +18,47 @@ Two executable targets are built:
 - `editor` — current dev target (`VS_STARTUP_PROJECT` in root `CMakeLists.txt`). Multi-threaded, NVRHI-based, ImGui editor, ECS, .NET plugin host. **Most work happens here.**
 - `runtime` (output `main.exe`) — older single-threaded host with DLL hot-reload. Still builds. Architecture described in `README.md` is the *runtime* path; large parts (game-as-DLL, `build.bat`) are stale relative to the current `editor` codebase.
 
-`build.bat` rebuilds the legacy `game.dll` for the `runtime` hot-reload flow. It is **not** how the editor builds `game`: in the current `src/game/CMakeLists.txt`, `game` is a `STATIC` library that `editor` links directly. Don't run `build.bat` expecting it to affect the editor.
+`build.bat` rebuilds the legacy `game.dll` for the `runtime` hot-reload flow. It is **not** how the editor builds `game`: in the current `src/game/CMakeLists.txt`, `game` is a `SHARED` library (`Game.dll`) that the editor loads at runtime via `GameLibrary`. Don't run `build.bat` expecting it to affect the editor.
 
-No test target exists.
+`test_ecs` is the ECS unit-test target. Run it with:
+```
+cmake --build --preset msvc-win64-vs2026-enterprise --target test_ecs
+./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_ecs.exe
+```
+Expected output: `All ECS tests passed.`
+
+## Hot-reloading the game library
+
+`game` is built as a SHARED library (`Game.dll`) and is loaded at runtime by the editor via `GameLibrary` (`src/editor/src/threading/GameLibrary.{h,cpp}`). A `filewatch::FileWatch` on `Game.dll` triggers a reload between ticks when the file changes on disk.
+
+Typical iteration:
+
+1. Edit `src/game/src/Game.cpp`.
+2. `cmake --build --preset msvc-win64-vs2026-enterprise --target game`
+3. Editor reloads automatically within ~1 second. Console logs the new timestamped DLL filename and the API version that loaded.
+
+State preservation: cross-tick game state lives in `GameState` (`src/game/include/Game.h`) which is editor-owned. The DLL holds only a pointer. File-static globals in `Game.cpp` are per-tick scratch only and reset on reload — intentional.
+
+Rules:
+
+- **Change `.cpp` only** → hot-reload works. No editor restart.
+- **Change `Game.h` (struct layout, new export, etc.)** → bump `GAME_API_VERSION`. Rebuild **both** game and editor. Restart editor (the running `editor.exe` still has the old `GameState` layout linked in).
+- **Change `ECS.h` (new component type, etc.)** → rebuild `ecs.dll`, editor, and game. Restart editor.
+
+ECS code lives in `ecs.dll` (`src/ecs/`). All `ComponentArray<T>` template instantiations are explicit, driven by the `ECS_FOR_EACH_REGISTERED_COMPONENT` X-macro in `ECS.h`. Adding a new component type:
+
+1. Declare the struct in `ECS.h`.
+2. Add `X(NewType)` to `ECS_FOR_EACH_REGISTERED_COMPONENT`.
+3. Add handling to `ECSCommandProcessor::ApplyComponentCommand` and `RemoveComponentByType` in `ApplicationContext.h`.
+4. (Optional) Add inspector UI in `ImGuiRenderer.cpp`.
 
 ## Architecture
 
 ### Targets and their relationships
 
 ```
-editor.exe  ─links→ game (STATIC) + nvrhi (DX12/DX11/VK) + imgui + ImGuizmo + assimp + freetype + nethost
+editor.exe  ─links→ ecs (SHARED) + nvrhi (DX12/DX11/VK) + imgui + ImGuizmo + assimp + freetype + nethost
+             ─loads at runtime→ Game.dll (via GameLibrary + filewatch hot-reload)
 runtime.exe ─links→ nvrhi + freetype + tracy   (loads game.dll at runtime via build.bat)
 ```
 
@@ -65,7 +96,7 @@ Forgetting this is silent (commands queue successfully, world stays unchanged).
 
 ### Game library
 
-`src/game/src/Game.cpp` exports `GameUpdate(GameState*)` and is statically linked into the editor. It reads input from `g_GameState->PlatformInput` (the SPSC input ring), mutates `GameState` (including a `WorldManager` ECS façade), and posts `RendererCommand`s for new meshes/materials. Note the include of `../../editor/src/utilities/WorldManager.h` — `game` reaches into editor headers; this is intentional under the current static-link model.
+`src/game/src/Game.cpp` exports `GameUpdate(GameState*)` and `GAME_API_VERSION`. The editor loads `Game.dll` at runtime via `GameLibrary` (`src/editor/src/threading/GameLibrary.{h,cpp}`) and hot-reloads it when the file changes on disk (see "Hot-reloading the game library" above). `GameUpdate` reads input from `g_GameState->PlatformInput` (the SPSC input ring), mutates `GameState` (including a `WorldManager` ECS façade), and posts `RendererCommand`s for new meshes/materials. `GameState` is editor-owned; the DLL holds only a pointer to it.
 
 ## Conventions
 

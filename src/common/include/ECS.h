@@ -16,6 +16,21 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+// Cross-DLL export annotation. Defined as dllexport in ecs.dll's TU,
+// dllimport everywhere else. Allow override (defining ECS_API empty
+// externally) for static testing scenarios.
+#ifndef ECS_API
+  #ifdef _WIN32
+    #ifdef ECS_EXPORTS
+      #define ECS_API __declspec(dllexport)
+    #else
+      #define ECS_API __declspec(dllimport)
+    #endif
+  #else
+    #define ECS_API
+  #endif
+#endif
+
 // #############################################################################
 //                           Entity & Component IDs
 // #############################################################################
@@ -83,6 +98,23 @@ struct ChildComponent {
     std::unordered_set<EntityId> Children;
 };
 
+// Zero-size marker tagging the singleton directional light driven by the day/night cycle.
+struct SunMarker {};
+
+// X-macro: single source of truth for the set of component types that get
+// explicit template instantiations in ecs.dll. Adding a new component type
+// requires (1) declaring the struct above, (2) adding an X(NewType) line here,
+// (3) registering in ECSCommandProcessor in ApplicationContext.h.
+#define ECS_FOR_EACH_REGISTERED_COMPONENT(X) \
+    X(TransformComponent) \
+    X(MeshComponent) \
+    X(MaterialComponent) \
+    X(TextComponent) \
+    X(LightningComponent) \
+    X(ParentComponent) \
+    X(ChildComponent) \
+    X(SunMarker)
+
 // #############################################################################
 //                           Component Storage (Type-erased container)
 // #############################################################################
@@ -103,7 +135,7 @@ public:
 };
 
 template<typename T>
-class ComponentArray final : public IComponentArray {
+class ECS_API ComponentArray final : public IComponentArray {
 public:
     void Add(const EntityId entity, T component) {
         if (m_EntityToIndex.contains(entity)) {
@@ -185,11 +217,23 @@ private:
     std::vector<EntityId> m_IndexToEntity;
 };
 
+// Declare that ComponentArray<T> is instantiated elsewhere (in ecs.dll's TU).
+// Prevents per-TU local instantiation in editor.exe, game.dll, test_ecs.exe;
+// they link against ecs.dll's exported copy.
+// Suppressed in ecs.dll's own TU (ECS_EXPORTS defined) because the explicit
+// instantiation definitions below take precedence and MSVC warns on the
+// combination of dllexport + extern on an instantiation (C4910).
+#ifndef ECS_EXPORTS
+#define ECS_EXTERN_TEMPLATE_DECL(T) extern template class ECS_API ComponentArray<T>;
+ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_EXTERN_TEMPLATE_DECL)
+#undef ECS_EXTERN_TEMPLATE_DECL
+#endif
+
 // #############################################################################
 //                           Component Store (Type registry)
 // #############################################################################
 
-class ComponentStore {
+class ECS_API ComponentStore {
 public:
     template<typename T>
     void RegisterComponent() {
@@ -203,29 +247,16 @@ public:
     }
 
     template<typename T>
-    void AddComponent(EntityId entity, T component) {
-        MutateArray<T>().Add(entity, component);
-    }
+    void AddComponent(EntityId entity, T component);
 
     template<typename T>
-    void RemoveComponent(EntityId entity) {
-        MutateArray<T>().Remove(entity);
-    }
+    void RemoveComponent(EntityId entity);
 
     template<typename T>
-    const T* GetComponent(EntityId entity) const {
-        const auto componentArray = GetComponentArray<T>();
-        if (!componentArray) {
-            return nullptr;
-        }
-        return componentArray->Get(entity);
-    }
+    const T* GetComponent(EntityId entity) const;
 
     template<typename T>
-    [[nodiscard]] bool HasComponent(EntityId entity) const {
-        auto array = GetComponentArray<T>();
-        return array && array->Has(entity);
-    }
+    [[nodiscard]] bool HasComponent(EntityId entity) const;
 
     template<typename T>
     const ComponentArray<T>* GetComponentArray() const {
@@ -239,16 +270,7 @@ public:
         return static_cast<const ComponentArray<T>*>(it->second.get());
     }
 
-    void RemoveAllComponents(EntityId entity) {
-        AssertOwnerThread();
-        for (auto& [type, slot] : m_ComponentArrays) {
-            if (!slot->Has(entity)) continue;  // skip arrays that don't hold the entity
-            if (m_DirtyThisTick.insert(type).second) {
-                slot = slot->Clone();          // first write this tick → clone (virtual)
-            }
-            slot->Remove(entity);
-        }
-    }
+    void RemoveAllComponents(EntityId entity);
 
     void Cleanup() {
         m_ComponentArrays.clear();
@@ -266,20 +288,7 @@ public:
      *      same (already-cloned) array.
      */
     template<typename T>
-    ComponentArray<T>& MutateArray() {
-        AssertOwnerThread();
-        const auto typeIndex = std::type_index(typeid(T));
-        auto& slot = m_ComponentArrays[typeIndex];
-        if (!slot) {
-            slot = std::make_shared<ComponentArray<T>>();
-        }
-        if (m_DirtyThisTick.insert(typeIndex).second) {
-            // First mutation since last snapshot — clone.
-            slot = std::make_shared<ComponentArray<T>>(
-                       static_cast<const ComponentArray<T>&>(*slot));
-        }
-        return static_cast<ComponentArray<T>&>(*slot);
-    }
+    ComponentArray<T>& MutateArray();
 
     /**
      * @brief Returns a const pointer to the array for T, or nullptr if no
@@ -288,30 +297,18 @@ public:
      *           is immutable for the snapshot's lifetime.
      */
     template<typename T>
-    const ComponentArray<T>* GetArray() const {
-        const auto typeIndex = std::type_index(typeid(T));
-        const auto it = m_ComponentArrays.find(typeIndex);
-        if (it == m_ComponentArrays.end()) {
-            return nullptr;
-        }
-        return static_cast<const ComponentArray<T>*>(it->second.get());
-    }
+    const ComponentArray<T>* GetArray() const;
 
     /**
      * @brief Copies the array map (shared_ptr refcount bumps) from `other`.
      *        Used by CreateSnapshot. The destination's dirty set is left empty.
      */
-    void CopyArraysFrom(const ComponentStore& other) {
-        m_ComponentArrays = other.m_ComponentArrays;
-    }
+    void CopyArraysFrom(const ComponentStore& other);
 
     /**
      * @brief Resets the master's per-tick dirty set after a snapshot is published.
      */
-    void ClearDirty() {
-        AssertOwnerThread();
-        m_DirtyThisTick.clear();
-    }
+    void ClearDirty();
 
 private:
 #ifndef NDEBUG
@@ -327,6 +324,21 @@ private:
     std::unordered_map<std::type_index, std::shared_ptr<IComponentArray>> m_ComponentArrays;
     std::unordered_set<std::type_index> m_DirtyThisTick;
 };
+
+// Per-T extern template declarations for ComponentStore methods. Guarded
+// with ECS_EXPORTS so ecs.dll's own TU (which provides the definitions)
+// doesn't see the extern declarations.
+#ifndef ECS_EXPORTS
+#define ECS_EXTERN_COMPONENT_STORE_METHODS(T) \
+    extern template ECS_API ComponentArray<T>& ComponentStore::MutateArray<T>(); \
+    extern template ECS_API const ComponentArray<T>* ComponentStore::GetArray<T>() const; \
+    extern template ECS_API void ComponentStore::AddComponent<T>(EntityId, T); \
+    extern template ECS_API void ComponentStore::RemoveComponent<T>(EntityId); \
+    extern template ECS_API bool ComponentStore::HasComponent<T>(EntityId) const; \
+    extern template ECS_API const T* ComponentStore::GetComponent<T>(EntityId) const;
+ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_EXTERN_COMPONENT_STORE_METHODS)
+#undef ECS_EXTERN_COMPONENT_STORE_METHODS
+#endif
 
 // #############################################################################
 //                           Entity Store (Entity lifecycle management)
@@ -378,17 +390,14 @@ private:
 //                           ECS World (Main API)
 // #############################################################################
 
-class ECS {
+class ECS_API ECS {
 public:
     // Entity management
     EntityId CreateEntity() {
         return m_EntityStore.CreateEntity();
     }
 
-    void DestroyEntity(const EntityId entity) {
-        m_ComponentStore.RemoveAllComponents(entity);
-        m_EntityStore.DestroyEntity(entity);
-    }
+    void DestroyEntity(EntityId entity);
 
     [[nodiscard]] bool IsValidEntity(const EntityId entity) const {
         return m_EntityStore.IsValid(entity);
@@ -404,24 +413,16 @@ public:
 
     // Component management
     template<typename T>
-    void AddComponent(const EntityId entity, T component) {
-        m_ComponentStore.AddComponent<T>(entity, component);
-    }
+    void AddComponent(EntityId entity, T component);
 
     template<typename T>
-    void RemoveComponent(const EntityId entity) {
-        m_ComponentStore.RemoveComponent<T>(entity);
-    }
+    void RemoveComponent(EntityId entity);
 
     template<typename T>
-    const T* GetComponent(const EntityId entity) const {
-        return m_ComponentStore.GetComponent<T>(entity);
-    }
+    const T* GetComponent(EntityId entity) const;
 
     template<typename T>
-    [[nodiscard]] bool HasComponent(const EntityId entity) const {
-        return m_ComponentStore.HasComponent<T>(entity);
-    }
+    [[nodiscard]] bool HasComponent(EntityId entity) const;
 
     // Multi-component queries
     template<typename... Components>
@@ -480,9 +481,7 @@ public:
      * @cow Triggers a clone on first call per tick.
      */
     template<typename T>
-    ComponentArray<T>& MutateArray() {
-        return m_ComponentStore.MutateArray<T>();
-    }
+    ComponentArray<T>& MutateArray();
 
     /**
      * @brief Bulk-read access. Use for systems iterating one component type densely.
@@ -490,14 +489,9 @@ public:
      * @snapshot Safe through a snapshot reference; immutable for snapshot lifetime.
      */
     template<typename T>
-    const ComponentArray<T>* GetArray() const {
-        return m_ComponentStore.GetArray<T>();
-    }
+    const ComponentArray<T>* GetArray() const;
 
-    void Clear() {
-        m_EntityStore.Clear();
-        m_ComponentStore.Cleanup();
-    }
+    void Clear();
 
     /**
      * @brief Publishes an immutable snapshot of the world for cross-thread reads.
@@ -510,18 +504,26 @@ public:
      * @threading GameThread only (single-writer rule).
      * @snapshot The returned ECS exposes only const accessors.
      */
-    [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot() {
-        auto snap = std::make_shared<ECS>();
-        snap->m_EntityStore = m_EntityStore;                     // value copy
-        snap->m_ComponentStore.CopyArraysFrom(m_ComponentStore); // shallow shared_ptr copy
-        m_ComponentStore.ClearDirty();
-        return snap;
-    }
+    [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot();
 
 private:
     EntityStore m_EntityStore;
     ComponentStore m_ComponentStore;
 };
+
+// Per-T extern template declarations for ECS methods. Guarded with ECS_EXPORTS
+// so ecs.dll's own TU doesn't see them (provides definitions instead).
+#ifndef ECS_EXPORTS
+#define ECS_EXTERN_ECS_METHODS(T) \
+    extern template ECS_API void ECS::AddComponent<T>(EntityId, T); \
+    extern template ECS_API void ECS::RemoveComponent<T>(EntityId); \
+    extern template ECS_API bool ECS::HasComponent<T>(EntityId) const; \
+    extern template ECS_API const T* ECS::GetComponent<T>(EntityId) const; \
+    extern template ECS_API const ComponentArray<T>* ECS::GetArray<T>() const; \
+    extern template ECS_API ComponentArray<T>& ECS::MutateArray<T>();
+ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_EXTERN_ECS_METHODS)
+#undef ECS_EXTERN_ECS_METHODS
+#endif
 
 // #############################################################################
 //                           Example Usage (in comments)

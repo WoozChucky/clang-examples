@@ -9,17 +9,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include "../../editor/src/utilities/WorldManager.h"
 
 static GameState* g_GameState = nullptr;
-static bool gKeysDown[KEY_LAST + 1] = {};
 static bool gKeysPressedThisFrame[KEY_LAST + 1] = {}; // NEW: Track single-frame presses
 static int32_t gMouseWheel = 0;
-static bool   g_MouseAimEnabled = false;        // toggled by T
-static double g_MouseX = 0.0, g_MouseY = 0.0;   // last mouse position in window coords
-static uint64_t textEntityId = 0;
-static float g_DayNightCycleSeconds = 10.0f; // configurable day-night cycle duration
-static EntityId g_DirectionalLightEntity = INVALID_ENTITY; // Track the created directional light
 
 using namespace Input;
 
@@ -36,12 +29,11 @@ inline bool IsKeyPressedThisFrame(int key) {
 // Helper function to check if key is currently held down
 inline bool IsKeyDown(int key) {
     if (key < 0 || key > KEY_LAST) return false;
-    return gKeysDown[key];
+    return g_GameState->KeysDown[key];
 }
 
 uint32_t GameGetVersion() {
-    SM_TRACE("[GAMEDLL] GameGetVersion");
-    return 0;
+    return GAME_API_VERSION;
 }
 
 void GameUpdate(GameState* state) {
@@ -67,13 +59,6 @@ void GameUpdate(GameState* state) {
 			const auto entityId = g_GameState->World.CreateEntity();
 			SM_TRACE("Added new Entity (%llu)", entityId)
 		}
-
-        if (IsKeyPressedThisFrame(KEY_F10)) {
-            if (WorldManager::LoadWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, &g_GameState->World)) {
-                SM_TRACE("Loaded world snapshot from disk")
-            }
-            return;
-        }
     }
 
     switch (g_GameState->StateId)
@@ -84,57 +69,61 @@ void GameUpdate(GameState* state) {
             g_GameState->StateId = GameStateId::MainMenu;
 	        g_GameState->GameCamera.position = glm::vec3(0.0f, 5.0f, 10.0f);
 
-	        textEntityId = g_GameState->World.CreateEntity();
-	        auto transform = TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-	        auto text = TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48};
-	        g_GameState->World.AddComponent(textEntityId, transform);
-	        g_GameState->World.AddComponent(textEntityId, text);
+	        // World loaded from world.json is authoritative — skip default spawns
+	        // to prevent duplicates. Defaults exist only as a Unity-like fallback
+	        // scene when no world is present.
+	        if (!g_GameState->WorldLoaded) {
+	            SM_TRACE("[GAMEDLL] No world loaded — spawning default scene")
 
-             auto directionalLightningEntity = g_GameState->World.CreateEntity();
-             auto lightning = LightningComponent{
-                .Type = LightningType::Directional,
-                // Start from a diagonal pointing from (-X, -Z) towards the scene with a downward Y
-                // This sets the initial sun direction to bottom-left on screen
-                .Direction = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 0.0f),
-                // Mimic the sunlight color
-                .Color = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f)
-             };
-             auto lightningTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-             g_GameState->World.AddComponent(directionalLightningEntity, lightningTransform);
-             g_GameState->World.AddComponent(directionalLightningEntity, lightning);
-             // g_DirectionalLightEntity = directionalLightningEntity;
+	            const auto textEntity = g_GameState->World.CreateEntity();
+	            g_GameState->World.AddComponent(textEntity, TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+	            g_GameState->World.AddComponent(textEntity, TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48});
 
-	        auto pointLightEntity = g_GameState->World.CreateEntity();
-            auto pointLight = LightningComponent{
-                .Type = LightningType::Point,
-                .Color = glm::vec4(1.0f, 0.8f, 0.6f, 1.0f),
-                .Intensity = 1.0f,
-                .Range = 3.0f
-            };
-            auto pointLightTransform = TransformComponent{.Position = glm::vec3{0.f, 4.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-            g_GameState->World.AddComponent(pointLightEntity, pointLightTransform);
-            g_GameState->World.AddComponent(pointLightEntity, pointLight);
+	            const auto sun = g_GameState->World.CreateEntity();
+	            g_GameState->World.AddComponent(sun, TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+	            g_GameState->World.AddComponent(sun, LightningComponent{
+	                .Type = LightningType::Directional,
+	                .Direction = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 0.0f),
+	                .Color = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f)
+	            });
+	            g_GameState->World.AddComponent(sun, SunMarker{});
+
+	            const auto pointLight = g_GameState->World.CreateEntity();
+	            g_GameState->World.AddComponent(pointLight, TransformComponent{.Position = glm::vec3{0.f, 4.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+	            g_GameState->World.AddComponent(pointLight, LightningComponent{
+	                .Type = LightningType::Point,
+	                .Color = glm::vec4(1.0f, 0.8f, 0.6f, 1.0f),
+	                .Intensity = 1.0f,
+	                .Range = 3.0f
+	            });
+	        }
 
 	        break;
 	    }
         case GameStateId::MainMenu: {
-            g_GameState->World.Modify<TransformComponent>(textEntityId, [&](auto& transform) {
-                transform.Rotation.z += glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime);
-            });
+            // Rotate every text entity + cycle its color. Identity is by component, not handle.
+            for (EntityId e : g_GameState->World.View<TextComponent, TransformComponent>()) {
+                g_GameState->World.Modify<TransformComponent>(e, [&](auto& transform) {
+                    constexpr float TWO_PI = 6.28318530718f;
+                    transform.Rotation.z = fmodf(
+                        transform.Rotation.z + glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime),
+                        TWO_PI);
+                });
+                g_GameState->World.Modify<TextComponent>(e, [&](auto& text) {
+                    const auto time = static_cast<float>(g_GameState->DeltaTime);
+                    const float red = (sinf(time) + 1.0f) / 2.0f;
+                    const float green = (cosf(g_GameState->GameTime) + 1.0f) / 2.0f;
+                    const float blue = 1.0f - red;
+                    text.Color = glm::vec4(red, green, blue, 1.0f);
+                });
+            }
 
-            g_GameState->World.Modify<TextComponent>(textEntityId, [&](auto& text) {
-                const auto time = static_cast<float>(g_GameState->DeltaTime);
-                const float red = (sinf(time) + 1.0f) / 2.0f;
-                const float green = (cosf(g_GameState->GameTime) + 1.0f) / 2.0f;
-                const float blue = 1.0f - red;
-                text.Color = glm::vec4(red, green, blue, 1.0f);
-            });
-
-            if (g_DirectionalLightEntity != INVALID_ENTITY) {
-                g_GameState->World.Modify<LightningComponent>(g_DirectionalLightEntity, [&](auto& l) {
+            // Day/night cycle drives entities tagged with SunMarker (singleton role).
+            for (EntityId sun : g_GameState->World.View<SunMarker, LightningComponent>()) {
+                g_GameState->World.Modify<LightningComponent>(sun, [&](auto& l) {
                     if (l.Type != LightningType::Directional) return;
 
-                    const float cycle = glm::max(g_DayNightCycleSeconds, 0.001f);
+                    const float cycle = glm::max(g_GameState->DayNightCycleSeconds, 0.001f);
                     const double gameTime = g_GameState->GameTime; // seconds
                     const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
                     const float theta = phase * 6.28318530718f; // 2*pi
@@ -254,33 +243,33 @@ void HandleCameraMovement(GameState* state)
 
 	// Toggle mouse aim - use IsKeyPressedThisFrame for toggle action
 	if (IsKeyPressedThisFrame(KEY_T)) {
-		g_MouseAimEnabled = !g_MouseAimEnabled;
+		g_GameState->MouseAimEnabled = !g_GameState->MouseAimEnabled;
 
-		if (g_MouseAimEnabled) {
+		if (g_GameState->MouseAimEnabled) {
 			// Reset virtual cursor to center when enabling mouse aim
-			g_MouseX = state->Settings->windowWidth / 2.0;
-			g_MouseY = state->Settings->windowHeight / 2.0;
+			g_GameState->MouseX = state->Settings->windowWidth / 2.0;
+			g_GameState->MouseY = state->Settings->windowHeight / 2.0;
 		}
 
-		SM_TRACE("[GAMEDLL] Mouse Aim %s", g_MouseAimEnabled ? "Enabled" : "Disabled")
+		SM_TRACE("[GAMEDLL] Mouse Aim %s", g_GameState->MouseAimEnabled ? "Enabled" : "Disabled")
 	}
 
 	HandleFreeLook(state);
 }
 
 void HandleFreeLook(GameState* state) {
-	if (!g_MouseAimEnabled) return;
+	if (!g_GameState->MouseAimEnabled) return;
 
 	static double lastMouseX = state->Settings->windowWidth / 2.0;
 	static double lastMouseY = state->Settings->windowHeight / 2.0;
 
 	// Compute delta from last frame
-	const double dx = g_MouseX - lastMouseX;
-	const double dy = g_MouseY - lastMouseY;
+	const double dx = g_GameState->MouseX - lastMouseX;
+	const double dy = g_GameState->MouseY - lastMouseY;
 
 	// Update last position
-	lastMouseX = g_MouseX;
-	lastMouseY = g_MouseY;
+	lastMouseX = g_GameState->MouseX;
+	lastMouseY = g_GameState->MouseY;
 
 	// Mouse sensitivity (adjust to taste)
 	constexpr float sensitivity = 0.002f; // radians per pixel
@@ -307,11 +296,10 @@ void GameResize(uint32_t width, uint32_t height) {
 }
 
 void GameExit(GameState* state) {
-    if (state && g_GameState == state)
-    {
-        g_GameState->World.Clear();
+    // Called on every reload AND on shutdown — keep benign.
+    // World is editor-owned and must survive reload.
+    if (state && g_GameState == state) {
         g_GameState = nullptr;
-        g_DirectionalLightEntity = INVALID_ENTITY;
     }
     SM_TRACE("[GAMEDLL] GameExit")
 }
@@ -336,10 +324,10 @@ void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRi
 			if (k >= 0 && k <= KEY_LAST) {
 				// Track key down state (for continuous checks like movement)
 				if (ev.KeyEvent.Action == PRESS || ev.KeyEvent.Action == REPEAT) {
-					gKeysDown[k] = true;
+					g_GameState->KeysDown[k] = true;
 				}
 				if (ev.KeyEvent.Action == RELEASE) {
-					gKeysDown[k] = false;
+					g_GameState->KeysDown[k] = false;
 				}
 
 				// Track single-frame press (only on PRESS, not REPEAT)
@@ -350,7 +338,7 @@ void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRi
 		}
 
 		if (ev.Type == InputEventType::MouseMove) {
-			if (g_MouseAimEnabled) {
+			if (g_GameState->MouseAimEnabled) {
 				if (g_FirstMouse) {
 					g_LastMouseX = ev.MouseMoveEvent.X;
 					g_LastMouseY = ev.MouseMoveEvent.Y;
@@ -366,14 +354,14 @@ void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRi
 				dy = glm::clamp(dy, -maxDelta, maxDelta);
 
 				// Just accumulate for smoothing (not for ray-casting anymore)
-				g_MouseX += dx;
-				g_MouseY += dy;
+				g_GameState->MouseX += dx;
+				g_GameState->MouseY += dy;
 
 				g_LastMouseX = ev.MouseMoveEvent.X;
 				g_LastMouseY = ev.MouseMoveEvent.Y;
 			} else {
-				g_MouseX = ev.MouseMoveEvent.X;
-				g_MouseY = ev.MouseMoveEvent.Y;
+				g_GameState->MouseX = ev.MouseMoveEvent.X;
+				g_GameState->MouseY = ev.MouseMoveEvent.Y;
 				g_FirstMouse = true;
 			}
 		}

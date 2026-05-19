@@ -5,6 +5,7 @@ add_executable(test_ecs
 target_link_libraries(test_ecs PRIVATE
     CommonHeaders
     glm::glm
+    ecs
 )
 
 target_compile_definitions(test_ecs PRIVATE

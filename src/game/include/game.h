@@ -13,6 +13,11 @@
 #define EXPORT_FN
 #endif
 
+// Bump every time GameState layout changes or any export signature changes.
+// Editor compares against the compiled-in value at load time; mismatch rejects
+// the reload and keeps the previous Game.dll active.
+#define GAME_API_VERSION 3u
+
 #include "Camera.h"
 
 enum class GameStateId : uint32_t {
@@ -38,6 +43,18 @@ struct GameState {
     PerspectiveCamera3D GameCamera {};
     OrthographicCamera2D UICamera {};
     ECS World{};
+
+    // ----- Persistent input state (survives Game.dll reload) -----
+    bool   KeysDown[KEY_LAST + 1] = {};
+    bool   MouseAimEnabled = false;
+    double MouseX = 0.0;
+    double MouseY = 0.0;
+
+    // ----- Persistent game-level settings -----
+    // Entities are identified by component queries (View<>()), not stored handles —
+    // adding new entity types does not require GameState changes.
+    float    DayNightCycleSeconds   = 10.0f;
+    bool     WorldLoaded            = false;
 };
 
 using GameGetVersionFunc = uint32_t(*)();

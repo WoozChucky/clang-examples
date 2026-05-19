@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 4.0.2)
 project(clang_examples LANGUAGES CXX)
 
+# Lock all targets to the same MSVC runtime library so STL containers cross
+# DLL boundaries safely (editor.exe, ecs.dll, game.dll, test_ecs.exe).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+    CACHE STRING "" FORCE)
+
 # Default to Debug on single-config generators
 
 # set version of cpp to C++23
@@ -16,6 +21,9 @@ add_subdirectory(third_party)
 
 # add common headers interface library
 add_subdirectory(src/common)
+
+# ECS shared library (must be configured before game/editor link it)
+add_subdirectory(src/ecs)
 
 # game library
 add_subdirectory(src/game)

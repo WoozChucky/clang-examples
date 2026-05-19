@@ -11,7 +11,8 @@
 
 #include "ApplicationContext.h"
 #include "DotNetPluginManager.h"
-#include <Game.h>
+#include "FileWatch.h"
+#include "GameLibrary.h"
 #include "GLFW/glfw3.h"
 
 class GameThread {
@@ -54,6 +55,9 @@ private:
     void EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir);
 
     std::unique_ptr<DotNetPluginManager> m_PluginManager{nullptr};
+    GameLibrary m_GameLib;
+    std::atomic<bool> m_ReloadPending{false};
+    std::unique_ptr<filewatch::FileWatch<std::string>> m_GameDllWatcher;
 
     std::shared_ptr<ApplicationContext> m_AppContext;
     std::atomic<bool> m_Running;

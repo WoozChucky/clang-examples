@@ -21,6 +21,7 @@
 #include "MaterialLoader.h"
 #include "Timing.h"
 #include "assimp/scene.h"
+#include "WorldManager.h"
 
 using namespace std::chrono_literals;
 
@@ -53,6 +54,42 @@ void GameThread::RunLoop() {
     GameState gameState{};
     gameState.PlatformInput = &m_AppContext->InputRing;
     gameState.Settings = &m_AppContext->Settings;
+
+    // Load default world before any GameUpdate call. Guarded by WorldLoaded so
+    // reload (which doesn't reconstruct GameState) doesn't reload the world.
+    if (!gameState.WorldLoaded) {
+        if (WorldManager::LoadWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, &gameState.World)) {
+            gameState.WorldLoaded = true;
+            SM_TRACE("GameThread: default world loaded from '%s'", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
+        } else {
+            SM_WARN("GameThread: default world '%s' not loaded (file missing or invalid)", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
+        }
+    }
+
+    // Initial load of Game.dll. If it fails, editor still runs without game logic
+    // until the file watcher (installed in T14) picks up a subsequent rebuild.
+    if (!m_GameLib.LoadOrReload("Game.dll", &gameState)) {
+        SM_ERROR("GameThread: initial Game.dll load failed. "
+                 "Editor will run without game logic until Game.dll becomes loadable.");
+    }
+
+    // File watcher: detects Game.dll changes on a background thread.
+    // Callback sets m_ReloadPending; GameThread drains it at the top of each tick.
+    // CWD at runtime is RUNTIME_DIR (set via VS_DEBUGGER_WORKING_DIRECTORY in CMake).
+    try {
+        m_GameDllWatcher = std::make_unique<filewatch::FileWatch<std::string>>(
+            std::string("."),                       // watch CWD = RUNTIME_DIR
+            std::regex(R"(^Game\.dll$)"),           // exact filename match
+            [this](const std::string& /*file*/, const filewatch::Event evt) {
+                if (evt == filewatch::Event::modified ||
+                    evt == filewatch::Event::added) {
+                    m_ReloadPending.store(true, std::memory_order_release);
+                }
+            });
+        SM_TRACE("GameThread: filewatch installed on './Game.dll'");
+    } catch (const std::exception& e) {
+        SM_ERROR("GameThread: filewatch setup failed: %s. Hot-reload disabled.", e.what());
+    }
 
     // Start background worker for model loading
     m_WorkerStop.store(false, std::memory_order_relaxed);
@@ -96,6 +133,16 @@ void GameThread::RunLoop() {
 	frameStats.SampleCount = 0;
 
 	while (Running()) {
+		// Drain reload flag BEFORE input/commands/game logic so the rest of the tick
+		// runs on the new code.
+		if (m_ReloadPending.exchange(false, std::memory_order_acquire)) {
+			ZoneScopedN("Game:Reload");
+			if (m_GameLib.LoadOrReload("Game.dll", &gameState)) {
+				SM_TRACE("GameThread: Game.dll reloaded successfully");
+			}
+			// On failure, GameLibrary already logged and kept the previous module.
+		}
+
 		// Read latest settings from render thread
 		const GameThreadSettings currentSettings = m_AppContext->GameThreadConfig.load();
 
@@ -264,7 +311,9 @@ void GameThread::RunLoop() {
 			gameState.DeltaTime = std::min(actualDt, targetDt * 2.0); // clamp to prevent spiral of death
 		    gameState.GameTime = TimeNowSec();
 
-			GameUpdate(&gameState);
+			if (m_GameLib.IsValid()) {
+                m_GameLib.Update(&gameState);
+            }
 
 			// Update all loaded plugins
 			if (m_PluginManager) {
@@ -327,7 +376,7 @@ void GameThread::RunLoop() {
 		}
 	}
 
-    GameExit(&gameState);
+    m_GameLib.Unload(&gameState);
 
     gameState.World.Clear();
 
