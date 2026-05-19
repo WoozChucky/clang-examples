@@ -21,6 +21,7 @@
 #include "MaterialLoader.h"
 #include "Timing.h"
 #include "assimp/scene.h"
+#include "WorldManager.h"
 
 using namespace std::chrono_literals;
 
@@ -53,6 +54,17 @@ void GameThread::RunLoop() {
     GameState gameState{};
     gameState.PlatformInput = &m_AppContext->InputRing;
     gameState.Settings = &m_AppContext->Settings;
+
+    // Load default world before any GameUpdate call. Guarded by WorldLoaded so
+    // reload (which doesn't reconstruct GameState) doesn't reload the world.
+    if (!gameState.WorldLoaded) {
+        if (WorldManager::LoadWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, &gameState.World)) {
+            gameState.WorldLoaded = true;
+            SM_TRACE("GameThread: default world loaded from '%s'", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
+        } else {
+            SM_WARN("GameThread: default world '%s' not loaded (file missing or invalid)", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
+        }
+    }
 
     // Start background worker for model loading
     m_WorkerStop.store(false, std::memory_order_relaxed);
