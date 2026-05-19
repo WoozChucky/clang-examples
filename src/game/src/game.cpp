@@ -9,7 +9,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include "../../editor/src/utilities/WorldManager.h"
 
 static GameState* g_GameState = nullptr;
 static bool gKeysDown[KEY_LAST + 1] = {};
@@ -68,12 +67,7 @@ void GameUpdate(GameState* state) {
 			SM_TRACE("Added new Entity (%llu)", entityId)
 		}
 
-        if (IsKeyPressedThisFrame(KEY_F10)) {
-            if (WorldManager::LoadWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, &g_GameState->World)) {
-                SM_TRACE("Loaded world snapshot from disk")
-            }
-            return;
-        }
+        // World snapshot load moved to GameThread (T11).
     }
 
     switch (g_GameState->StateId)
