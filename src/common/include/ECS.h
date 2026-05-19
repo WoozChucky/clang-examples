@@ -266,16 +266,7 @@ public:
         return static_cast<const ComponentArray<T>*>(it->second.get());
     }
 
-    void RemoveAllComponents(EntityId entity) {
-        AssertOwnerThread();
-        for (auto& [type, slot] : m_ComponentArrays) {
-            if (!slot->Has(entity)) continue;  // skip arrays that don't hold the entity
-            if (m_DirtyThisTick.insert(type).second) {
-                slot = slot->Clone();          // first write this tick → clone (virtual)
-            }
-            slot->Remove(entity);
-        }
-    }
+    void RemoveAllComponents(EntityId entity);
 
     void Cleanup() {
         m_ComponentArrays.clear();
@@ -308,17 +299,12 @@ public:
      * @brief Copies the array map (shared_ptr refcount bumps) from `other`.
      *        Used by CreateSnapshot. The destination's dirty set is left empty.
      */
-    void CopyArraysFrom(const ComponentStore& other) {
-        m_ComponentArrays = other.m_ComponentArrays;
-    }
+    void CopyArraysFrom(const ComponentStore& other);
 
     /**
      * @brief Resets the master's per-tick dirty set after a snapshot is published.
      */
-    void ClearDirty() {
-        AssertOwnerThread();
-        m_DirtyThisTick.clear();
-    }
+    void ClearDirty();
 
 private:
 #ifndef NDEBUG

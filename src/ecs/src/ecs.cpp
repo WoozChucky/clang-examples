@@ -71,3 +71,25 @@ const T* ComponentStore::GetComponent(EntityId entity) const {
     template ECS_API const T* ComponentStore::GetComponent<T>(EntityId) const;
 ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_INSTANTIATE_COMPONENT_STORE_METHODS)
 #undef ECS_INSTANTIATE_COMPONENT_STORE_METHODS
+
+// ----- ComponentStore non-templated method definitions -----
+
+void ComponentStore::RemoveAllComponents(EntityId entity) {
+    AssertOwnerThread();
+    for (auto& [type, slot] : m_ComponentArrays) {
+        if (!slot->Has(entity)) continue;  // skip arrays that don't hold the entity
+        if (m_DirtyThisTick.insert(type).second) {
+            slot = slot->Clone();          // first write this tick → clone (virtual)
+        }
+        slot->Remove(entity);
+    }
+}
+
+void ComponentStore::CopyArraysFrom(const ComponentStore& other) {
+    m_ComponentArrays = other.m_ComponentArrays;
+}
+
+void ComponentStore::ClearDirty() {
+    AssertOwnerThread();
+    m_DirtyThisTick.clear();
+}
