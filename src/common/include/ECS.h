@@ -386,17 +386,14 @@ private:
 //                           ECS World (Main API)
 // #############################################################################
 
-class ECS {
+class ECS_API ECS {
 public:
     // Entity management
     EntityId CreateEntity() {
         return m_EntityStore.CreateEntity();
     }
 
-    void DestroyEntity(const EntityId entity) {
-        m_ComponentStore.RemoveAllComponents(entity);
-        m_EntityStore.DestroyEntity(entity);
-    }
+    void DestroyEntity(EntityId entity);
 
     [[nodiscard]] bool IsValidEntity(const EntityId entity) const {
         return m_EntityStore.IsValid(entity);
@@ -412,24 +409,16 @@ public:
 
     // Component management
     template<typename T>
-    void AddComponent(const EntityId entity, T component) {
-        m_ComponentStore.AddComponent<T>(entity, component);
-    }
+    void AddComponent(EntityId entity, T component);
 
     template<typename T>
-    void RemoveComponent(const EntityId entity) {
-        m_ComponentStore.RemoveComponent<T>(entity);
-    }
+    void RemoveComponent(EntityId entity);
 
     template<typename T>
-    const T* GetComponent(const EntityId entity) const {
-        return m_ComponentStore.GetComponent<T>(entity);
-    }
+    const T* GetComponent(EntityId entity) const;
 
     template<typename T>
-    [[nodiscard]] bool HasComponent(const EntityId entity) const {
-        return m_ComponentStore.HasComponent<T>(entity);
-    }
+    [[nodiscard]] bool HasComponent(EntityId entity) const;
 
     // Multi-component queries
     template<typename... Components>
@@ -488,9 +477,7 @@ public:
      * @cow Triggers a clone on first call per tick.
      */
     template<typename T>
-    ComponentArray<T>& MutateArray() {
-        return m_ComponentStore.MutateArray<T>();
-    }
+    ComponentArray<T>& MutateArray();
 
     /**
      * @brief Bulk-read access. Use for systems iterating one component type densely.
@@ -498,14 +485,9 @@ public:
      * @snapshot Safe through a snapshot reference; immutable for snapshot lifetime.
      */
     template<typename T>
-    const ComponentArray<T>* GetArray() const {
-        return m_ComponentStore.GetArray<T>();
-    }
+    const ComponentArray<T>* GetArray() const;
 
-    void Clear() {
-        m_EntityStore.Clear();
-        m_ComponentStore.Cleanup();
-    }
+    void Clear();
 
     /**
      * @brief Publishes an immutable snapshot of the world for cross-thread reads.
@@ -518,18 +500,26 @@ public:
      * @threading GameThread only (single-writer rule).
      * @snapshot The returned ECS exposes only const accessors.
      */
-    [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot() {
-        auto snap = std::make_shared<ECS>();
-        snap->m_EntityStore = m_EntityStore;                     // value copy
-        snap->m_ComponentStore.CopyArraysFrom(m_ComponentStore); // shallow shared_ptr copy
-        m_ComponentStore.ClearDirty();
-        return snap;
-    }
+    [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot();
 
 private:
     EntityStore m_EntityStore;
     ComponentStore m_ComponentStore;
 };
+
+// Per-T extern template declarations for ECS methods. Guarded with ECS_EXPORTS
+// so ecs.dll's own TU doesn't see them (provides definitions instead).
+#ifndef ECS_EXPORTS
+#define ECS_EXTERN_ECS_METHODS(T) \
+    extern template ECS_API void ECS::AddComponent<T>(EntityId, T); \
+    extern template ECS_API void ECS::RemoveComponent<T>(EntityId); \
+    extern template ECS_API bool ECS::HasComponent<T>(EntityId) const; \
+    extern template ECS_API const T* ECS::GetComponent<T>(EntityId) const; \
+    extern template ECS_API const ComponentArray<T>* ECS::GetArray<T>() const; \
+    extern template ECS_API ComponentArray<T>& ECS::MutateArray<T>();
+ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_EXTERN_ECS_METHODS)
+#undef ECS_EXTERN_ECS_METHODS
+#endif
 
 // #############################################################################
 //                           Example Usage (in comments)

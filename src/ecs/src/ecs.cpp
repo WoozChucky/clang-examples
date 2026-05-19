@@ -72,6 +72,70 @@ const T* ComponentStore::GetComponent(EntityId entity) const {
 ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_INSTANTIATE_COMPONENT_STORE_METHODS)
 #undef ECS_INSTANTIATE_COMPONENT_STORE_METHODS
 
+// ----- ECS templated method definitions -----
+
+template<typename T>
+void ECS::AddComponent(EntityId entity, T component) {
+    m_ComponentStore.AddComponent<T>(entity, component);
+}
+
+template<typename T>
+void ECS::RemoveComponent(EntityId entity) {
+    m_ComponentStore.RemoveComponent<T>(entity);
+}
+
+template<typename T>
+bool ECS::HasComponent(EntityId entity) const {
+    return m_ComponentStore.HasComponent<T>(entity);
+}
+
+template<typename T>
+const T* ECS::GetComponent(EntityId entity) const {
+    return m_ComponentStore.GetComponent<T>(entity);
+}
+
+template<typename T>
+const ComponentArray<T>* ECS::GetArray() const {
+    return m_ComponentStore.GetArray<T>();
+}
+
+template<typename T>
+ComponentArray<T>& ECS::MutateArray() {
+    return m_ComponentStore.MutateArray<T>();
+}
+
+// ----- ECS non-templated method definitions -----
+
+void ECS::DestroyEntity(EntityId entity) {
+    m_ComponentStore.RemoveAllComponents(entity);
+    m_EntityStore.DestroyEntity(entity);
+}
+
+std::shared_ptr<const ECS> ECS::CreateSnapshot() {
+    auto snap = std::make_shared<ECS>();
+    snap->m_EntityStore = m_EntityStore;                     // value copy
+    snap->m_ComponentStore.CopyArraysFrom(m_ComponentStore); // shallow shared_ptr copy
+    m_ComponentStore.ClearDirty();
+    return snap;
+}
+
+void ECS::Clear() {
+    m_EntityStore.Clear();
+    m_ComponentStore.Cleanup();
+}
+
+// ----- ECS templated method explicit instantiations per registered T -----
+
+#define ECS_INSTANTIATE_ECS_METHODS(T) \
+    template ECS_API void ECS::AddComponent<T>(EntityId, T); \
+    template ECS_API void ECS::RemoveComponent<T>(EntityId); \
+    template ECS_API bool ECS::HasComponent<T>(EntityId) const; \
+    template ECS_API const T* ECS::GetComponent<T>(EntityId) const; \
+    template ECS_API const ComponentArray<T>* ECS::GetArray<T>() const; \
+    template ECS_API ComponentArray<T>& ECS::MutateArray<T>();
+ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_INSTANTIATE_ECS_METHODS)
+#undef ECS_INSTANTIATE_ECS_METHODS
+
 // ----- ComponentStore non-templated method definitions -----
 
 void ComponentStore::RemoveAllComponents(EntityId entity) {
