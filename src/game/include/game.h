@@ -43,6 +43,18 @@ struct GameState {
     PerspectiveCamera3D GameCamera {};
     OrthographicCamera2D UICamera {};
     ECS World{};
+
+    // ----- Persistent input state (survives Game.dll reload) -----
+    bool   KeysDown[KEY_LAST + 1] = {};
+    bool   MouseAimEnabled = false;
+    double MouseX = 0.0;
+    double MouseY = 0.0;
+
+    // ----- Persistent game-level entity handles & settings -----
+    EntityId TextEntity             = INVALID_ENTITY;
+    EntityId DirectionalLightEntity = INVALID_ENTITY;
+    float    DayNightCycleSeconds   = 10.0f;
+    bool     WorldLoaded            = false;
 };
 
 using GameGetVersionFunc = uint32_t(*)();

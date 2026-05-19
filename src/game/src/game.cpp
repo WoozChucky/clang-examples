@@ -11,14 +11,8 @@
 
 
 static GameState* g_GameState = nullptr;
-static bool gKeysDown[KEY_LAST + 1] = {};
 static bool gKeysPressedThisFrame[KEY_LAST + 1] = {}; // NEW: Track single-frame presses
 static int32_t gMouseWheel = 0;
-static bool   g_MouseAimEnabled = false;        // toggled by T
-static double g_MouseX = 0.0, g_MouseY = 0.0;   // last mouse position in window coords
-static uint64_t textEntityId = 0;
-static float g_DayNightCycleSeconds = 10.0f; // configurable day-night cycle duration
-static EntityId g_DirectionalLightEntity = INVALID_ENTITY; // Track the created directional light
 
 using namespace Input;
 
@@ -35,7 +29,7 @@ inline bool IsKeyPressedThisFrame(int key) {
 // Helper function to check if key is currently held down
 inline bool IsKeyDown(int key) {
     if (key < 0 || key > KEY_LAST) return false;
-    return gKeysDown[key];
+    return g_GameState->KeysDown[key];
 }
 
 uint32_t GameGetVersion() {
@@ -77,25 +71,28 @@ void GameUpdate(GameState* state) {
             g_GameState->StateId = GameStateId::MainMenu;
 	        g_GameState->GameCamera.position = glm::vec3(0.0f, 5.0f, 10.0f);
 
-	        textEntityId = g_GameState->World.CreateEntity();
-	        auto transform = TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-	        auto text = TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48};
-	        g_GameState->World.AddComponent(textEntityId, transform);
-	        g_GameState->World.AddComponent(textEntityId, text);
+	        if (g_GameState->TextEntity == INVALID_ENTITY) {
+	            g_GameState->TextEntity = g_GameState->World.CreateEntity();
+	            auto transform = TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+	            auto text = TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48};
+	            g_GameState->World.AddComponent(g_GameState->TextEntity, transform);
+	            g_GameState->World.AddComponent(g_GameState->TextEntity, text);
+	        }
 
-             auto directionalLightningEntity = g_GameState->World.CreateEntity();
-             auto lightning = LightningComponent{
-                .Type = LightningType::Directional,
-                // Start from a diagonal pointing from (-X, -Z) towards the scene with a downward Y
-                // This sets the initial sun direction to bottom-left on screen
-                .Direction = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 0.0f),
-                // Mimic the sunlight color
-                .Color = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f)
-             };
-             auto lightningTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-             g_GameState->World.AddComponent(directionalLightningEntity, lightningTransform);
-             g_GameState->World.AddComponent(directionalLightningEntity, lightning);
-             // g_DirectionalLightEntity = directionalLightningEntity;
+             if (g_GameState->DirectionalLightEntity == INVALID_ENTITY) {
+                 g_GameState->DirectionalLightEntity = g_GameState->World.CreateEntity();
+                 auto lightning = LightningComponent{
+                    .Type = LightningType::Directional,
+                    // Start from a diagonal pointing from (-X, -Z) towards the scene with a downward Y
+                    // This sets the initial sun direction to bottom-left on screen
+                    .Direction = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 0.0f),
+                    // Mimic the sunlight color
+                    .Color = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f)
+                 };
+                 auto lightningTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
+                 g_GameState->World.AddComponent(g_GameState->DirectionalLightEntity, lightningTransform);
+                 g_GameState->World.AddComponent(g_GameState->DirectionalLightEntity, lightning);
+             }
 
 	        auto pointLightEntity = g_GameState->World.CreateEntity();
             auto pointLight = LightningComponent{
@@ -111,11 +108,11 @@ void GameUpdate(GameState* state) {
 	        break;
 	    }
         case GameStateId::MainMenu: {
-            g_GameState->World.Modify<TransformComponent>(textEntityId, [&](auto& transform) {
+            g_GameState->World.Modify<TransformComponent>(g_GameState->TextEntity, [&](auto& transform) {
                 transform.Rotation.z += glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime);
             });
 
-            g_GameState->World.Modify<TextComponent>(textEntityId, [&](auto& text) {
+            g_GameState->World.Modify<TextComponent>(g_GameState->TextEntity, [&](auto& text) {
                 const auto time = static_cast<float>(g_GameState->DeltaTime);
                 const float red = (sinf(time) + 1.0f) / 2.0f;
                 const float green = (cosf(g_GameState->GameTime) + 1.0f) / 2.0f;
@@ -123,11 +120,11 @@ void GameUpdate(GameState* state) {
                 text.Color = glm::vec4(red, green, blue, 1.0f);
             });
 
-            if (g_DirectionalLightEntity != INVALID_ENTITY) {
-                g_GameState->World.Modify<LightningComponent>(g_DirectionalLightEntity, [&](auto& l) {
+            if (g_GameState->DirectionalLightEntity != INVALID_ENTITY) {
+                g_GameState->World.Modify<LightningComponent>(g_GameState->DirectionalLightEntity, [&](auto& l) {
                     if (l.Type != LightningType::Directional) return;
 
-                    const float cycle = glm::max(g_DayNightCycleSeconds, 0.001f);
+                    const float cycle = glm::max(g_GameState->DayNightCycleSeconds, 0.001f);
                     const double gameTime = g_GameState->GameTime; // seconds
                     const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
                     const float theta = phase * 6.28318530718f; // 2*pi
@@ -247,33 +244,33 @@ void HandleCameraMovement(GameState* state)
 
 	// Toggle mouse aim - use IsKeyPressedThisFrame for toggle action
 	if (IsKeyPressedThisFrame(KEY_T)) {
-		g_MouseAimEnabled = !g_MouseAimEnabled;
+		g_GameState->MouseAimEnabled = !g_GameState->MouseAimEnabled;
 
-		if (g_MouseAimEnabled) {
+		if (g_GameState->MouseAimEnabled) {
 			// Reset virtual cursor to center when enabling mouse aim
-			g_MouseX = state->Settings->windowWidth / 2.0;
-			g_MouseY = state->Settings->windowHeight / 2.0;
+			g_GameState->MouseX = state->Settings->windowWidth / 2.0;
+			g_GameState->MouseY = state->Settings->windowHeight / 2.0;
 		}
 
-		SM_TRACE("[GAMEDLL] Mouse Aim %s", g_MouseAimEnabled ? "Enabled" : "Disabled")
+		SM_TRACE("[GAMEDLL] Mouse Aim %s", g_GameState->MouseAimEnabled ? "Enabled" : "Disabled")
 	}
 
 	HandleFreeLook(state);
 }
 
 void HandleFreeLook(GameState* state) {
-	if (!g_MouseAimEnabled) return;
+	if (!g_GameState->MouseAimEnabled) return;
 
 	static double lastMouseX = state->Settings->windowWidth / 2.0;
 	static double lastMouseY = state->Settings->windowHeight / 2.0;
 
 	// Compute delta from last frame
-	const double dx = g_MouseX - lastMouseX;
-	const double dy = g_MouseY - lastMouseY;
+	const double dx = g_GameState->MouseX - lastMouseX;
+	const double dy = g_GameState->MouseY - lastMouseY;
 
 	// Update last position
-	lastMouseX = g_MouseX;
-	lastMouseY = g_MouseY;
+	lastMouseX = g_GameState->MouseX;
+	lastMouseY = g_GameState->MouseY;
 
 	// Mouse sensitivity (adjust to taste)
 	constexpr float sensitivity = 0.002f; // radians per pixel
@@ -304,7 +301,6 @@ void GameExit(GameState* state) {
     {
         g_GameState->World.Clear();
         g_GameState = nullptr;
-        g_DirectionalLightEntity = INVALID_ENTITY;
     }
     SM_TRACE("[GAMEDLL] GameExit")
 }
@@ -329,10 +325,10 @@ void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRi
 			if (k >= 0 && k <= KEY_LAST) {
 				// Track key down state (for continuous checks like movement)
 				if (ev.KeyEvent.Action == PRESS || ev.KeyEvent.Action == REPEAT) {
-					gKeysDown[k] = true;
+					g_GameState->KeysDown[k] = true;
 				}
 				if (ev.KeyEvent.Action == RELEASE) {
-					gKeysDown[k] = false;
+					g_GameState->KeysDown[k] = false;
 				}
 
 				// Track single-frame press (only on PRESS, not REPEAT)
@@ -343,7 +339,7 @@ void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRi
 		}
 
 		if (ev.Type == InputEventType::MouseMove) {
-			if (g_MouseAimEnabled) {
+			if (g_GameState->MouseAimEnabled) {
 				if (g_FirstMouse) {
 					g_LastMouseX = ev.MouseMoveEvent.X;
 					g_LastMouseY = ev.MouseMoveEvent.Y;
@@ -359,14 +355,14 @@ void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRi
 				dy = glm::clamp(dy, -maxDelta, maxDelta);
 
 				// Just accumulate for smoothing (not for ray-casting anymore)
-				g_MouseX += dx;
-				g_MouseY += dy;
+				g_GameState->MouseX += dx;
+				g_GameState->MouseY += dy;
 
 				g_LastMouseX = ev.MouseMoveEvent.X;
 				g_LastMouseY = ev.MouseMoveEvent.Y;
 			} else {
-				g_MouseX = ev.MouseMoveEvent.X;
-				g_MouseY = ev.MouseMoveEvent.Y;
+				g_GameState->MouseX = ev.MouseMoveEvent.X;
+				g_GameState->MouseY = ev.MouseMoveEvent.Y;
 				g_FirstMouse = true;
 			}
 		}
