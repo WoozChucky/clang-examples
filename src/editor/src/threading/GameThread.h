@@ -11,6 +11,7 @@
 
 #include "ApplicationContext.h"
 #include "DotNetPluginManager.h"
+#include "FileWatch.h"
 #include "GameLibrary.h"
 #include "GLFW/glfw3.h"
 
@@ -55,6 +56,8 @@ private:
 
     std::unique_ptr<DotNetPluginManager> m_PluginManager{nullptr};
     GameLibrary m_GameLib;
+    std::atomic<bool> m_ReloadPending{false};
+    std::unique_ptr<filewatch::FileWatch<std::string>> m_GameDllWatcher;
 
     std::shared_ptr<ApplicationContext> m_AppContext;
     std::atomic<bool> m_Running;

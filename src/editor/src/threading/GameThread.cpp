@@ -73,6 +73,24 @@ void GameThread::RunLoop() {
                  "Editor will run without game logic until Game.dll becomes loadable.");
     }
 
+    // File watcher: detects Game.dll changes on a background thread.
+    // Callback sets m_ReloadPending; GameThread drains it at the top of each tick.
+    // CWD at runtime is RUNTIME_DIR (set via VS_DEBUGGER_WORKING_DIRECTORY in CMake).
+    try {
+        m_GameDllWatcher = std::make_unique<filewatch::FileWatch<std::string>>(
+            std::string("."),                       // watch CWD = RUNTIME_DIR
+            std::regex(R"(^Game\.dll$)"),           // exact filename match
+            [this](const std::string& /*file*/, const filewatch::Event evt) {
+                if (evt == filewatch::Event::modified ||
+                    evt == filewatch::Event::added) {
+                    m_ReloadPending.store(true, std::memory_order_release);
+                }
+            });
+        SM_TRACE("GameThread: filewatch installed on './Game.dll'");
+    } catch (const std::exception& e) {
+        SM_ERROR("GameThread: filewatch setup failed: %s. Hot-reload disabled.", e.what());
+    }
+
     // Start background worker for model loading
     m_WorkerStop.store(false, std::memory_order_relaxed);
     m_Worker = std::thread(&GameThread::WorkerThreadFunc, this);
@@ -115,6 +133,16 @@ void GameThread::RunLoop() {
 	frameStats.SampleCount = 0;
 
 	while (Running()) {
+		// Drain reload flag BEFORE input/commands/game logic so the rest of the tick
+		// runs on the new code.
+		if (m_ReloadPending.exchange(false, std::memory_order_acquire)) {
+			ZoneScopedN("Game:Reload");
+			if (m_GameLib.LoadOrReload("Game.dll", &gameState)) {
+				SM_TRACE("GameThread: Game.dll reloaded successfully");
+			}
+			// On failure, GameLibrary already logged and kept the previous module.
+		}
+
 		// Read latest settings from render thread
 		const GameThreadSettings currentSettings = m_AppContext->GameThreadConfig.load();
 
