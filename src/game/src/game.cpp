@@ -39,8 +39,7 @@ inline bool IsKeyDown(int key) {
 }
 
 uint32_t GameGetVersion() {
-    SM_TRACE("[GAMEDLL] GameGetVersion");
-    return 0;
+    return GAME_API_VERSION;
 }
 
 void GameUpdate(GameState* state) {

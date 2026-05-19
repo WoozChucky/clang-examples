@@ -13,6 +13,11 @@
 #define EXPORT_FN
 #endif
 
+// Bump every time GameState layout changes or any export signature changes.
+// Editor compares against the compiled-in value at load time; mismatch rejects
+// the reload and keeps the previous Game.dll active.
+#define GAME_API_VERSION 1u
+
 #include "Camera.h"
 
 enum class GameStateId : uint32_t {
