@@ -22,6 +22,9 @@ add_subdirectory(third_party)
 # add common headers interface library
 add_subdirectory(src/common)
 
+# ECS shared library (must be configured before game/editor link it)
+add_subdirectory(src/ecs)
+
 # game library
 add_subdirectory(src/game)
 
