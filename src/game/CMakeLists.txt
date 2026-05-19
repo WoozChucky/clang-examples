@@ -45,7 +45,7 @@ add_library(game STATIC
 
 target_include_directories(game PUBLIC include)
 
-target_link_libraries(game PRIVATE glm::glm CommonHeaders)
+target_link_libraries(game PRIVATE glm::glm CommonHeaders ecs)
 
 target_compile_definitions(game PRIVATE ${GLM_DEFINES})
 

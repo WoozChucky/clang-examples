@@ -74,7 +74,7 @@ elseif(ENABLE_ALLOC_TRACKER STREQUAL "AUTO")
     # target_compile_definitions(editor PRIVATE $<$<CONFIG:Debug>:ALLOC_TRACKER_ENABLED>)
 endif()
 
-target_link_libraries(editor PRIVATE CommonHeaders GameHeaders freetype Tracy::TracyClient glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi dxcompiler nvrhi_vk imgui ImGuizmo assimp::assimp nlohmann_json::nlohmann_json game)
+target_link_libraries(editor PRIVATE CommonHeaders GameHeaders ecs freetype Tracy::TracyClient glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi dxcompiler nvrhi_vk imgui ImGuizmo assimp::assimp nlohmann_json::nlohmann_json game)
 if (TARGET Vulkan-Headers)
     target_link_libraries(editor PRIVATE Vulkan-Headers)
 elseif (TARGET Vulkan::Headers)

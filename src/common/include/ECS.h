@@ -131,7 +131,7 @@ public:
 };
 
 template<typename T>
-class ComponentArray final : public IComponentArray {
+class ECS_API ComponentArray final : public IComponentArray {
 public:
     void Add(const EntityId entity, T component) {
         if (m_EntityToIndex.contains(entity)) {
@@ -212,6 +212,18 @@ private:
     std::unordered_map<EntityId, size_t> m_EntityToIndex;
     std::vector<EntityId> m_IndexToEntity;
 };
+
+// Declare that ComponentArray<T> is instantiated elsewhere (in ecs.dll's TU).
+// Prevents per-TU local instantiation in editor.exe, game.dll, test_ecs.exe;
+// they link against ecs.dll's exported copy.
+// Suppressed in ecs.dll's own TU (ECS_EXPORTS defined) because the explicit
+// instantiation definitions below take precedence and MSVC warns on the
+// combination of dllexport + extern on an instantiation (C4910).
+#ifndef ECS_EXPORTS
+#define ECS_EXTERN_TEMPLATE_DECL(T) extern template class ECS_API ComponentArray<T>;
+ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_EXTERN_TEMPLATE_DECL)
+#undef ECS_EXTERN_TEMPLATE_DECL
+#endif
 
 // #############################################################################
 //                           Component Store (Type registry)
