@@ -16,6 +16,21 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+// Cross-DLL export annotation. Defined as dllexport in ecs.dll's TU,
+// dllimport everywhere else. Allow override (defining ECS_API empty
+// externally) for static testing scenarios.
+#ifndef ECS_API
+  #ifdef _WIN32
+    #ifdef ECS_EXPORTS
+      #define ECS_API __declspec(dllexport)
+    #else
+      #define ECS_API __declspec(dllimport)
+    #endif
+  #else
+    #define ECS_API
+  #endif
+#endif
+
 // #############################################################################
 //                           Entity & Component IDs
 // #############################################################################
@@ -82,6 +97,19 @@ struct ParentComponent {
 struct ChildComponent {
     std::unordered_set<EntityId> Children;
 };
+
+// X-macro: single source of truth for the set of component types that get
+// explicit template instantiations in ecs.dll. Adding a new component type
+// requires (1) declaring the struct above, (2) adding an X(NewType) line here,
+// (3) registering in ECSCommandProcessor in ApplicationContext.h.
+#define ECS_FOR_EACH_REGISTERED_COMPONENT(X) \
+    X(TransformComponent) \
+    X(MeshComponent) \
+    X(MaterialComponent) \
+    X(TextComponent) \
+    X(LightningComponent) \
+    X(ParentComponent) \
+    X(ChildComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)
