@@ -9,6 +9,7 @@ add_executable(editor
     src/threading/PlatformThread.cpp
     src/threading/GameThread.cpp
     src/threading/RenderThread.cpp
+    src/threading/GameLibrary.cpp
     
     # Rendering
     src/rendering/Renderer.cpp
