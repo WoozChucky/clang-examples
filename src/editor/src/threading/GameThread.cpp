@@ -66,6 +66,13 @@ void GameThread::RunLoop() {
         }
     }
 
+    // Initial load of Game.dll. If it fails, editor still runs without game logic
+    // until the file watcher (installed in T14) picks up a subsequent rebuild.
+    if (!m_GameLib.LoadOrReload("Game.dll", &gameState)) {
+        SM_ERROR("GameThread: initial Game.dll load failed. "
+                 "Editor will run without game logic until Game.dll becomes loadable.");
+    }
+
     // Start background worker for model loading
     m_WorkerStop.store(false, std::memory_order_relaxed);
     m_Worker = std::thread(&GameThread::WorkerThreadFunc, this);
@@ -276,7 +283,9 @@ void GameThread::RunLoop() {
 			gameState.DeltaTime = std::min(actualDt, targetDt * 2.0); // clamp to prevent spiral of death
 		    gameState.GameTime = TimeNowSec();
 
-			GameUpdate(&gameState);
+			if (m_GameLib.IsValid()) {
+                m_GameLib.Update(&gameState);
+            }
 
 			// Update all loaded plugins
 			if (m_PluginManager) {
@@ -339,7 +348,7 @@ void GameThread::RunLoop() {
 		}
 	}
 
-    GameExit(&gameState);
+    m_GameLib.Unload(&gameState);
 
     gameState.World.Clear();
 
