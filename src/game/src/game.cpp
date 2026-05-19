@@ -59,8 +59,6 @@ void GameUpdate(GameState* state) {
 			const auto entityId = g_GameState->World.CreateEntity();
 			SM_TRACE("Added new Entity (%llu)", entityId)
 		}
-
-        // World snapshot load moved to GameThread (T11).
     }
 
     switch (g_GameState->StateId)
@@ -71,57 +69,58 @@ void GameUpdate(GameState* state) {
             g_GameState->StateId = GameStateId::MainMenu;
 	        g_GameState->GameCamera.position = glm::vec3(0.0f, 5.0f, 10.0f);
 
-	        if (g_GameState->TextEntity == INVALID_ENTITY) {
-	            g_GameState->TextEntity = g_GameState->World.CreateEntity();
-	            auto transform = TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-	            auto text = TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48};
-	            g_GameState->World.AddComponent(g_GameState->TextEntity, transform);
-	            g_GameState->World.AddComponent(g_GameState->TextEntity, text);
+	        // World loaded from world.json is authoritative — skip default spawns
+	        // to prevent duplicates. Defaults exist only as a Unity-like fallback
+	        // scene when no world is present.
+	        if (!g_GameState->WorldLoaded) {
+	            SM_TRACE("[GAMEDLL] No world loaded — spawning default scene")
+
+	            const auto textEntity = g_GameState->World.CreateEntity();
+	            g_GameState->World.AddComponent(textEntity, TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+	            g_GameState->World.AddComponent(textEntity, TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48});
+
+	            const auto sun = g_GameState->World.CreateEntity();
+	            g_GameState->World.AddComponent(sun, TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+	            g_GameState->World.AddComponent(sun, LightningComponent{
+	                .Type = LightningType::Directional,
+	                .Direction = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 0.0f),
+	                .Color = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f)
+	            });
+	            g_GameState->World.AddComponent(sun, SunMarker{});
+
+	            const auto pointLight = g_GameState->World.CreateEntity();
+	            g_GameState->World.AddComponent(pointLight, TransformComponent{.Position = glm::vec3{0.f, 4.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+	            g_GameState->World.AddComponent(pointLight, LightningComponent{
+	                .Type = LightningType::Point,
+	                .Color = glm::vec4(1.0f, 0.8f, 0.6f, 1.0f),
+	                .Intensity = 1.0f,
+	                .Range = 3.0f
+	            });
 	        }
-
-             if (g_GameState->DirectionalLightEntity == INVALID_ENTITY) {
-                 g_GameState->DirectionalLightEntity = g_GameState->World.CreateEntity();
-                 auto lightning = LightningComponent{
-                    .Type = LightningType::Directional,
-                    // Start from a diagonal pointing from (-X, -Z) towards the scene with a downward Y
-                    // This sets the initial sun direction to bottom-left on screen
-                    .Direction = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 0.0f),
-                    // Mimic the sunlight color
-                    .Color = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f)
-                 };
-                 auto lightningTransform = TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-                 g_GameState->World.AddComponent(g_GameState->DirectionalLightEntity, lightningTransform);
-                 g_GameState->World.AddComponent(g_GameState->DirectionalLightEntity, lightning);
-             }
-
-	        auto pointLightEntity = g_GameState->World.CreateEntity();
-            auto pointLight = LightningComponent{
-                .Type = LightningType::Point,
-                .Color = glm::vec4(1.0f, 0.8f, 0.6f, 1.0f),
-                .Intensity = 1.0f,
-                .Range = 3.0f
-            };
-            auto pointLightTransform = TransformComponent{.Position = glm::vec3{0.f, 4.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}};
-            g_GameState->World.AddComponent(pointLightEntity, pointLightTransform);
-            g_GameState->World.AddComponent(pointLightEntity, pointLight);
 
 	        break;
 	    }
         case GameStateId::MainMenu: {
-            g_GameState->World.Modify<TransformComponent>(g_GameState->TextEntity, [&](auto& transform) {
-                transform.Rotation.z += glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime);
-            });
+            // Rotate every text entity + cycle its color. Identity is by component, not handle.
+            for (EntityId e : g_GameState->World.View<TextComponent, TransformComponent>()) {
+                g_GameState->World.Modify<TransformComponent>(e, [&](auto& transform) {
+                    constexpr float TWO_PI = 6.28318530718f;
+                    transform.Rotation.z = fmodf(
+                        transform.Rotation.z + glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime),
+                        TWO_PI);
+                });
+                g_GameState->World.Modify<TextComponent>(e, [&](auto& text) {
+                    const auto time = static_cast<float>(g_GameState->DeltaTime);
+                    const float red = (sinf(time) + 1.0f) / 2.0f;
+                    const float green = (cosf(g_GameState->GameTime) + 1.0f) / 2.0f;
+                    const float blue = 1.0f - red;
+                    text.Color = glm::vec4(red, green, blue, 1.0f);
+                });
+            }
 
-            g_GameState->World.Modify<TextComponent>(g_GameState->TextEntity, [&](auto& text) {
-                const auto time = static_cast<float>(g_GameState->DeltaTime);
-                const float red = (sinf(time) + 1.0f) / 2.0f;
-                const float green = (cosf(g_GameState->GameTime) + 1.0f) / 2.0f;
-                const float blue = 1.0f - red;
-                text.Color = glm::vec4(red, green, blue, 1.0f);
-            });
-
-            if (g_GameState->DirectionalLightEntity != INVALID_ENTITY) {
-                g_GameState->World.Modify<LightningComponent>(g_GameState->DirectionalLightEntity, [&](auto& l) {
+            // Day/night cycle drives entities tagged with SunMarker (singleton role).
+            for (EntityId sun : g_GameState->World.View<SunMarker, LightningComponent>()) {
+                g_GameState->World.Modify<LightningComponent>(sun, [&](auto& l) {
                     if (l.Type != LightningType::Directional) return;
 
                     const float cycle = glm::max(g_GameState->DayNightCycleSeconds, 0.001f);
@@ -297,9 +296,9 @@ void GameResize(uint32_t width, uint32_t height) {
 }
 
 void GameExit(GameState* state) {
-    if (state && g_GameState == state)
-    {
-        g_GameState->World.Clear();
+    // Called on every reload AND on shutdown — keep benign.
+    // World is editor-owned and must survive reload.
+    if (state && g_GameState == state) {
         g_GameState = nullptr;
     }
     SM_TRACE("[GAMEDLL] GameExit")

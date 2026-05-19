@@ -619,6 +619,15 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                         }
                     }
 
+                    if (!worldSnapshot->HasComponent<SunMarker>(entity)) {
+                        if (ImGui::MenuItem("Add Sun Marker")) {
+                            ECSCommand addCmd = ECSCommand::AddComponent(entity, SunMarker{});
+                            if (!m_AppContext->ECSCommandRing.Push(addCmd)) {
+                                SM_WARN("ECS command queue full! Add component command dropped.");
+                            }
+                        }
+                    }
+
                     ImGui::Separator();
 
                     // Remove component options
@@ -667,6 +676,15 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                         }
                     }
 
+                    if (worldSnapshot->HasComponent<SunMarker>(entity)) {
+                        if (ImGui::MenuItem("Remove Sun Marker")) {
+                            ECSCommand removeCmd = ECSCommand::RemoveComponent<SunMarker>(entity);
+                            if (!m_AppContext->ECSCommandRing.Push(removeCmd)) {
+                                SM_WARN("ECS command queue full! Remove component command dropped.");
+                            }
+                        }
+                    }
+
                     ImGui::EndPopup();
                 }
 
@@ -688,14 +706,19 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                             // Create mutable copy for editing
                             static TransformComponent editTransform{};
                             static EntityId lastEditedEntity = INVALID_ENTITY;
+                            static bool modified = false;
 
                             // Reset when switching entities
                             if (lastEditedEntity != selectedEntity) {
                                 editTransform = *transform;
                                 lastEditedEntity = selectedEntity;
+                                modified = false;
                             }
-
-                            static bool modified = false;
+                            // Live-refresh from snapshot every frame while not editing,
+                            // so game-driven mutations (e.g. day/night) show up in inspector.
+                            if (!modified) {
+                                editTransform = *transform;
+                            }
 
                             // Position editor
                             ImGui::Text("Position:");
@@ -810,12 +833,17 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                             // Create mutable copy for editing
                             static LightningComponent editLightning{};
                             static EntityId lastEditedLightningEntity = INVALID_ENTITY;
+                            static bool modified = false;
                             // Reset when switching entities
                             if (lastEditedLightningEntity != selectedEntity) {
                                 editLightning = *lightning;
                                 lastEditedLightningEntity = selectedEntity;
+                                modified = false;
                             }
-                            static bool modified = false;
+                            // Live-refresh while not editing — exposes day/night cycle changes.
+                            if (!modified) {
+                                editLightning = *lightning;
+                            }
                             // Type editor
                             const char* types[] = { "Directional", "Point", "Spot" };
                             int currentType = static_cast<int>(editLightning.Type);
@@ -864,14 +892,17 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                             // Create mutable copy for editing
                             static MeshComponent editMesh{};
                             static EntityId lastEditedMeshEntity = INVALID_ENTITY;
+                            static bool modified = false;
 
                             // Reset when switching entities
                             if (lastEditedMeshEntity != selectedEntity) {
                                 editMesh = *mesh;
                                 lastEditedMeshEntity = selectedEntity;
+                                modified = false;
                             }
-
-                            static bool modified = false;
+                            if (!modified) {
+                                editMesh = *mesh;
+                            }
 
                             // Mesh ID editor with dropdown
                             if (m_MeshSystem) {
@@ -945,15 +976,51 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                             // Create mutable copy for editing
                             static MaterialComponent editMaterial{};
                             static EntityId lastEditedMaterialEntity = INVALID_ENTITY;
+                            static bool modified = false;
                             // Reset when switching entities
                             if (lastEditedMaterialEntity != selectedEntity) {
                                 editMaterial = *material;
                                 lastEditedMaterialEntity = selectedEntity;
+                                modified = false;
                             }
-                            static bool modified = false;
-                            // Material ID editor
-                            if (ImGui::InputScalar("Material ID", ImGuiDataType_U32, &editMaterial.MaterialId)) {
-                                modified = true;
+                            if (!modified) {
+                                editMaterial = *material;
+                            }
+                            // Material ID editor — dropdown over MaterialSystem entries.
+                            if (m_MaterialSystem) {
+                                const uint32_t materialCount = m_MaterialSystem->GetMaterialCount();
+                                if (materialCount > 0) {
+                                    std::vector<std::string> materialItems;
+                                    materialItems.reserve(materialCount);
+                                    for (uint32_t i = 0; i < materialCount; ++i) {
+                                        materialItems.push_back("Material " + std::to_string(i));
+                                    }
+
+                                    int currentMaterialIdx = static_cast<int>(editMaterial.MaterialId);
+                                    if (currentMaterialIdx >= static_cast<int>(materialCount)) {
+                                        currentMaterialIdx = 0;
+                                    }
+
+                                    if (ImGui::BeginCombo("Material ID", materialItems[currentMaterialIdx].c_str())) {
+                                        for (uint32_t i = 0; i < materialCount; ++i) {
+                                            const bool isSelected = (currentMaterialIdx == static_cast<int>(i));
+                                            if (ImGui::Selectable(materialItems[i].c_str(), isSelected)) {
+                                                editMaterial.MaterialId = i;
+                                                modified = true;
+                                            }
+                                            if (isSelected) {
+                                                ImGui::SetItemDefaultFocus();
+                                            }
+                                        }
+                                        ImGui::EndCombo();
+                                    }
+                                } else {
+                                    ImGui::TextDisabled("No materials loaded");
+                                }
+                            } else {
+                                if (ImGui::InputScalar("Material ID", ImGuiDataType_U32, &editMaterial.MaterialId)) {
+                                    modified = true;
+                                }
                             }
                             // Base color editor
                             ImGui::Text("Base Color:");
@@ -996,12 +1063,16 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                             // Create mutable copy for editing
                             static TextComponent editTextComp{};
                             static EntityId lastEditedTextEntity = INVALID_ENTITY;
+                            static bool modified = false;
                             // Reset when switching entities
                             if (lastEditedTextEntity != selectedEntity) {
                                 editTextComp = *textComp;
                                 lastEditedTextEntity = selectedEntity;
+                                modified = false;
                             }
-                            static bool modified = false;
+                            if (!modified) {
+                                editTextComp = *textComp;
+                            }
                             // Text editor
                             char buffer[256];
                             strncpy_s(buffer, editTextComp.Text.c_str(), sizeof(buffer));
@@ -1046,8 +1117,17 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                     }
                 }
 
+                // Sun Marker — zero-size tag; display as read-only badge.
+                if (worldSnapshot->HasComponent<SunMarker>(selectedEntity)) {
+                    if (ImGui::CollapsingHeader("Sun Marker", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Tagged as Sun");
+                        ImGui::TextDisabled("Day/night cycle drives this entity.");
+                    }
+                }
+
                 // Show if entity has no components
-                if (!worldSnapshot->HasComponents<TransformComponent, LightningComponent, MeshComponent, MaterialComponent, TextComponent>(selectedEntity)) {
+                if (!worldSnapshot->HasComponents<TransformComponent, LightningComponent, MeshComponent, MaterialComponent, TextComponent>(selectedEntity)
+                    && !worldSnapshot->HasComponent<SunMarker>(selectedEntity)) {
                     ImGui::TextDisabled("Entity has no components.");
                     ImGui::TextDisabled("Right-click the entity to add components.");
                 }

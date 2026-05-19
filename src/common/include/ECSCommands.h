@@ -222,6 +222,8 @@ private:
             if (auto* text = componentData.Get<TextComponent>()) {
                 world.AddComponent(entity, *text);
             }
+        } else if (componentData.Type == std::type_index(typeid(SunMarker))) {
+            world.AddComponent(entity, SunMarker{});
         }
         // Add more component types as needed
     }
@@ -238,6 +240,8 @@ private:
             world.RemoveComponent<MaterialComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(TextComponent))) {
             world.RemoveComponent<TextComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(SunMarker))) {
+            world.RemoveComponent<SunMarker>(entity);
         }
         // Add more component types as needed
     }

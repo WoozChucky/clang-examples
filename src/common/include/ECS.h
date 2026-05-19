@@ -98,6 +98,9 @@ struct ChildComponent {
     std::unordered_set<EntityId> Children;
 };
 
+// Zero-size marker tagging the singleton directional light driven by the day/night cycle.
+struct SunMarker {};
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -109,7 +112,8 @@ struct ChildComponent {
     X(TextComponent) \
     X(LightningComponent) \
     X(ParentComponent) \
-    X(ChildComponent)
+    X(ChildComponent) \
+    X(SunMarker)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

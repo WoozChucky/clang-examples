@@ -123,6 +123,9 @@ void from_json(const json& j, TextComponent& t) {
     j.at("FontSize").get_to(t.FontSize);
 }
 
+void to_json(json& j, const SunMarker&) { j = json::object(); }
+void from_json(const json&, SunMarker&) {}
+
 bool WorldManager::SaveWorldSnapshot(const std::string& filepath, const ECS* world) {
 
     std::ofstream ofs(filepath, std::ios::binary);
@@ -157,6 +160,9 @@ bool WorldManager::SaveWorldSnapshot(const std::string& filepath, const ECS* wor
         }
         if (world->HasComponent<TextComponent>(entity)) {
             jEntity["TextComponent"] = *(world->GetComponent<TextComponent>(entity));
+        }
+        if (world->HasComponent<SunMarker>(entity)) {
+            jEntity["SunMarker"] = *(world->GetComponent<SunMarker>(entity));
         }
 
         j["Entities"].push_back(jEntity);
@@ -210,6 +216,9 @@ bool WorldManager::LoadWorldSnapshot(const std::string& filepath, ECS* world) {
         if (jEntity.contains("TextComponent")) {
             TextComponent textc = jEntity["TextComponent"].get<TextComponent>();
             world->AddComponent(createdEntity, textc);
+        }
+        if (jEntity.contains("SunMarker")) {
+            world->AddComponent(createdEntity, SunMarker{});
         }
     }
 
