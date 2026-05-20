@@ -8,6 +8,7 @@
 #include <memory/MemoryCategory.h>
 #include <memory/IAllocator.h>
 #include <memory/AllocatorRegistry.h>
+#include <memory/ArenaAllocator.h>
 
 // Required by lib.h's SM_ASSERT. Test exe: print + abort, no MessageBox.
 void platform_debug_break(const char* expr, const char* file, int line, const char* message)
@@ -101,6 +102,72 @@ static void T11_registry_foreach_and_sum()
     reg.Unregister(&a); reg.Unregister(&b); reg.Unregister(&c);
 }
 
+static void T20_arena_bump_and_align()
+{
+    Engine::ArenaAllocator a(1024, Engine::MemCategory::FrameTransient, "T20");
+    void* p0 = a.Allocate(10, 16);
+    void* p1 = a.Allocate(10, 16);
+    EXPECT_NE(p0, nullptr);
+    EXPECT_NE(p1, nullptr);
+    EXPECT_EQ((uintptr_t)p0 % 16, (uintptr_t)0);
+    EXPECT_EQ((uintptr_t)p1 % 16, (uintptr_t)0);
+    EXPECT(p1 != p0);
+    EXPECT(a.Stats().Used >= 20);
+}
+
+static void T21_arena_overflow_returns_null()
+{
+    Engine::ArenaAllocator a(64, Engine::MemCategory::FrameTransient, "T21");
+    void* ok = a.Allocate(32, 8);
+    EXPECT_NE(ok, nullptr);
+    void* fail = a.Allocate(1024, 8); // exceeds capacity
+    EXPECT_EQ(fail, nullptr);
+}
+
+static void T22_arena_reset_keeps_peak()
+{
+    Engine::ArenaAllocator a(1024, Engine::MemCategory::FrameTransient, "T22");
+    a.Allocate(500, 8);
+    const size_t peak = a.Stats().Peak;
+    EXPECT(peak >= 500);
+    a.Reset();
+    EXPECT_EQ(a.Stats().Used, (size_t)0);
+    EXPECT_EQ(a.Stats().Peak, peak); // peak retained
+}
+
+static void T23_arena_marker_rewind()
+{
+    Engine::ArenaAllocator a(1024, Engine::MemCategory::FrameTransient, "T23");
+    a.Allocate(100, 8);
+    Engine::ArenaAllocator::Marker m = a.GetMarker();
+    a.Allocate(200, 8);
+    EXPECT(a.Stats().Used > (size_t)m);
+    a.RewindTo(m);
+    EXPECT_EQ(a.Stats().Used, (size_t)m);
+}
+
+static void T24_arena_allocate_array_and_typed()
+{
+    Engine::ArenaAllocator a(1024, Engine::MemCategory::FrameTransient, "T24");
+    int* arr = a.AllocateArray<int>(8);
+    EXPECT_NE(arr, nullptr);
+    EXPECT_EQ((uintptr_t)arr % alignof(int), (uintptr_t)0);
+    double* d = a.Allocate<double>();
+    EXPECT_NE(d, nullptr);
+    EXPECT_EQ((uintptr_t)d % alignof(double), (uintptr_t)0);
+}
+
+static void T25_arena_external_buffer()
+{
+    alignas(16) static unsigned char buf[256];
+    Engine::ArenaAllocator a(buf, sizeof(buf), Engine::MemCategory::General, "T25");
+    void* p = a.Allocate(16, 16);
+    EXPECT_NE(p, nullptr);
+    EXPECT(p >= (void*)buf);
+    EXPECT(p < (void*)(buf + sizeof(buf)));
+    EXPECT_EQ(a.Stats().Capacity, (size_t)256);
+}
+
 int main()
 {
     T00_smoke();
@@ -108,6 +175,12 @@ int main()
     T02_category_tostring();
     T10_registry_register_unregister();
     T11_registry_foreach_and_sum();
+    T20_arena_bump_and_align();
+    T21_arena_overflow_returns_null();
+    T22_arena_reset_keeps_peak();
+    T23_arena_marker_rewind();
+    T24_arena_allocate_array_and_typed();
+    T25_arena_external_buffer();
 
     if (g_Failures == 0) {
         std::printf("All allocator tests passed.\n");
