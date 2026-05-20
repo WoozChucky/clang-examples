@@ -54,6 +54,15 @@ public:
     // Cleanup all resources
     void Shutdown();
 
+    void SetDevice(nvrhi::IDevice* device) { m_Device = device; }
+
+    // Hot-swap support: release GPU buffers but keep entries + CPU caches.
+    void DestroyGpuResources();
+    // Hot-swap support: rebuild GPU buffers from CPU caches against m_Device.
+    // m_Device must already point to the new device. Preserves slot indices.
+    // Returns false if any mesh failed to rebuild (that slot is left null).
+    bool RecreateGpuResources();
+
 private:
     struct MeshEntry {
         nvrhi::BufferHandle vertexBuffer;
@@ -63,6 +72,10 @@ private:
         uint32_t indexCount = 0;
         glm::vec3 boundsMin{0.0f};
         glm::vec3 boundsMax{0.0f};
+
+        // CPU-side copies retained for backend hot-swap replay.
+        std::vector<MeshVertex> cpuVertices;
+        std::vector<uint32_t>   cpuIndices;
     };
 
     nvrhi::IDevice* m_Device = nullptr;
