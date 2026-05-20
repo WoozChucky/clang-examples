@@ -20,6 +20,10 @@ bool Application::Init(std::optional<RendererAPI> backendOverride) {
         SM_ERROR("Application: resolved backend is Invalid; aborting");
         return false;
     }
+    if (m_AppContext->Settings.Backend == RendererAPI::DirectX11) {
+        SM_ERROR("Application: DirectX11 backend is not implemented; aborting");
+        return false;
+    }
 
     m_PlatformThread = std::make_unique<PlatformThread>(m_AppContext);
     if (!m_PlatformThread->Init()) {
