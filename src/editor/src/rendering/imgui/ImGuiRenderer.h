@@ -1,10 +1,12 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <nvrhi/nvrhi.h>
 #include <GLFW/glfw3.h>
 
 #include "imgui_nvrhi.h"
+#include "lib.h"
 
 class MeshSystem;
 class MaterialSystem;
@@ -53,4 +55,11 @@ private:
         float lastMouseY = 0.0f;
     };
     MeshPreviewState m_MeshPreviewState;
+
+    // Settings menu state — pending backend selection until user clicks Apply.
+    // Initialized lazily on first menu open from m_AppContext->Settings.Backend.
+    RendererAPI m_PendingBackend = RendererAPI::Invalid;
+    bool        m_PendingBackendInitialized = false;
+    bool        m_RestartRequired = false;   // Task 7
+    std::string m_SettingsSaveError;          // empty when no error
 };

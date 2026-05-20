@@ -23,6 +23,7 @@
 #include "ApplicationContext.h"
 #include "registered_font.h"
 #include "WorldManager.h"
+#include "SettingsManager.h"
 #include "tracy/Tracy.hpp"
 
 
@@ -401,6 +402,67 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                 if (ImGui::MenuItem("About This App...")) { /* no-op */ }
                 if (ImGui::MenuItem("Check for Updates")) { /* no-op */ }
                 if (ImGui::MenuItem("Credits")) { /* no-op */ }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Settings"))
+            {
+                ImGui::TextDisabled("Renderer");
+                ImGui::Separator();
+
+                // Lazy-initialize pending choice from the current persisted setting.
+                if (!m_PendingBackendInitialized) {
+                    m_PendingBackend = m_AppContext->Settings.Backend;
+                    m_PendingBackendInitialized = true;
+                }
+
+                const char* current = SettingsManager::BackendToString(m_PendingBackend);
+                if (ImGui::BeginCombo("Backend", current))
+                {
+                    if (ImGui::Selectable("directx12", m_PendingBackend == RendererAPI::DirectX12)) {
+                        m_PendingBackend = RendererAPI::DirectX12;
+                    }
+                    if (ImGui::Selectable("vulkan", m_PendingBackend == RendererAPI::Vulkan)) {
+                        m_PendingBackend = RendererAPI::Vulkan;
+                    }
+
+                    // DirectX 11 — disabled; backend not implemented.
+                    ImGui::BeginDisabled(true);
+                    ImGui::Selectable("directx11 (not implemented)", false);
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                        ImGui::SetTooltip("DirectX 11 backend not implemented yet.");
+                    }
+
+                    ImGui::EndCombo();
+                }
+
+                const bool dirty = (m_PendingBackend != m_AppContext->Settings.Backend);
+                ImGui::BeginDisabled(!dirty);
+                if (ImGui::Button("Apply##SettingsBackendApply"))
+                {
+                    const RendererAPI previous = m_AppContext->Settings.Backend;
+                    m_AppContext->Settings.Backend = m_PendingBackend;
+                    if (SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH,
+                                              m_AppContext->Settings))
+                    {
+                        m_SettingsSaveError.clear();
+                        m_RestartRequired = true;
+                    }
+                    else
+                    {
+                        // Revert in-memory change; no banner.
+                        m_AppContext->Settings.Backend = previous;
+                        m_SettingsSaveError = "Failed to save editor_settings.json";
+                    }
+                }
+                ImGui::EndDisabled();
+
+                if (!m_SettingsSaveError.empty()) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                       "%s", m_SettingsSaveError.c_str());
+                }
+
                 ImGui::EndMenu();
             }
 
