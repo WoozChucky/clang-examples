@@ -337,6 +337,13 @@ void Renderer::TeardownForSwap()
     m_MaterialSystem.DestroyGpuResources();
     m_MeshSystem.DestroyGpuResources();
 
+    // Flush the deferred-release queue now, while the device is still alive,
+    // so the editor's released handles don't leak when the device is dropped.
+    if (m_Device)
+    {
+        m_Device->runGarbageCollection();
+    }
+
     m_CommandList = nullptr;
     m_Device = nullptr;
 

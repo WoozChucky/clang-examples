@@ -1046,6 +1046,14 @@ void RendererBackendVulkan::DestroySwapChain() {
     }
 
     m_SwapChainImages.clear();
+
+    // Collect the just-released nvrhi handles now, while the device is still
+    // alive. Without this the deferred-release queue is orphaned when the
+    // device is dropped during a backend hot-swap (~40 MB leak per swap).
+    if (m_NvrhiDevice)
+    {
+        m_NvrhiDevice->runGarbageCollection();
+    }
 }
 
 void RendererBackendVulkan::ResizeSwapChain() {

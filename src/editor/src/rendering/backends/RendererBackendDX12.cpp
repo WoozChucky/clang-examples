@@ -413,6 +413,14 @@ void RendererBackendDX12::ReleaseRenderTargets() {
     // Release the old buffers because ResizeBuffers requires that
     m_RhiSwapChainBuffers.clear();
     m_SwapChainBuffers.clear();
+
+    // Collect the just-released render-target handles now, while the device is
+    // still alive. Without this the deferred-release queue is orphaned when the
+    // device is dropped during a backend hot-swap (~40 MB leak per swap).
+    if (m_Device)
+    {
+        m_Device->runGarbageCollection();
+    }
 }
 
 void RendererBackendDX12::ResizeSwapChain() {
