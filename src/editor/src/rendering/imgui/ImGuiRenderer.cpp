@@ -23,6 +23,7 @@
 #include "ApplicationContext.h"
 #include "registered_font.h"
 #include "WorldManager.h"
+#include "SettingsManager.h"
 #include "tracy/Tracy.hpp"
 
 
@@ -404,11 +405,91 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("Settings"))
+            {
+                ImGui::TextDisabled("Renderer");
+                ImGui::Separator();
+
+                // Lazy-initialize pending choice from the current persisted setting.
+                if (!m_PendingBackendInitialized) {
+                    m_PendingBackend = m_AppContext->Settings.Backend;
+                    m_PendingBackendInitialized = true;
+                }
+
+                const char* current = SettingsManager::BackendToString(m_PendingBackend);
+                if (ImGui::BeginCombo("Backend", current))
+                {
+                    if (ImGui::Selectable("directx12", m_PendingBackend == RendererAPI::DirectX12)) {
+                        m_PendingBackend = RendererAPI::DirectX12;
+                    }
+                    if (ImGui::Selectable("vulkan", m_PendingBackend == RendererAPI::Vulkan)) {
+                        m_PendingBackend = RendererAPI::Vulkan;
+                    }
+
+                    // DirectX 11 — disabled; backend not implemented.
+                    ImGui::BeginDisabled(true);
+                    ImGui::Selectable("directx11 (not implemented)", false);
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                        ImGui::SetTooltip("DirectX 11 backend not implemented yet.");
+                    }
+
+                    ImGui::EndCombo();
+                }
+
+                const bool dirty = (m_PendingBackend != m_AppContext->Settings.Backend);
+                ImGui::BeginDisabled(!dirty);
+                if (ImGui::Button("Apply##SettingsBackendApply"))
+                {
+                    const RendererAPI previous = m_AppContext->Settings.Backend;
+                    m_AppContext->Settings.Backend = m_PendingBackend;
+                    if (SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH,
+                                              m_AppContext->Settings))
+                    {
+                        m_SettingsSaveError.clear();
+                        m_RestartRequired = true;
+                    }
+                    else
+                    {
+                        // Revert in-memory change; no banner.
+                        m_AppContext->Settings.Backend = previous;
+                        m_SettingsSaveError = "Failed to save editor_settings.json";
+                    }
+                }
+                ImGui::EndDisabled();
+
+                if (!m_SettingsSaveError.empty()) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                       "%s", m_SettingsSaveError.c_str());
+                }
+
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMainMenuBar();
         }
 
-        // Ensure a DockSpace
-        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+        // Manual dockspace host so we can offset by bannerHeight when the
+        // restart banner is visible (otherwise docked windows render behind it).
+        {
+            ImGuiViewport* dockViewport = ImGui::GetMainViewport();
+            const float dockOffsetY = m_RestartRequired ? 30.0f : 0.0f;
+            ImGui::SetNextWindowPos(ImVec2(dockViewport->WorkPos.x, dockViewport->WorkPos.y + dockOffsetY));
+            ImGui::SetNextWindowSize(ImVec2(dockViewport->WorkSize.x, dockViewport->WorkSize.y - dockOffsetY));
+            ImGui::SetNextWindowViewport(dockViewport->ID);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::Begin("##DockSpaceHost", nullptr,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+                ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+                ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBackground);
+            ImGui::PopStyleVar(3);
+            ImGui::DockSpace(ImGui::GetID("MainDockSpace"), ImVec2(0, 0),
+                             ImGuiDockNodeFlags_PassthruCentralNode);
+            ImGui::End();
+        }
 
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
@@ -1481,6 +1562,34 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         ImGui::End();
 
+        ImGui::PopFont();
+    }
+
+    // Restart banner — submitted last so it draws on top of all docked windows.
+    if (m_RestartRequired) {
+        ImGui::PushFont(m_fonts[0]->GetScaledFont(), 14.f);
+        ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const float bannerHeight = 30.0f;
+        const ImVec2 pos(viewport->WorkPos.x, viewport->WorkPos.y);
+        const ImVec2 size(viewport->WorkSize.x, bannerHeight);
+        ImGui::SetNextWindowPos(pos);
+        ImGui::SetNextWindowSize(size);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.95f, 0.78f, 0.18f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text,     ImVec4(0.10f, 0.10f, 0.10f, 1.0f));
+        if (ImGui::Begin("##RestartBanner", nullptr,
+                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                         ImGuiWindowFlags_NoResize     | ImGuiWindowFlags_NoSavedSettings |
+                         ImGuiWindowFlags_NoNav))
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Restart editor to apply renderer changes.");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Dismiss##RestartBanner")) {
+                m_RestartRequired = false;
+            }
+        }
+        ImGui::End();
+        ImGui::PopStyleColor(2);
         ImGui::PopFont();
     }
 

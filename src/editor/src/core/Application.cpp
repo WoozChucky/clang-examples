@@ -1,10 +1,29 @@
 #include "Application.h"
 
-bool Application::Init() {
+#include "lib.h"
+#include "utilities/SettingsManager.h"
+
+bool Application::Init(std::optional<RendererAPI> backendOverride) {
     m_AppContext = std::make_shared<ApplicationContext>();
-    m_AppContext->Settings.windowWidth = 1920;
-    m_AppContext->Settings.windowHeight = 1080;
-    m_AppContext->Settings.vsyncEnabled = true;
+
+    // Load persisted settings (file may not exist; defaults stay in place).
+    SettingsManager::Load(SettingsManager::DEFAULT_SETTINGS_PATH, &m_AppContext->Settings);
+
+    // CLI override wins for this run; never written to disk.
+    if (backendOverride.has_value()) {
+        m_AppContext->Settings.Backend = *backendOverride;
+        SM_TRACE("Application: CLI override → backend=%s",
+                 SettingsManager::BackendToString(*backendOverride));
+    }
+
+    if (m_AppContext->Settings.Backend == RendererAPI::Invalid) {
+        SM_ERROR("Application: resolved backend is Invalid; aborting");
+        return false;
+    }
+    if (m_AppContext->Settings.Backend == RendererAPI::DirectX11) {
+        SM_ERROR("Application: DirectX11 backend is not implemented; aborting");
+        return false;
+    }
 
     m_PlatformThread = std::make_unique<PlatformThread>(m_AppContext);
     if (!m_PlatformThread->Init()) {
@@ -12,7 +31,10 @@ bool Application::Init() {
     }
 
     m_GameThread = std::make_unique<GameThread>(m_AppContext);
-    m_RenderThread = std::make_unique<RenderThread>(m_AppContext, m_PlatformThread->GetWindow(), RendererAPI::Vulkan);
+    m_RenderThread = std::make_unique<RenderThread>(
+        m_AppContext,
+        m_PlatformThread->GetWindow(),
+        m_AppContext->Settings.Backend);
     return true;
 }
 
