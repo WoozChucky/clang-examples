@@ -13,6 +13,7 @@
 #include "DotNetPluginManager.h"
 #include "FileWatch.h"
 #include "GameLibrary.h"
+#include "Systems.h"
 #include "GLFW/glfw3.h"
 
 class GameThread {
@@ -56,6 +57,7 @@ private:
 
     std::unique_ptr<DotNetPluginManager> m_PluginManager{nullptr};
     GameLibrary m_GameLib;
+    SystemScheduler m_Scheduler;
     std::atomic<bool> m_ReloadPending{false};
     std::unique_ptr<filewatch::FileWatch<std::string>> m_GameDllWatcher;
 
