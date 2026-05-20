@@ -469,6 +469,33 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
             ImGui::EndMainMenuBar();
         }
 
+        // Restart banner: shown after a successful renderer-backend Apply.
+        if (m_RestartRequired) {
+            ImGuiViewport* viewport = ImGui::GetMainViewport();
+            const float bannerHeight = 30.0f;
+            // Position below the main menu bar.
+            const ImVec2 pos(viewport->WorkPos.x, viewport->WorkPos.y);
+            const ImVec2 size(viewport->WorkSize.x, bannerHeight);
+            ImGui::SetNextWindowPos(pos);
+            ImGui::SetNextWindowSize(size);
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.95f, 0.78f, 0.18f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text,     ImVec4(0.10f, 0.10f, 0.10f, 1.0f));
+            if (ImGui::Begin("##RestartBanner", nullptr,
+                             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_NoResize     | ImGuiWindowFlags_NoSavedSettings |
+                             ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav))
+            {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("Restart editor to apply renderer changes.");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Dismiss##RestartBanner")) {
+                    m_RestartRequired = false;
+                }
+            }
+            ImGui::End();
+            ImGui::PopStyleColor(2);
+        }
+
         // Ensure a DockSpace
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
