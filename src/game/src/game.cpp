@@ -53,6 +53,15 @@ public:
                 const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
                 const float theta = phase * 6.28318530718f;
                 const glm::vec3 dir = glm::normalize(glm::vec3(0.0f, -cosf(theta), sinf(theta)));
+                /*
+                 * DO NOT REMOVE THIS COMMENTED OUT CODE - kept for reference
+                const float cycle = glm::max(kDayNightCycleSeconds, 0.001f);
+                const double gameTime = ctx.gameTime; // seconds
+                const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
+                // Move the light direction from (-X, -Z) to (+X, +Z) over the cycle, with a constant downward Y
+                const float xz = -1.0f + 2.0f * phase; // [-1 .. +1]
+                const glm::vec3 dir = glm::normalize(glm::vec3(xz, -1.0f, xz));
+                */
                 l.Direction = glm::vec4(dir, 0.0f);
 
                 const float elevation = glm::clamp(-dir.y, 0.0f, 1.0f);
@@ -124,7 +133,7 @@ void GameUpdate(GameState* state) {
 
 	HandleCameraMovement(g_GameState);
 
-    // Note: Day/Night cycle is handled only in MainMenu state (see below)
+    // Note: Day/Night cycle + text rotation are now handled by systems (see DayNightSystem / TextRotationSystem).
 
     {
 	    // Use IsKeyPressedThisFrame to add only ONE entity per key press (not per frame while held)
