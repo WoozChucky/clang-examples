@@ -496,8 +496,27 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
             ImGui::PopStyleColor(2);
         }
 
-        // Ensure a DockSpace
-        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+        // Manual dockspace host so we can offset by bannerHeight when the
+        // restart banner is visible (otherwise docked windows render behind it).
+        {
+            ImGuiViewport* dockViewport = ImGui::GetMainViewport();
+            const float dockOffsetY = m_RestartRequired ? 30.0f : 0.0f;
+            ImGui::SetNextWindowPos(ImVec2(dockViewport->WorkPos.x, dockViewport->WorkPos.y + dockOffsetY));
+            ImGui::SetNextWindowSize(ImVec2(dockViewport->WorkSize.x, dockViewport->WorkSize.y - dockOffsetY));
+            ImGui::SetNextWindowViewport(dockViewport->ID);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::Begin("##DockSpaceHost", nullptr,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+                ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+                ImGuiWindowFlags_NoDocking);
+            ImGui::PopStyleVar(3);
+            ImGui::DockSpace(ImGui::GetID("MainDockSpace"), ImVec2(0, 0),
+                             ImGuiDockNodeFlags_PassthruCentralNode);
+            ImGui::End();
+        }
 
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
