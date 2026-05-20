@@ -67,7 +67,9 @@ if (!m_DxgiAdapter) {
         RefCountPtr<ID3D12InfoQueue> pInfoQueue;
         m_Device12->QueryInterface(&pInfoQueue);
 
-        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
+        // Do NOT break on WARNING: ReportLiveObjects (hot-swap leak diagnostic)
+        // emits a LIVE_DEVICE warning that would otherwise halt the app.
+        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, false);
         pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
         pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
 
@@ -329,10 +331,40 @@ nvrhi::ShaderHandle RendererBackendDX12::CreateShaderFromMemory(nvrhi::ShaderTyp
 }
 
 void RendererBackendDX12::DestroyDeviceAndSwapChain() {
+    // Drop the NVRHI wrappers of the swapchain back buffers first, then run the
+    // device GC so the deferred-release queue is flushed while the NVRHI device
+    // is still alive. A surviving back-buffer wrapper would pin the native
+    // IDXGISwapChain (wrapper -> ID3D12Resource -> swapchain), so this MUST
+    // happen before we release m_SwapChain below.
     m_RhiSwapChainBuffers.clear();
 
     ReleaseRenderTargets();
 
+    // Force a final GPU idle on the present (graphics) queue *before* releasing
+    // the swapchain. A flip-model swapchain cannot be fully destroyed while the
+    // queue it was created with still has outstanding present work referencing
+    // the back buffers; draining it here lets DXGI complete the (deferred)
+    // back-buffer release instead of pinning the queue -> device shell.
+    if (m_GraphicsQueue && m_FrameFence)
+    {
+        const UINT64 flushValue = m_FrameCount++;
+        if (SUCCEEDED(m_GraphicsQueue->Signal(m_FrameFence, flushValue)))
+        {
+            if (m_FrameFence->GetCompletedValue() < flushValue)
+            {
+                HANDLE idleEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+                if (idleEvent)
+                {
+                    m_FrameFence->SetEventOnCompletion(flushValue, idleEvent);
+                    WaitForSingleObject(idleEvent, INFINITE);
+                    CloseHandle(idleEvent);
+                }
+            }
+        }
+    }
+
+    // Now the NVRHI device can be dropped (its internal queue ComPtrs / lifetime
+    // tracker / per-queue fences are released here).
     m_Device = nullptr;
 
     for (auto fenceEvent : m_FrameFenceEvents)
@@ -343,19 +375,39 @@ void RendererBackendDX12::DestroyDeviceAndSwapChain() {
 
     m_FrameFenceEvents.clear();
 
+    // Release back-buffer references and leave fullscreen while the swapchain
+    // ref is still valid (required before a flip-model swapchain can be freed).
     if (m_SwapChain)
     {
         m_SwapChain->SetFullscreenState(false, nullptr);
     }
 
     m_SwapChainBuffers.clear();
-
     m_FrameFence = nullptr;
+
+    // Release the native swapchain. With all back-buffer refs gone and the queue
+    // idle, this drops our app reference; DXGI defers the final teardown until
+    // the owning factory is released (below).
     m_SwapChain = nullptr;
+
+    // Release the queues and the D3D12 device. The graphics queue was handed to
+    // CreateSwapChainForHwnd, so DXGI held an internal ref to it; that ref is
+    // only dropped once the swapchain's deferred destruction is flushed.
     m_GraphicsQueue = nullptr;
     m_ComputeQueue = nullptr;
     m_CopyQueue = nullptr;
     m_Device12 = nullptr;
+
+    // Explicitly release the per-swap DXGI factory and adapter. A fresh
+    // IDXGIFactory2 is created on every backend Init(), and the factory holds
+    // the internal back-reference that keeps a flip-model swapchain (and thus
+    // its command queue and ID3D12Device) alive via DXGI's deferred-destruction
+    // queue. Without dropping the factory here, each swap leaves a "shell"
+    // device behind (swapchain refcount 2 -> queue -> device) and they
+    // accumulate unbounded. Releasing the factory now flushes that deferred
+    // destruction so the swapchain/queue/device shell is fully reclaimed.
+    m_DxgiAdapter = nullptr;
+    m_DxgiFactory2 = nullptr;
 }
 
 nvrhi::DeviceHandle RendererBackendDX12::GetDevice() {
@@ -450,10 +502,11 @@ void RendererBackendDX12::EnableDebugLayerIfAvailable() {
     HRESULT hr = D3D12GetDebugInterface(IID_PPV_ARGS(&debug));
     if (SUCCEEDED(hr)) {
         debug->EnableDebugLayer();
-        // If you want GPU-based validation (slower), you can enable it here via ID3D12Debug1.
-        ComPtr<ID3D12Debug1> debug1;
-        if (SUCCEEDED(debug.As(&debug1))) debug1->SetEnableGPUBasedValidation(TRUE);
-        SM_TRACE("D3D12 Debug layer enabled.");
+        // GPU-based validation left OFF: it patches shaders per-device (very slow,
+        // "minutes to first frame", heavy memory) and adds noise to the hot-swap
+        // leak hunt. Re-enable via ID3D12Debug1::SetEnableGPUBasedValidation if
+        // specifically debugging shader-side validation.
+        SM_TRACE("D3D12 Debug layer enabled (GPU-based validation off).");
     } else {
         SM_TRACE("D3D12 Debug layer not available.");
     }

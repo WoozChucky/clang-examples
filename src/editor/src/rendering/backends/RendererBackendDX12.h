@@ -36,6 +36,10 @@ public:
         size_t contentSize,
         const char* entryPoint,
         const char* targetName) override;
+
+    // TEMP DIAGNOSTIC (hot-swap leak hunt): dumps all live D3D/DXGI objects via
+    // the global DXGI debug interface. Backend-agnostic (reports across devices).
+    static void ReportLiveObjects();
 protected:
     void DestroyDeviceAndSwapChain() override;
     nvrhi::DeviceHandle GetDevice() override;
@@ -44,7 +48,6 @@ private:
     static void EnableDebugLayerIfAvailable();
     static void ValidateDX12UltimateCapabilities(ID3D12Device* device);
     static RefCountPtr<IDXGIAdapter1> PickHardwareAdapter(const RefCountPtr<IDXGIFactory2>& factory);
-    static void ReportLiveObjects();
     static bool MoveWindowOntoAdapter(IDXGIAdapter* targetAdapter, RECT& rect);
 
     void CreateRenderTargets();

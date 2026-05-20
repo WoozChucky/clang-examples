@@ -440,5 +440,17 @@ bool Renderer::SwapBackend(RendererAPI newApi)
     }
 
     SM_TRACE("SwapBackend: complete");
+
+    // TEMP DIAGNOSTIC (hot-swap leak hunt): dump live D3D/DXGI objects after
+    // each swap. Compare consecutive blocks — any object type whose count or
+    // refcount climbs by a fixed amount per swap is the residual leak.
+    {
+        static uint32_t s_SwapCount = 0;
+        ++s_SwapCount;
+        SM_TRACE("===== DXGI LIVE OBJECTS after swap #%u =====", s_SwapCount);
+        RendererBackendDX12::ReportLiveObjects();
+        SM_TRACE("===== end live objects (swap #%u) =====", s_SwapCount);
+    }
+
     return true;
 }
