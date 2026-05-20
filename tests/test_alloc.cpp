@@ -168,6 +168,38 @@ static void T25_arena_external_buffer()
     EXPECT_EQ(a.Stats().Capacity, (size_t)256);
 }
 
+static void T26_arena_compat_getters_and_reuse()
+{
+    Engine::ArenaAllocator a(1024, Engine::MemCategory::FrameTransient, "T26");
+
+    // AllocateArray<T>(0) returns null and does not consume space.
+    int* none = a.AllocateArray<int>(0);
+    EXPECT_EQ(none, nullptr);
+    EXPECT_EQ(a.GetUsedBytes(), (size_t)0);
+
+    void* p0 = a.Allocate(100, 8);
+    EXPECT_NE(p0, nullptr);
+
+    // Compat getters mirror Stats().
+    EXPECT_EQ(a.GetUsedBytes(), a.Stats().Used);
+    EXPECT_EQ(a.GetCapacity(), a.Stats().Capacity);
+    EXPECT_EQ(a.GetPeakUsage(), a.Stats().Peak);
+    EXPECT_EQ(a.GetCapacity(), (size_t)1024);
+
+    // Reset hands the space back: next alloc returns the same base pointer.
+    a.Reset();
+    void* p1 = a.Allocate(100, 8);
+    EXPECT_EQ(p0, p1);
+
+    // RewindTo to a marker also reuses the region beyond the marker.
+    Engine::ArenaAllocator::Marker m = a.GetMarker();
+    void* q0 = a.Allocate(64, 8);
+    EXPECT_NE(q0, nullptr);
+    a.RewindTo(m);
+    void* q1 = a.Allocate(64, 8);
+    EXPECT_EQ(q0, q1);
+}
+
 int main()
 {
     T00_smoke();
@@ -181,6 +213,7 @@ int main()
     T23_arena_marker_rewind();
     T24_arena_allocate_array_and_typed();
     T25_arena_external_buffer();
+    T26_arena_compat_getters_and_reuse();
 
     if (g_Failures == 0) {
         std::printf("All allocator tests passed.\n");

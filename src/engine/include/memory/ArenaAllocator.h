@@ -10,6 +10,9 @@ namespace Engine {
 // Fixed-capacity linear (bump) allocator. Allocate is O(1); individual frees are
 // no-ops. Reset() reclaims everything (Peak retained). On overflow returns
 // nullptr and logs — a deliberate guardrail, not silent growth. Not thread-safe.
+// Alignment must be <= the buffer's base alignment (16 for the malloc'd ctor;
+// the caller's buffer alignment for the external-buffer ctor); larger alignments
+// are not honored (offset-aligned, not pointer-aligned).
 class ArenaAllocator : public IAllocator {
 public:
     using Marker = size_t;
