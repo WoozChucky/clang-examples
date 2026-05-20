@@ -114,14 +114,21 @@ void ECS::DestroyEntity(EntityId entity) {
 std::shared_ptr<const ECS> ECS::CreateSnapshot() {
     auto snap = std::make_shared<ECS>();
     snap->m_EntityStore = m_EntityStore;                     // value copy
+    snap->m_SingletonEntity = m_SingletonEntity;             // preserve reserved id
     snap->m_ComponentStore.CopyArraysFrom(m_ComponentStore); // shallow shared_ptr copy
     m_ComponentStore.ClearDirty();
     return snap;
 }
 
 void ECS::Clear() {
-    m_EntityStore.Clear();
-    m_ComponentStore.Cleanup();
+    // Destroy only gameplay (active) entities + their components. The reserved
+    // singleton entity is not in the active list, so its singleton components
+    // (input, cameras, app-control, config) survive world loads + reloads.
+    const std::vector<EntityId> active = m_EntityStore.GetActiveEntities(); // copy; mutated below
+    for (const EntityId e : active) {
+        m_ComponentStore.RemoveAllComponents(e);
+    }
+    m_EntityStore.ClearActive();
 }
 
 // ----- ECS templated method explicit instantiations per registered T -----
