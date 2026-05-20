@@ -1,4 +1,6 @@
 #pragma once
+#include <optional>
+
 #include "PlatformThread.h"
 #include "GameThread.h"
 #include "RenderThread.h"
@@ -8,7 +10,9 @@ public:
     Application() = default;
     ~Application() = default;
 
-    bool Init();
+    // backendOverride: if set, replaces the persisted Settings.Backend
+    // for this run only (no disk write).
+    bool Init(std::optional<RendererAPI> backendOverride = std::nullopt);
 
     void Run();
 
