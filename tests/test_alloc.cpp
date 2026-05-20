@@ -9,6 +9,7 @@
 #include <memory/IAllocator.h>
 #include <memory/AllocatorRegistry.h>
 #include <memory/ArenaAllocator.h>
+#include <memory/PoolAllocator.h>
 
 // Required by lib.h's SM_ASSERT. Test exe: print + abort, no MessageBox.
 void platform_debug_break(const char* expr, const char* file, int line, const char* message)
@@ -200,6 +201,52 @@ static void T26_arena_compat_getters_and_reuse()
     EXPECT_EQ(q0, q1);
 }
 
+static void T30_pool_alloc_free_reuse()
+{
+    Engine::PoolAllocator p(32, 4, 16, Engine::MemCategory::Mesh, "T30");
+    void* a = p.Allocate(32, 16);
+    EXPECT_NE(a, nullptr);
+    EXPECT_EQ((uintptr_t)a % 16, (uintptr_t)0);
+    p.Deallocate(a);
+    void* b = p.Allocate(32, 16);
+    EXPECT_EQ(a, b); // freed block is reused
+}
+
+static void T31_pool_grows_and_keeps_pointers_valid()
+{
+    Engine::PoolAllocator p(sizeof(uint64_t), 2, alignof(uint64_t),
+                            Engine::MemCategory::Mesh, "T31");
+    // Fill the first slab.
+    auto* x0 = static_cast<uint64_t*>(p.Allocate(sizeof(uint64_t), alignof(uint64_t)));
+    auto* x1 = static_cast<uint64_t*>(p.Allocate(sizeof(uint64_t), alignof(uint64_t)));
+    EXPECT_NE(x0, nullptr);
+    EXPECT_NE(x1, nullptr);
+    *x0 = 0xAAAA; *x1 = 0xBBBB;
+    const size_t capBefore = p.Stats().Capacity;
+
+    // This forces a new slab (growth).
+    auto* x2 = static_cast<uint64_t*>(p.Allocate(sizeof(uint64_t), alignof(uint64_t)));
+    EXPECT_NE(x2, nullptr);
+    *x2 = 0xCCCC;
+
+    EXPECT(p.Stats().Capacity > capBefore);   // grew
+    EXPECT_EQ(*x0, (uint64_t)0xAAAA);          // earlier-slab pointers still valid
+    EXPECT_EQ(*x1, (uint64_t)0xBBBB);
+    EXPECT_EQ(*x2, (uint64_t)0xCCCC);
+}
+
+static void T32_pool_reset_frees_all()
+{
+    Engine::PoolAllocator p(32, 2, 16, Engine::MemCategory::Mesh, "T32");
+    p.Allocate(32, 16);
+    p.Allocate(32, 16);
+    EXPECT(p.Stats().Used > 0);
+    p.Reset();
+    EXPECT_EQ(p.Stats().Used, (size_t)0);
+    void* a = p.Allocate(32, 16); // allocatable again
+    EXPECT_NE(a, nullptr);
+}
+
 int main()
 {
     T00_smoke();
@@ -214,6 +261,9 @@ int main()
     T24_arena_allocate_array_and_typed();
     T25_arena_external_buffer();
     T26_arena_compat_getters_and_reuse();
+    T30_pool_alloc_free_reuse();
+    T31_pool_grows_and_keeps_pointers_valid();
+    T32_pool_reset_frees_all();
 
     if (g_Failures == 0) {
         std::printf("All allocator tests passed.\n");
