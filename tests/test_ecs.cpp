@@ -5,6 +5,7 @@
 
 #include "lib.h"
 #include "ECS.h"
+#include "Systems.h"
 
 // Local platform_debug_break for the test exe: no MessageBox, just print + abort.
 // SM_ASSERT delegates here when an assertion fails.
@@ -369,6 +370,114 @@ static void T12_concurrent_smoke()
     }
 }
 
+// --- Systems layer tests ---
+
+// Records its name into a shared sink when run; carries a configurable phase.
+struct RecordingSystem final : ISystem {
+    RecordingSystem(const char* name, SystemPhase phase, std::vector<std::string>* sink)
+        : m_Name(name), m_Phase(phase), m_Sink(sink) {}
+    void Update(SystemContext&) override { m_Sink->push_back(m_Name); }
+    const char* Name() const override { return m_Name; }
+    SystemPhase Phase() const override { return m_Phase; }
+    const char* m_Name;
+    SystemPhase m_Phase;
+    std::vector<std::string>* m_Sink;
+};
+
+// Increments a counter on destruction (proves Clear() runs dtors).
+struct DtorCounterSystem final : ISystem {
+    explicit DtorCounterSystem(int* counter) : m_Counter(counter) {}
+    ~DtorCounterSystem() override { ++(*m_Counter); }
+    void Update(SystemContext&) override {}
+    const char* Name() const override { return "DtorCounter"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+    int* m_Counter;
+};
+
+// Adds a TransformComponent to entity 1 and bumps its X each Update.
+struct MutateSystem final : ISystem {
+    void Update(SystemContext& ctx) override {
+        if (!ctx.world.HasComponent<TransformComponent>(1)) {
+            ctx.world.AddComponent(1, TransformComponent{{0, 0, 0}, {}, {1, 1, 1}});
+        }
+        ctx.world.Modify<TransformComponent>(1, [](TransformComponent& t) {
+            t.Position.x += 1.0f;
+        });
+    }
+    const char* Name() const override { return "Mutate"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
+static void TS01_register_and_count()
+{
+    SystemScheduler sched;
+    EXPECT_EQ(sched.Count(), 0u);
+    std::vector<std::string> sink;
+    sched.Register(std::make_unique<RecordingSystem>("a", SystemPhase::Simulation, &sink));
+    sched.Register(std::make_unique<RecordingSystem>("b", SystemPhase::Simulation, &sink));
+    EXPECT_EQ(sched.Count(), 2u);
+}
+
+static void TS02_runs_in_phase_then_registration_order()
+{
+    SystemScheduler sched;
+    std::vector<std::string> sink;
+    sched.Register(std::make_unique<RecordingSystem>("sim1",   SystemPhase::Simulation,     &sink));
+    sched.Register(std::make_unique<RecordingSystem>("input1", SystemPhase::Input,          &sink));
+    sched.Register(std::make_unique<RecordingSystem>("sim2",   SystemPhase::Simulation,     &sink));
+    sched.Register(std::make_unique<RecordingSystem>("pre1",   SystemPhase::PreRender,      &sink));
+    sched.Register(std::make_unique<RecordingSystem>("post1",  SystemPhase::PostSimulation, &sink));
+
+    ECS world;
+    SystemContext ctx{ world, 0.016, 1.0 };
+    sched.Run(ctx);
+
+    EXPECT_EQ(sink.size(), 5u);
+    EXPECT(sink[0] == "input1");
+    EXPECT(sink[1] == "sim1");
+    EXPECT(sink[2] == "sim2");
+    EXPECT(sink[3] == "post1");
+    EXPECT(sink[4] == "pre1");
+}
+
+static void TS03_clear_destroys_systems()
+{
+    int dtorCount = 0;
+    {
+        SystemScheduler sched;
+        sched.Register(std::make_unique<DtorCounterSystem>(&dtorCount));
+        sched.Register(std::make_unique<DtorCounterSystem>(&dtorCount));
+        EXPECT_EQ(sched.Count(), 2u);
+        sched.Clear();
+        EXPECT_EQ(sched.Count(), 0u);
+        EXPECT_EQ(dtorCount, 2);
+    }
+    EXPECT_EQ(dtorCount, 2);
+}
+
+static void TS04_empty_run_is_noop()
+{
+    SystemScheduler sched;
+    ECS world;
+    SystemContext ctx{ world, 0.016, 1.0 };
+    sched.Run(ctx);
+    EXPECT_EQ(sched.Count(), 0u);
+}
+
+static void TS05_system_mutates_ecs()
+{
+    SystemScheduler sched;
+    sched.Register(std::make_unique<MutateSystem>());
+    ECS world;
+    world.CreateEntity();         // id 1
+    SystemContext ctx{ world, 0.016, 1.0 };
+    sched.Run(ctx);
+    sched.Run(ctx);
+    const auto* t = world.GetComponent<TransformComponent>(1);
+    EXPECT_NE(t, nullptr);
+    if (t) EXPECT_EQ(t->Position.x, 2.0f);
+}
+
 int main()
 {
     T00_smoke();
@@ -390,6 +499,11 @@ int main()
     T_removecomponent_after_snapshot_clones();
     T11_destroyed_entity_id_reuse();
     T12_concurrent_smoke();
+    TS01_register_and_count();
+    TS02_runs_in_phase_then_registration_order();
+    TS03_clear_destroys_systems();
+    TS04_empty_run_is_noop();
+    TS05_system_mutates_ecs();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

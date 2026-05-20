@@ -68,6 +68,7 @@ void GameThread::RunLoop() {
 
     // Initial load of Game.dll. If it fails, editor still runs without game logic
     // until the file watcher (installed in T14) picks up a subsequent rebuild.
+    m_GameLib.SetScheduler(&m_Scheduler);
     if (!m_GameLib.LoadOrReload("Game.dll", &gameState)) {
         SM_ERROR("GameThread: initial Game.dll load failed. "
                  "Editor will run without game logic until Game.dll becomes loadable.");
@@ -327,6 +328,11 @@ void GameThread::RunLoop() {
 
 			if (m_GameLib.IsValid()) {
                 m_GameLib.Update(&gameState);
+            }
+
+			{
+                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime };
+                m_Scheduler.Run(sysCtx);
             }
 
 			// Update all loaded plugins

@@ -1,5 +1,6 @@
 add_library(ecs SHARED
     src/ecs.cpp
+    src/systems.cpp
 )
 
 target_include_directories(ecs PUBLIC ../common/include)
