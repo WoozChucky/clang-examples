@@ -56,8 +56,9 @@ private:
     void EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir);
 
     std::unique_ptr<DotNetPluginManager> m_PluginManager{nullptr};
+    SystemScheduler m_Scheduler;   // declared before m_GameLib: GameLibrary's dtor
+                                   // clears the scheduler, so the scheduler must outlive it
     GameLibrary m_GameLib;
-    SystemScheduler m_Scheduler;
     std::atomic<bool> m_ReloadPending{false};
     std::unique_ptr<filewatch::FileWatch<std::string>> m_GameDllWatcher;
 
