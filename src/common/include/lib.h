@@ -20,7 +20,7 @@
 enum class RendererAPI : uint8_t {
     Invalid,
     DirectX12,
-    DirectX11,
+    DirectX11,  // TODO: DirectX11 backend not implemented yet
     Vulkan,
 };
 

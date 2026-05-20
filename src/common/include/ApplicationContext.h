@@ -11,11 +11,13 @@
 
 #include "ECS.h"
 #include "ECSCommands.h"
+#include "lib.h"
 
 struct ApplicationSettings {
-    uint32_t windowWidth = 1920;
-    uint32_t windowHeight = 1080;
-    bool vsyncEnabled = true;
+    RendererAPI Backend    = RendererAPI::DirectX12;
+    uint32_t    windowWidth   = 1920;
+    uint32_t    windowHeight  = 1080;
+    bool        vsyncEnabled  = true;
 };
 
 // Runtime-configurable game thread settings (Render -> Game)
