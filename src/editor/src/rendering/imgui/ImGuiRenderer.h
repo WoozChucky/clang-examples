@@ -68,6 +68,5 @@ private:
     // Initialized lazily on first menu open from m_AppContext->Settings.Backend.
     RendererAPI m_PendingBackend = RendererAPI::Invalid;
     bool        m_PendingBackendInitialized = false;
-    bool        m_RestartRequired = false;   // Task 7
     std::string m_SettingsSaveError;          // empty when no error
 };
