@@ -67,9 +67,7 @@ if (!m_DxgiAdapter) {
         RefCountPtr<ID3D12InfoQueue> pInfoQueue;
         m_Device12->QueryInterface(&pInfoQueue);
 
-        // Do NOT break on WARNING: ReportLiveObjects (hot-swap leak diagnostic)
-        // emits a LIVE_DEVICE warning that would otherwise halt the app.
-        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, false);
+        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
         pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
         pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
 
