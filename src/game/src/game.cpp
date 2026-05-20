@@ -38,12 +38,12 @@ public:
 };
 
 // Drives the SunMarker directional light over a day/night cycle.
-// NOTE: cycle length is a compile-time constant in v1 (was g_GameState->DayNightCycleSeconds,
-// default 10.0f). Runtime config waits for the deferred singleton-component pass.
+// Cycle length is read from the DayNightConfigComponent singleton (default 10.0f).
 class DayNightSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
-        constexpr float kDayNightCycleSeconds = 10.0f;
+        float kDayNightCycleSeconds = 10.0f;
+        if (const auto* cfg = ctx.world.GetSingleton<DayNightConfigComponent>()) kDayNightCycleSeconds = cfg->CycleSeconds;
         for (EntityId sun : ctx.world.View<SunMarker, LightningComponent>()) {
             ctx.world.Modify<LightningComponent>(sun, [&](auto& l) {
                 if (l.Type != LightningType::Directional) return;
@@ -84,35 +84,102 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 };
 
+// Free-look fly camera. Reads InputStateComponent + ViewportComponent, advances
+// FreeLookControlComponent, and writes the resolved WorldCameraComponent.
+// Behavior mirrors the old HandleCameraMovement/HandleFreeLook (now removed).
+class FreeLookCameraSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const auto* in = ctx.world.GetSingleton<InputStateComponent>();
+        const auto* vp = ctx.world.GetSingleton<ViewportComponent>();
+        if (!in || !ctx.world.GetSingleton<FreeLookControlComponent>()) return;
+        const float dt = static_cast<float>(ctx.dt);
+
+        ctx.world.ModifySingleton<FreeLookControlComponent>([&](FreeLookControlComponent& c) {
+            if (in->Pressed[KEY_T]) c.MouseAimEnabled = !c.MouseAimEnabled;
+            if (c.MouseAimEnabled) {
+                c.Yaw   -= static_cast<float>(in->MouseDX) * c.Sensitivity;
+                c.Pitch -= static_cast<float>(in->MouseDY) * c.Sensitivity;
+                const float lim = glm::radians(89.0f);
+                c.Pitch = glm::clamp(c.Pitch, -lim, lim);
+            }
+            const float cp = cosf(c.Pitch), sp = sinf(c.Pitch);
+            const float cy = cosf(c.Yaw),   sy = sinf(c.Yaw);
+            const glm::vec3 forward = glm::normalize(glm::vec3(-sy, sp*cy, -cp*cy));
+            const glm::vec3 right   = glm::normalize(glm::cross(forward, glm::vec3(0,1,0)));
+            const float spd = c.MoveSpeed * dt;
+            if (in->KeysDown[KEY_W]) c.Position += forward * spd;
+            if (in->KeysDown[KEY_S]) c.Position -= forward * spd;
+            if (in->KeysDown[KEY_A]) c.Position -= right   * spd;
+            if (in->KeysDown[KEY_D]) c.Position += right   * spd;
+            if (in->KeysDown[KEY_SPACE])      c.Position.y += spd;
+            if (in->KeysDown[KEY_LEFT_SHIFT]) c.Position.y -= spd;
+            const float yawSpeed = glm::radians(120.0f) * dt;
+            if (in->KeysDown[KEY_Q]) c.Yaw += yawSpeed;
+            if (in->KeysDown[KEY_E]) c.Yaw -= yawSpeed;
+            if (in->Wheel != 0) {
+                const float step = glm::radians(2.0f);
+                c.Fov = glm::clamp(c.Fov - step * static_cast<float>(in->Wheel),
+                                   glm::radians(20.0f), glm::radians(179.99f));
+            }
+        });
+
+        const auto* c = ctx.world.GetSingleton<FreeLookControlComponent>();
+        const float aspect = (vp && vp->Height) ? float(vp->Width)/float(vp->Height) : 16.0f/9.0f;
+        const glm::mat4 T  = glm::translate(glm::mat4(1.0f), -c->Position);
+        const glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), -c->Pitch, {1,0,0});
+        const glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), -c->Yaw,   {0,1,0});
+        ctx.world.ModifySingleton<WorldCameraComponent>([&](WorldCameraComponent& w) {
+            w.View       = (Ry * Rx) * T;
+            w.Projection = glm::perspectiveRH_ZO(c->Fov, aspect, 0.1f, 1000.0f);
+            w.Position   = c->Position;
+        });
+    }
+    const char* Name() const override { return "FreeLookCameraSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
+// Sets AppControlComponent::QuitRequested when the configured quit key is pressed.
+class QuitRequestSystem final : public ISystem {
+public:
+    explicit QuitRequestSystem(int quitKey) : m_QuitKey(quitKey) {}
+    void Update(SystemContext& ctx) override {
+        const auto* in = ctx.world.GetSingleton<InputStateComponent>();
+        if (in && m_QuitKey >= 0 && m_QuitKey <= KEY_LAST && in->Pressed[m_QuitKey])
+            ctx.world.ModifySingleton<AppControlComponent>([](AppControlComponent& a){ a.QuitRequested = true; });
+    }
+    const char* Name() const override { return "QuitRequestSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PostSimulation; }
+private:
+    int m_QuitKey;
+};
+
+// Spawns a bare entity on F12 (debug aid; was the inline F12 block in GameUpdate).
+class DebugSpawnSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const auto* in = ctx.world.GetSingleton<InputStateComponent>();
+        if (in && in->Pressed[KEY_F12]) {
+            const auto id = ctx.world.CreateEntity();
+            SM_TRACE("DebugSpawnSystem: spawned entity %llu", (unsigned long long)id);
+        }
+    }
+    const char* Name() const override { return "DebugSpawnSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
 } // namespace
 
-void GameRegisterSystems(SystemScheduler* scheduler) {
-    if (!scheduler) return;
-    scheduler->Register(std::make_unique<TextRotationSystem>());
-    scheduler->Register(std::make_unique<DayNightSystem>());
+void GameRegisterSystems(SystemScheduler* s) {
+    if (!s) return;
+    s->Register(std::make_unique<FreeLookCameraSystem>());
+    s->Register(std::make_unique<TextRotationSystem>());
+    s->Register(std::make_unique<DayNightSystem>());
+    s->Register(std::make_unique<DebugSpawnSystem>());
+    s->Register(std::make_unique<QuitRequestSystem>(KEY_ESCAPE));
 }
 
 static GameState* g_GameState = nullptr;
-static bool gKeysPressedThisFrame[KEY_LAST + 1] = {}; // NEW: Track single-frame presses
-static int32_t gMouseWheel = 0;
-
-using namespace Input;
-
-void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRing);
-void HandleFreeLook(GameState* state);
-void HandleCameraMovement(GameState* state);
-
-// Helper function to check if key was pressed this frame (single press, not held)
-inline bool IsKeyPressedThisFrame(int key) {
-    if (key < 0 || key > KEY_LAST) return false;
-    return gKeysPressedThisFrame[key];
-}
-
-// Helper function to check if key is currently held down
-inline bool IsKeyDown(int key) {
-    if (key < 0 || key > KEY_LAST) return false;
-    return g_GameState->KeysDown[key];
-}
 
 uint32_t GameGetVersion() {
     return GAME_API_VERSION;
@@ -126,22 +193,9 @@ void GameUpdate(GameState* state) {
 
     if (!g_GameState) return;
 
-	// Clear pressed-this-frame flags at start of each update
-	memset(gKeysPressedThisFrame, 0, sizeof(gKeysPressedThisFrame));
-
-	DrainInput(g_GameState->PlatformInput);
-
-	HandleCameraMovement(g_GameState);
-
-    // Note: Day/Night cycle + text rotation are now handled by systems (see DayNightSystem / TextRotationSystem).
-
-    {
-	    // Use IsKeyPressedThisFrame to add only ONE entity per key press (not per frame while held)
-		if (IsKeyPressedThisFrame(KEY_F12)) {
-			const auto entityId = g_GameState->World.CreateEntity();
-			SM_TRACE("Added new Entity (%llu)", entityId)
-		}
-    }
+    // Note: input/camera/quit/spawn + day/night + text rotation are now handled by
+    // systems (FreeLookCameraSystem / QuitRequestSystem / DebugSpawnSystem /
+    // DayNightSystem / TextRotationSystem) driven by the SystemScheduler.
 
     switch (g_GameState->StateId)
     {
@@ -149,7 +203,14 @@ void GameUpdate(GameState* state) {
 	    case GameStateId::Uninitialized: {
 	        SM_TRACE("[GAMEDLL] Initializing game...")
             g_GameState->StateId = GameStateId::MainMenu;
-	        g_GameState->GameCamera.position = glm::vec3(0.0f, 5.0f, 10.0f);
+
+	        // Seed game-owned singletons (camera control + resolved camera + app
+	        // control + day/night config). FreeLookControlComponent defaults include
+	        // Position {0,5,10} (was g_GameState->GameCamera.position).
+	        g_GameState->World.SetSingleton(FreeLookControlComponent{});
+	        g_GameState->World.SetSingleton(WorldCameraComponent{});
+	        g_GameState->World.SetSingleton(AppControlComponent{});
+	        g_GameState->World.SetSingleton(DayNightConfigComponent{});
 
 	        // World loaded from world.json is authoritative — skip default spawns
 	        // to prevent duplicates. Defaults exist only as a Unity-like fallback
@@ -198,118 +259,6 @@ void GameUpdate(GameState* state) {
     }
 }
 
-void HandleCameraMovement(GameState* state)
-{
-	const auto dt = static_cast<float>(state->DeltaTime);
-
-	const glm::vec3 rot = state->GameCamera.rotation; // pitch(x), yaw(y), roll(z)
-	const float cp = cosf(rot.x), sp = sinf(rot.x);
-	const float cy = cosf(rot.y), sy = sinf(rot.y);
-
-	// Camera-to-world forward for RH, y-up, default forward = -Z:
-	// forward = (Rx * Ry * Rz) * (0,0,-1) with roll=0
-	const glm::vec3 forward = glm::normalize(glm::vec3(
-		-sy,            // x
-		sp * cy,       // y
-		-cp * cy        // z
-	));
-
-	// Right vector consistent with RH system
-	const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0, 1, 0)));
-
-	float moveSpeed = 7.5f; // units/sec
-
-	// Movement - use IsKeyDown for continuous movement
-	if (IsKeyDown(KEY_W)) state->GameCamera.position += forward * (moveSpeed * dt);
-	if (IsKeyDown(KEY_S)) state->GameCamera.position -= forward * (moveSpeed * dt);
-	if (IsKeyDown(KEY_A)) state->GameCamera.position -= right * (moveSpeed * dt);
-	if (IsKeyDown(KEY_D)) state->GameCamera.position += right * (moveSpeed * dt);
-
-	// Elevation
-	if (IsKeyDown(KEY_SPACE)) { state->GameCamera.position.y += moveSpeed * dt; state->GameCamera.invalidate(); }
-	if (IsKeyDown(KEY_LEFT_SHIFT)) { state->GameCamera.position.y -= moveSpeed * dt; state->GameCamera.invalidate(); }
-
-	// Rotation
-	constexpr float yawSpeed = glm::radians(120.0f);
-	auto& yaw = state->GameCamera.rotation.y;
-	if (IsKeyDown(KEY_Q)) { yaw += yawSpeed * dt; state->GameCamera.invalidate(); }
-	if (IsKeyDown(KEY_E)) { yaw -= yawSpeed * dt; state->GameCamera.invalidate(); }
-
-	//Zoom
-	const int32_t wheel = std::exchange(gMouseWheel, 0);
-	if (wheel != 0) {
-		if (true) {
-			// Perspective zoom, usually for a 1st-person game ends up in FOV change
-			// decrease FOV to zoom in, increase to zoom out
-			constexpr float step = glm::radians(2.0f);   // FOV change per notch
-			constexpr float minFov = glm::radians(20.0f);
-			constexpr float maxFov = glm::radians(179.99f);
-			// Adjust the correct FOV field for your camera (e.g., fovY)
-			state->GameCamera.fov = glm::clamp(
-				state->GameCamera.fov - step * static_cast<float>(wheel),
-				minFov, maxFov
-			);
-		}
-		if (false) {
-			// Perspective zoom, usually for a 3rd-person game ends up in camera position change
-			// in relation to the player
-			constexpr float zoomPerNotch = 2.0f; // units per wheel step
-			const float zoomDelta = static_cast<float>(wheel) * zoomPerNotch;
-			state->GameCamera.position += forward * zoomDelta;
-			state->GameCamera.invalidate();
-		}
-	}
-
-	// Toggle mouse aim - use IsKeyPressedThisFrame for toggle action
-	if (IsKeyPressedThisFrame(KEY_T)) {
-		g_GameState->MouseAimEnabled = !g_GameState->MouseAimEnabled;
-
-		if (g_GameState->MouseAimEnabled) {
-			// Reset virtual cursor to center when enabling mouse aim
-			g_GameState->MouseX = state->Settings->windowWidth / 2.0;
-			g_GameState->MouseY = state->Settings->windowHeight / 2.0;
-		}
-
-		SM_TRACE("[GAMEDLL] Mouse Aim %s", g_GameState->MouseAimEnabled ? "Enabled" : "Disabled")
-	}
-
-	HandleFreeLook(state);
-}
-
-void HandleFreeLook(GameState* state) {
-	if (!g_GameState->MouseAimEnabled) return;
-
-	static double lastMouseX = state->Settings->windowWidth / 2.0;
-	static double lastMouseY = state->Settings->windowHeight / 2.0;
-
-	// Compute delta from last frame
-	const double dx = g_GameState->MouseX - lastMouseX;
-	const double dy = g_GameState->MouseY - lastMouseY;
-
-	// Update last position
-	lastMouseX = g_GameState->MouseX;
-	lastMouseY = g_GameState->MouseY;
-
-	// Mouse sensitivity (adjust to taste)
-	constexpr float sensitivity = 0.002f; // radians per pixel
-
-	// Apply deltas directly to yaw/pitch
-	state->GameCamera.rotation.y -= static_cast<float>(dx) * sensitivity; // yaw (left/right)
-	state->GameCamera.rotation.x -= static_cast<float>(dy) * sensitivity; // pitch (up/down)
-
-	// Clamp pitch to prevent flipping
-	constexpr float pitchLimit = glm::radians(89.0f);
-	state->GameCamera.rotation.x = glm::clamp(
-		state->GameCamera.rotation.x,
-		-pitchLimit,
-		pitchLimit
-	);
-
-	state->GameCamera.rotation.z = 0.0f; // no roll
-
-	state->GameCamera.invalidate();
-}
-
 void GameResize(uint32_t width, uint32_t height) {
     SM_TRACE("[GAMEDLL] GameResize: %ux%u", width, height);
 }
@@ -321,78 +270,6 @@ void GameExit(GameState* state) {
         g_GameState = nullptr;
     }
     SM_TRACE("[GAMEDLL] GameExit")
-}
-
-
-void DrainInput(SpscRing<InputEvent, ApplicationContext::InputRingSize>* inputRing) {
-	static double g_LastMouseX = 0.0, g_LastMouseY = 0.0;
-	static bool g_FirstMouse = true;
-
-	InputEvent ev{};
-	while (inputRing->Pop(ev))
-	{
-		if (ev.Type == InputEventType::Key && ev.KeyEvent.Key == KEY_ESCAPE && ev.KeyEvent.Action == RELEASE)
-		{
-			SM_TRACE("[GAMEDLL] GameUpdate: Shutdown requested via ESC key")
-			g_GameState->QuitRequested = true;
-			break;
-		}
-
-		if (ev.Type == InputEventType::Key) {
-			const auto k = static_cast<int>(ev.KeyEvent.Key);
-			if (k >= 0 && k <= KEY_LAST) {
-				// Track key down state (for continuous checks like movement)
-				if (ev.KeyEvent.Action == PRESS || ev.KeyEvent.Action == REPEAT) {
-					g_GameState->KeysDown[k] = true;
-				}
-				if (ev.KeyEvent.Action == RELEASE) {
-					g_GameState->KeysDown[k] = false;
-				}
-
-				// Track single-frame press (only on PRESS, not REPEAT)
-				if (ev.KeyEvent.Action == PRESS) {
-					gKeysPressedThisFrame[k] = true;
-				}
-			}
-		}
-
-		if (ev.Type == InputEventType::MouseMove) {
-			if (g_GameState->MouseAimEnabled) {
-				if (g_FirstMouse) {
-					g_LastMouseX = ev.MouseMoveEvent.X;
-					g_LastMouseY = ev.MouseMoveEvent.Y;
-					g_FirstMouse = false;
-				}
-
-				double dx = ev.MouseMoveEvent.X - g_LastMouseX;
-				double dy = ev.MouseMoveEvent.Y - g_LastMouseY;
-
-				// Optional: clamp large jumps to prevent teleportation
-				constexpr double maxDelta = 100.0;
-				dx = glm::clamp(dx, -maxDelta, maxDelta);
-				dy = glm::clamp(dy, -maxDelta, maxDelta);
-
-				// Just accumulate for smoothing (not for ray-casting anymore)
-				g_GameState->MouseX += dx;
-				g_GameState->MouseY += dy;
-
-				g_LastMouseX = ev.MouseMoveEvent.X;
-				g_LastMouseY = ev.MouseMoveEvent.Y;
-			} else {
-				g_GameState->MouseX = ev.MouseMoveEvent.X;
-				g_GameState->MouseY = ev.MouseMoveEvent.Y;
-				g_FirstMouse = true;
-			}
-		}
-
-		if (ev.Type == InputEventType::MouseWheel) {
-			gMouseWheel = static_cast<int32_t>(ev.MouseScrollEvent.OffsetY);
-		}
-	}
-
-	//static char utf8[5] = {}; // Max 4 bytes + null terminator
-	//int len = EncodeUTF8(code, utf8);
-	//SM_TRACE("Char: %.*s", len, utf8);
 }
 
 inline int EncodeUTF8(unsigned int codepoint, char* out) {
