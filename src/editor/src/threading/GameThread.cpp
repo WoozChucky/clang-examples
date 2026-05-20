@@ -54,7 +54,6 @@ void GameThread::RunLoop() {
 	}
 
     GameState gameState{};
-    gameState.PlatformInput = &m_AppContext->InputRing;
     gameState.Settings = &m_AppContext->Settings;
 
     // Load default world before any GameUpdate call. Guarded by WorldLoaded so
