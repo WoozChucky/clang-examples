@@ -1,5 +1,7 @@
 #include "Game.h"
+#include "Systems.h"
 
+#include <memory>
 #include <tuple>
 
 #include <ApplicationContext.h>
@@ -9,6 +11,77 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+namespace {
+
+// Spins every text entity and cycles its color. (Was GameUpdate/MainMenu.)
+class TextRotationSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        for (EntityId e : ctx.world.View<TextComponent, TransformComponent>()) {
+            ctx.world.Modify<TransformComponent>(e, [&](auto& transform) {
+                constexpr float TWO_PI = 6.28318530718f;
+                transform.Rotation.z = fmodf(
+                    transform.Rotation.z + glm::radians(180.0f) * static_cast<float>(ctx.dt),
+                    TWO_PI);
+            });
+            ctx.world.Modify<TextComponent>(e, [&](auto& text) {
+                const auto time = static_cast<float>(ctx.dt);
+                const float red = (sinf(time) + 1.0f) / 2.0f;
+                const float green = (cosf(ctx.gameTime) + 1.0f) / 2.0f;
+                const float blue = 1.0f - red;
+                text.Color = glm::vec4(red, green, blue, 1.0f);
+            });
+        }
+    }
+    const char* Name() const override { return "TextRotationSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
+// Drives the SunMarker directional light over a day/night cycle.
+// NOTE: cycle length is a compile-time constant in v1 (was g_GameState->DayNightCycleSeconds,
+// default 10.0f). Runtime config waits for the deferred singleton-component pass.
+class DayNightSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        constexpr float kDayNightCycleSeconds = 10.0f;
+        for (EntityId sun : ctx.world.View<SunMarker, LightningComponent>()) {
+            ctx.world.Modify<LightningComponent>(sun, [&](auto& l) {
+                if (l.Type != LightningType::Directional) return;
+
+                const float cycle = glm::max(kDayNightCycleSeconds, 0.001f);
+                const double gameTime = ctx.gameTime;
+                const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
+                const float theta = phase * 6.28318530718f;
+                const glm::vec3 dir = glm::normalize(glm::vec3(0.0f, -cosf(theta), sinf(theta)));
+                l.Direction = glm::vec4(dir, 0.0f);
+
+                const float elevation = glm::clamp(-dir.y, 0.0f, 1.0f);
+                const float horizon = 1.0f - glm::abs(dir.y);
+                const float horizonSmooth = glm::smoothstep(0.0f, 0.5f, horizon);
+
+                const glm::vec3 dayColor  = glm::vec3(1.00f, 0.98f, 0.90f);
+                const glm::vec3 warmColor = glm::vec3(1.00f, 0.68f, 0.35f);
+                const glm::vec3 nightColor= glm::vec3(0.15f, 0.20f, 0.40f);
+
+                const glm::vec3 dayWarm   = glm::mix(dayColor, warmColor, horizonSmooth);
+                const glm::vec3 baseColor = glm::mix(nightColor, dayWarm, elevation);
+                const float brightness = 0.75f + 0.75f * elevation;
+                const glm::vec3 finalColor = baseColor * brightness;
+                l.Color = glm::vec4(finalColor, 1.0f);
+            });
+        }
+    }
+    const char* Name() const override { return "DayNightSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
+} // namespace
+
+void GameRegisterSystems(SystemScheduler* scheduler) {
+    if (!scheduler) return;
+    scheduler->Register(std::make_unique<TextRotationSystem>());
+    scheduler->Register(std::make_unique<DayNightSystem>());
+}
 
 static GameState* g_GameState = nullptr;
 static bool gKeysPressedThisFrame[KEY_LAST + 1] = {}; // NEW: Track single-frame presses
@@ -101,69 +174,6 @@ void GameUpdate(GameState* state) {
 	        break;
 	    }
         case GameStateId::MainMenu: {
-            // Rotate every text entity + cycle its color. Identity is by component, not handle.
-            for (EntityId e : g_GameState->World.View<TextComponent, TransformComponent>()) {
-                g_GameState->World.Modify<TransformComponent>(e, [&](auto& transform) {
-                    constexpr float TWO_PI = 6.28318530718f;
-                    transform.Rotation.z = fmodf(
-                        transform.Rotation.z + glm::radians(180.0f) * static_cast<float>(g_GameState->DeltaTime),
-                        TWO_PI);
-                });
-                g_GameState->World.Modify<TextComponent>(e, [&](auto& text) {
-                    const auto time = static_cast<float>(g_GameState->DeltaTime);
-                    const float red = (sinf(time) + 1.0f) / 2.0f;
-                    const float green = (cosf(g_GameState->GameTime) + 1.0f) / 2.0f;
-                    const float blue = 1.0f - red;
-                    text.Color = glm::vec4(red, green, blue, 1.0f);
-                });
-            }
-
-            // Day/night cycle drives entities tagged with SunMarker (singleton role).
-            for (EntityId sun : g_GameState->World.View<SunMarker, LightningComponent>()) {
-                g_GameState->World.Modify<LightningComponent>(sun, [&](auto& l) {
-                    if (l.Type != LightningType::Directional) return;
-
-                    const float cycle = glm::max(g_GameState->DayNightCycleSeconds, 0.001f);
-                    const double gameTime = g_GameState->GameTime; // seconds
-                    const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
-                    const float theta = phase * 6.28318530718f; // 2*pi
-                    // Rotate in YZ plane: midday -> light points downward (0, -1, 0)
-                    const glm::vec3 dir = glm::normalize(glm::vec3(0.0f, -cosf(theta), sinf(theta)));
-                    /*
-                     * DO NOT REMOVE THIS COMMENTED OUT CODE - kept for reference
-                    const float cycle = glm::max(g_DayNightCycleSeconds, 0.001f);
-                    const double gameTime = g_GameState->GameTime; // seconds
-                    const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
-                    // Move the light direction from (-X, -Z) to (+X, +Z) over the cycle, with a constant downward Y
-                    const float xz = -1.0f + 2.0f * phase; // [-1 .. +1]
-                    const glm::vec3 dir = glm::normalize(glm::vec3(xz, -1.0f, xz));
-                    */
-
-                    l.Direction = glm::vec4(dir, 0.0f);
-
-                    // Compute sun color over the cycle based on elevation and horizon warmness
-                    // Elevation factor: 0 (night) .. 1 (midday). Our light points down at midday (dir.y ~ -1)
-                    const float elevation = glm::clamp(-dir.y, 0.0f, 1.0f);
-                    // Horizon factor peaks near sunrise/sunset when |dir.y| ~ 0
-                    const float horizon = 1.0f - glm::abs(dir.y);
-                    const float horizonSmooth = glm::smoothstep(0.0f, 0.5f, horizon);
-
-                    const glm::vec3 dayColor  = glm::vec3(1.00f, 0.98f, 0.90f); // slightly warm white
-                    const glm::vec3 warmColor = glm::vec3(1.00f, 0.68f, 0.35f); // sunrise/sunset orange
-                    const glm::vec3 nightColor= glm::vec3(0.15f, 0.20f, 0.40f); // cool moonlight blue
-
-                    // Blend between day and warm near horizon, then between night and that by elevation
-                    const glm::vec3 dayWarm   = glm::mix(dayColor, warmColor, horizonSmooth);
-                    const glm::vec3 baseColor = glm::mix(nightColor, dayWarm, elevation);
-
-                    // Optional brightness scaling to dim the sun at night and brighten at day
-                    const float brightness = 0.75f + 0.75f * elevation; // [0.25 .. 1.0]
-                    const glm::vec3 finalColor = baseColor * brightness;
-
-                    l.Color = glm::vec4(finalColor, 1.0f);
-                });
-            }
-
             break;
         }
 	    case GameStateId::InLevel:
