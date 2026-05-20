@@ -133,6 +133,20 @@ void GameThread::RunLoop() {
 	frameStats.SampleCount = 0;
 
 	while (Running()) {
+		// Renderer hot-swap: pause here while RenderThread rebuilds the device.
+		if (m_AppContext->SwapInProgress.load(std::memory_order_acquire)) {
+			ZoneScopedN("Game:SwapPause");
+			m_AppContext->GameThreadPaused.store(true, std::memory_order_release);
+			while (m_AppContext->SwapInProgress.load(std::memory_order_acquire)
+			       && Running()) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			}
+			m_AppContext->GameThreadPaused.store(false, std::memory_order_release);
+			// Reset frame pacing so the resumed tick doesn't see a huge dt.
+			nextFrameTime = Clock::now();
+			lastFrameTime = nextFrameTime;
+		}
+
 		// Drain reload flag BEFORE input/commands/game logic so the rest of the tick
 		// runs on the new code.
 		if (m_ReloadPending.exchange(false, std::memory_order_acquire)) {
