@@ -39,10 +39,27 @@ public:
     // Cleanup all resources
     void Shutdown();
 
+    void SetDevice(nvrhi::IDevice* device) { m_Device = device; }
+
+    // Hot-swap support: release GPU textures but keep entries + CPU caches.
+    void DestroyGpuResources();
+    // Hot-swap support: rebuild textures from CPU caches against m_Device.
+    // newMissing / newSampler replace the previous default resources.
+    // Returns false if any material failed (that slot falls back to missing).
+    bool RecreateGpuResources(const nvrhi::TextureHandle& newMissing,
+                              const nvrhi::SamplerHandle& newSampler);
+
 private:
     struct MaterialEntry {
         nvrhi::TextureHandle texture;
         nvrhi::SamplerHandle sampler;
+
+        // CPU-side copy retained for hot-swap. If usesMissingTexture is true,
+        // this entry points at the shared missing texture and has no pixels.
+        std::vector<uint32_t> cpuPixels;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        bool usesMissingTexture = false;
     };
 
     nvrhi::IDevice* m_Device = nullptr;

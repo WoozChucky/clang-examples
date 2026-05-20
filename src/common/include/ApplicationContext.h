@@ -68,7 +68,8 @@ enum class RendererCommandType : uint8_t {
     Resize = 3,
     RequestMesh = 4,
     RequestMaterial = 5,
-    RequestModel = 6
+    RequestModel = 6,
+    SwapBackend = 7
 };
 struct RendererCommand {
     RendererCommandType Type{};
@@ -93,6 +94,10 @@ struct RendererCommand {
             uint32_t Height;
             uint32_t* Texture; // optional RGBA8 pixels (w*h entries)
         } MaterialRequest;
+
+        struct {
+            RendererAPI TargetApi;
+        } SwapBackend;
     };
 };
 
@@ -130,6 +135,11 @@ struct ApplicationContext {
 
     // Shutdown
     std::atomic<bool> ShutdownRequested{false};
+
+    // Renderer hot-swap coordination (Phase B).
+    // RenderThread sets SwapInProgress; GameThread acks via GameThreadPaused.
+    std::atomic<bool> SwapInProgress{false};
+    std::atomic<bool> GameThreadPaused{false};
 
     // Input: Platform -> Game
     static constexpr int InputRingSize = 256;

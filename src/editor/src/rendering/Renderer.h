@@ -81,6 +81,11 @@ public:
     void Resize(uint32_t width, uint32_t height);
     void ToggleVSync();
 
+    // Phase B hot-swap. Runs synchronously on the RenderThread. Returns false
+    // on a fatal, unrecoverable failure (caller should MessageBox + exit).
+    bool SwapBackend(RendererAPI newApi);
+    RendererAPI CurrentApi() const { return m_Backend ? m_Backend->GetAPI() : RendererAPI::Invalid; }
+
     // Shader creation (wraps backend, keeps backend isolated)
     nvrhi::ShaderHandle CreateShader(
         nvrhi::ShaderType shaderType,
@@ -103,6 +108,12 @@ public:
     MaterialSystem* GetMaterialSystem() { return &m_MaterialSystem; }
 
 private:
+
+    void TeardownForSwap();
+    bool InitForSwap(RendererAPI newApi);
+    // Creates the default magenta missing texture + default sampler.
+    void CreateDefaultMaterialResources(nvrhi::TextureHandle& outMissing,
+                                        nvrhi::SamplerHandle& outSampler);
 
     constexpr static uint32_t   SHUTDOWN_TIMEOUT = 5000;
 

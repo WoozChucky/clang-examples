@@ -24,6 +24,13 @@ public:
     bool Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem, Renderer* renderer);
     void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot, float gpuFrameTimeMs);
     void Shutdown();
+
+    // Hot-swap: tear down only the device-bound NVRHI backend + preview
+    // renderer; keep the ImGui context, dock layout, and loaded fonts.
+    void ShutdownNvrhiOnly();
+    // Hot-swap: recreate the NVRHI backend + preview renderer against a new
+    // device, and re-upload the font atlas. Returns false on failure.
+    bool InitNvrhiForDevice(nvrhi::IDevice* device);
 private:
     std::shared_ptr<RegisteredFont> CreateFontFromFile(const char* fontFile, float fontSize);
     void ProcessInputEvents();
@@ -44,6 +51,7 @@ private:
     ApplicationContext* m_AppContext = nullptr;
     MeshSystem* m_MeshSystem = nullptr;
     MaterialSystem* m_MaterialSystem = nullptr;
+    Renderer* m_Renderer = nullptr;  // retained for hot-swap preview re-init
 
     // Mesh preview camera state
     struct MeshPreviewState {
@@ -60,6 +68,5 @@ private:
     // Initialized lazily on first menu open from m_AppContext->Settings.Backend.
     RendererAPI m_PendingBackend = RendererAPI::Invalid;
     bool        m_PendingBackendInitialized = false;
-    bool        m_RestartRequired = false;   // Task 7
     std::string m_SettingsSaveError;          // empty when no error
 };

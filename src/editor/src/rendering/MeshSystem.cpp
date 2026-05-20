@@ -93,6 +93,10 @@ MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
         entry.boundsMax = glm::max(entry.boundsMax, pos);
     }
 
+    // Retain CPU-side copies for hot-swap replay.
+    entry.cpuVertices.assign(vertices, vertices + vertexCount);
+    entry.cpuIndices.assign(indices, indices + indexCount);
+
     // Create command list for upload
     auto cl = m_Device->createCommandList(nvrhi::CommandListParameters().setQueueType(nvrhi::CommandQueue::Graphics));
     cl->open();
@@ -229,4 +233,81 @@ void MeshSystem::Shutdown()
     }
     m_Meshes.clear();
     m_Device = nullptr;
+}
+
+void MeshSystem::DestroyGpuResources()
+{
+    // Release GPU buffers but keep m_Meshes entries (and their CPU caches).
+    for (auto& entry : m_Meshes)
+    {
+        entry.vertexBuffer = nullptr;
+        entry.indexBuffer = nullptr;
+    }
+    // Keep m_Device as-is; caller updates it before RecreateGpuResources().
+}
+
+bool MeshSystem::RecreateGpuResources()
+{
+    if (!m_Device)
+    {
+        SM_ERROR("MeshSystem::RecreateGpuResources: no device");
+        return false;
+    }
+
+    bool allOk = true;
+    for (size_t i = 0; i < m_Meshes.size(); ++i)
+    {
+        MeshEntry& entry = m_Meshes[i];
+        if (entry.cpuVertices.empty() || entry.cpuIndices.empty())
+        {
+            SM_WARN("MeshSystem::RecreateGpuResources: mesh %zu has no CPU cache; skipping", i);
+            allOk = false;
+            continue;
+        }
+
+        auto cl = m_Device->createCommandList(
+            nvrhi::CommandListParameters().setQueueType(nvrhi::CommandQueue::Graphics));
+        cl->open();
+
+        nvrhi::BufferDesc vbDesc;
+        vbDesc.debugName = "MeshSystem VB " + std::to_string(i);
+        vbDesc.byteSize = sizeof(MeshVertex) * entry.cpuVertices.size();
+        vbDesc.isVertexBuffer = true;
+        vbDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        entry.vertexBuffer = m_Device->createBuffer(vbDesc);
+        if (!entry.vertexBuffer)
+        {
+            SM_ERROR("MeshSystem::RecreateGpuResources: mesh %zu vertex buffer failed", i);
+            cl->close();
+            allOk = false;
+            continue;
+        }
+        cl->beginTrackingBufferState(entry.vertexBuffer, nvrhi::ResourceStates::CopyDest);
+        cl->writeBuffer(entry.vertexBuffer, entry.cpuVertices.data(), vbDesc.byteSize);
+        cl->setPermanentBufferState(entry.vertexBuffer, nvrhi::ResourceStates::VertexBuffer);
+
+        nvrhi::BufferDesc ibDesc;
+        ibDesc.debugName = "MeshSystem IB " + std::to_string(i);
+        ibDesc.byteSize = sizeof(uint32_t) * entry.cpuIndices.size();
+        ibDesc.isIndexBuffer = true;
+        ibDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        entry.indexBuffer = m_Device->createBuffer(ibDesc);
+        if (!entry.indexBuffer)
+        {
+            SM_ERROR("MeshSystem::RecreateGpuResources: mesh %zu index buffer failed", i);
+            cl->close();
+            entry.vertexBuffer = nullptr;
+            allOk = false;
+            continue;
+        }
+        cl->beginTrackingBufferState(entry.indexBuffer, nvrhi::ResourceStates::CopyDest);
+        cl->writeBuffer(entry.indexBuffer, entry.cpuIndices.data(), ibDesc.byteSize);
+        cl->setPermanentBufferState(entry.indexBuffer, nvrhi::ResourceStates::IndexBuffer);
+
+        cl->close();
+        m_Device->executeCommandList(cl);
+    }
+
+    SM_TRACE("MeshSystem::RecreateGpuResources: rebuilt %zu meshes", m_Meshes.size());
+    return allOk;
 }
