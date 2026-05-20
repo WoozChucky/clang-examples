@@ -64,58 +64,10 @@ bool Renderer::Init(const RendererAPI api) {
 
     // Initialize resource systems with default resources
     {
-        // Create default magenta checkerboard texture (16x16 RGBA8) for missing textures
         nvrhi::TextureHandle missingMaterialTexture;
-        {
-            constexpr uint32_t texSize = 256;
-            constexpr uint32_t magenta = 0xFFFF00FFu; // RGBA8: magenta (R=255, G=0, B=255, A=255)
-            constexpr uint32_t black = 0xFF000000u;   // RGBA8: black (R=0, G=0, B=0, A=255)
-
-            nvrhi::TextureDesc td;
-            td.debugName = "Renderer DefaultMissingTexture";
-            td.width = texSize;
-            td.height = texSize;
-            td.depth = 1;
-            td.arraySize = 1;
-            td.mipLevels = 1;
-            td.sampleCount = 1;
-            td.dimension = nvrhi::TextureDimension::Texture2D;
-            td.format = nvrhi::Format::RGBA8_UNORM;
-            td.isShaderResource = true;
-            missingMaterialTexture = m_Device->createTexture(td);
-
-            // Generate magenta checkerboard pattern (2x2 checker cells = 8x8 pixels per cell)
-            uint32_t pixels[texSize * texSize];
-            constexpr uint32_t checkerSize = 16; // Size of each checker square in pixels
-            for (uint32_t y = 0; y < texSize; ++y) {
-                for (uint32_t x = 0; x < texSize; ++x) {
-                    const bool checkerX = (x / checkerSize) % 2 == 0;
-                    const bool checkerY = (y / checkerSize) % 2 == 0;
-                    const bool isMagenta = checkerX == checkerY; // XOR pattern
-                    pixels[y * texSize + x] = isMagenta ? magenta : black;
-                }
-            }
-
-            const auto cl = m_Device->createCommandList();
-            cl->open();
-            cl->beginTrackingTextureState(missingMaterialTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
-            cl->writeTexture(missingMaterialTexture, 0, 0, pixels, texSize * sizeof(uint32_t));
-            cl->setPermanentTextureState(missingMaterialTexture, nvrhi::ResourceStates::ShaderResource);
-            cl->commitBarriers();
-            cl->close();
-            m_Device->executeCommandList(cl);
-        }
-
-        // Create default sampler
         nvrhi::SamplerHandle defaultSampler;
-        {
-            nvrhi::SamplerDesc sd;
-            sd.setAllFilters(true);
-            sd.setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
-            defaultSampler = m_Device->createSampler(sd);
-        }
+        CreateDefaultMaterialResources(missingMaterialTexture, defaultSampler);
 
-        // Initialize systems
         m_MeshSystem.Initialize(m_Device);
         m_MaterialSystem.Initialize(m_Device, missingMaterialTexture, defaultSampler);
     }
@@ -319,4 +271,167 @@ MeshHandle Renderer::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
 
 MaterialHandle Renderer::AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight) {
     return m_MaterialSystem.AddMaterial(textureRgba8, texWidth, texHeight);
+}
+
+void Renderer::CreateDefaultMaterialResources(nvrhi::TextureHandle& outMissing,
+                                              nvrhi::SamplerHandle& outSampler)
+{
+    constexpr uint32_t texSize = 256;
+    constexpr uint32_t magenta = 0xFFFF00FFu;
+    constexpr uint32_t black   = 0xFF000000u;
+
+    nvrhi::TextureDesc td;
+    td.debugName = "Renderer DefaultMissingTexture";
+    td.width = texSize;
+    td.height = texSize;
+    td.depth = 1;
+    td.arraySize = 1;
+    td.mipLevels = 1;
+    td.sampleCount = 1;
+    td.dimension = nvrhi::TextureDimension::Texture2D;
+    td.format = nvrhi::Format::RGBA8_UNORM;
+    td.isShaderResource = true;
+    outMissing = m_Device->createTexture(td);
+
+    static uint32_t pixels[texSize * texSize];
+    constexpr uint32_t checkerSize = 16;
+    for (uint32_t y = 0; y < texSize; ++y) {
+        for (uint32_t x = 0; x < texSize; ++x) {
+            const bool checkerX = (x / checkerSize) % 2 == 0;
+            const bool checkerY = (y / checkerSize) % 2 == 0;
+            pixels[y * texSize + x] = (checkerX == checkerY) ? magenta : black;
+        }
+    }
+
+    const auto cl = m_Device->createCommandList();
+    cl->open();
+    cl->beginTrackingTextureState(outMissing, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
+    cl->writeTexture(outMissing, 0, 0, pixels, texSize * sizeof(uint32_t));
+    cl->setPermanentTextureState(outMissing, nvrhi::ResourceStates::ShaderResource);
+    cl->commitBarriers();
+    cl->close();
+    m_Device->executeCommandList(cl);
+
+    nvrhi::SamplerDesc sd;
+    sd.setAllFilters(true);
+    sd.setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
+    outSampler = m_Device->createSampler(sd);
+}
+
+void Renderer::TeardownForSwap()
+{
+    // ImGui: drop only the NVRHI backend + device-bound preview resources;
+    // keep the ImGui context (dock layout, fonts loaded from disk).
+    if (m_ImGuiRenderer) {
+        m_ImGuiRenderer->ShutdownNvrhiOnly();
+    }
+
+    m_GpuTimer.Cleanup();
+
+    for (auto& pass : m_RenderPasses) {
+        if (pass) pass->Shutdown();
+    }
+    m_RenderPasses.clear();
+
+    // Release GPU resources but keep CPU caches + entry slots.
+    m_MaterialSystem.DestroyGpuResources();
+    m_MeshSystem.DestroyGpuResources();
+
+    m_CommandList = nullptr;
+    m_Device = nullptr;
+
+    if (m_Backend) {
+        m_Backend->Shutdown(SHUTDOWN_TIMEOUT);
+        delete m_Backend;
+        m_Backend = nullptr;
+    }
+}
+
+bool Renderer::InitForSwap(RendererAPI newApi)
+{
+    switch (newApi) {
+        case RendererAPI::DirectX12:
+            m_Backend = new RendererBackendDX12(m_BackendSettings, m_Window);
+            break;
+        case RendererAPI::Vulkan:
+            m_Backend = new RendererBackendVulkan(m_BackendSettings, m_Window);
+            break;
+        default:
+            SM_ERROR("InitForSwap: unsupported API %d", static_cast<int>(newApi));
+            return false;
+    }
+
+    if (!m_Backend->Init()) { SM_ERROR("InitForSwap: backend Init failed"); return false; }
+
+    m_Device = m_Backend->CreateDevice();
+    if (!m_Device) { SM_ERROR("InitForSwap: CreateDevice failed"); return false; }
+
+    m_Backend->CreateSwapChain(m_BackendSettings.backBufferWidth, m_BackendSettings.backBufferHeight);
+
+    m_CommandList = m_Device->createCommandList();
+    if (!m_CommandList) { SM_ERROR("InitForSwap: createCommandList failed"); return false; }
+
+    m_GpuTimer.Init(m_Device, 256);
+
+    // Rebuild default material resources + replay caches.
+    nvrhi::TextureHandle missingTex;
+    nvrhi::SamplerHandle defaultSampler;
+    CreateDefaultMaterialResources(missingTex, defaultSampler);
+
+    m_MeshSystem.SetDevice(m_Device);
+    m_MeshSystem.RecreateGpuResources();          // per-mesh failures are non-fatal
+    m_MaterialSystem.SetDevice(m_Device);
+    m_MaterialSystem.RecreateGpuResources(missingTex, defaultSampler);
+
+    // ImGui NVRHI backend against the new device.
+    if (!m_ImGuiRenderer || !m_ImGuiRenderer->InitNvrhiForDevice(m_Device)) {
+        SM_ERROR("InitForSwap: ImGui re-init failed");
+        return false;
+    }
+
+    // Recreate render passes.
+    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
+    if (!primitivePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: PrimitivePass failed"); return false; }
+    AddRenderPass(std::move(primitivePass));
+
+    auto meshPass = std::make_unique<MeshRenderPass>();
+    if (!meshPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: MeshPass failed"); return false; }
+    AddRenderPass(std::move(meshPass));
+
+    auto uiPass = std::make_unique<UiRenderPass>();
+    if (!uiPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: UiPass failed"); return false; }
+    AddRenderPass(std::move(uiPass));
+
+    // Frame index reset so the first post-swap frame is treated like a warm-up
+    // (Render() skips frame 0; see m_FrameIndex guard).
+    m_FrameIndex = 0;
+
+    SM_TRACE("InitForSwap: now running API %d", static_cast<int>(m_Backend->GetAPI()));
+    return true;
+}
+
+bool Renderer::SwapBackend(RendererAPI newApi)
+{
+    if (m_Backend && m_Backend->GetAPI() == newApi) {
+        SM_TRACE("SwapBackend: already running API %d; no-op", static_cast<int>(newApi));
+        return true;
+    }
+
+    SM_TRACE("SwapBackend: %d -> %d begin",
+             static_cast<int>(m_Backend ? m_Backend->GetAPI() : RendererAPI::Invalid),
+             static_cast<int>(newApi));
+
+    if (m_Device) {
+        m_Device->waitForIdle();
+    }
+
+    TeardownForSwap();
+
+    if (!InitForSwap(newApi)) {
+        SM_ERROR("SwapBackend: InitForSwap failed (fatal)");
+        return false;
+    }
+
+    SM_TRACE("SwapBackend: complete");
+    return true;
 }
