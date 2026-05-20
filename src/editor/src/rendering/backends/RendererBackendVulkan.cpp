@@ -410,6 +410,20 @@ void RendererBackendVulkan::DestroyDeviceAndSwapChain() {
         }
     }
 
+    // Release per-frame event queries before dropping the device, then flush
+    // the deferred-release queue while the device is still alive. Otherwise
+    // these handles release into an orphaned queue and leak on every hot-swap.
+    while (!m_FramesInFlight.empty())
+    {
+        m_FramesInFlight.pop();
+    }
+    m_QueryPool.clear();
+
+    if (m_NvrhiDevice)
+    {
+        m_NvrhiDevice->runGarbageCollection();
+    }
+
     m_NvrhiDevice = nullptr;
     m_ValidationLayer = nullptr;
     m_RendererString.clear();
