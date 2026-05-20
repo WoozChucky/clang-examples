@@ -370,6 +370,65 @@ static void T12_concurrent_smoke()
     }
 }
 
+// --- Singleton component tests ---
+
+static void TSG01_set_get_roundtrip()
+{
+    ECS world;
+    EXPECT_EQ(world.GetSingleton<DayNightConfigComponent>(), nullptr);   // unset → null
+    world.SetSingleton(DayNightConfigComponent{ 42.0f });
+    const auto* c = world.GetSingleton<DayNightConfigComponent>();
+    EXPECT_NE(c, nullptr);
+    if (c) EXPECT_EQ(c->CycleSeconds, 42.0f);
+}
+
+static void TSG02_modify_singleton()
+{
+    ECS world;
+    world.SetSingleton(AppControlComponent{ false });
+    world.ModifySingleton<AppControlComponent>([](AppControlComponent& a){ a.QuitRequested = true; });
+    const auto* a = world.GetSingleton<AppControlComponent>();
+    EXPECT_NE(a, nullptr);
+    if (a) EXPECT(a->QuitRequested);
+}
+
+static void TSG03_singleton_entity_hidden()
+{
+    ECS world;
+    world.SetSingleton(ViewportComponent{ 800, 600 });
+    EXPECT_EQ(world.GetEntityCount(), 0u);                 // reserved entity not counted
+    EXPECT_EQ(world.GetActiveEntities().size(), 0u);       // not iterated by gameplay
+    const EntityId e = world.CreateEntity();               // first gameplay id
+    EXPECT_NE(e, world.SingletonEntity());                 // distinct from reserved
+    EXPECT_EQ(world.GetEntityCount(), 1u);                 // only the gameplay entity
+}
+
+static void TSG04_snapshot_preserves_singletons()
+{
+    ECS world;
+    world.SetSingleton(DayNightConfigComponent{ 7.0f });
+    std::shared_ptr<const ECS> snap = world.CreateSnapshot();
+    const auto* c = snap->GetSingleton<DayNightConfigComponent>();
+    EXPECT_NE(c, nullptr);
+    if (c) EXPECT_EQ(c->CycleSeconds, 7.0f);
+}
+
+static void TSG05_clear_preserves_singletons_removes_gameplay()
+{
+    ECS world;
+    world.SetSingleton(DayNightConfigComponent{ 3.0f });
+    const EntityId e = world.CreateEntity();
+    world.AddComponent(e, TransformComponent{{1,2,3},{},{1,1,1}});
+    EXPECT_EQ(world.GetEntityCount(), 1u);
+
+    world.Clear();
+
+    EXPECT_EQ(world.GetEntityCount(), 0u);                       // gameplay gone
+    const auto* c = world.GetSingleton<DayNightConfigComponent>();
+    EXPECT_NE(c, nullptr);                                       // singleton survives
+    if (c) EXPECT_EQ(c->CycleSeconds, 3.0f);
+}
+
 // --- Systems layer tests ---
 
 // Records its name into a shared sink when run; carries a configurable phase.
@@ -504,6 +563,11 @@ int main()
     TS03_clear_destroys_systems();
     TS04_empty_run_is_noop();
     TS05_system_mutates_ecs();
+    TSG01_set_get_roundtrip();
+    TSG02_modify_singleton();
+    TSG03_singleton_entity_hidden();
+    TSG04_snapshot_preserves_singletons();
+    TSG05_clear_preserves_singletons_removes_gameplay();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

@@ -52,6 +52,7 @@ private:
         uint32_t* Texture{nullptr}; // optional RGBA8 pixels (w*h entries)
     };
 
+    void DrainInputToSingleton(GameState& state);
     void WorkerThreadFunc();
     void EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir);
 

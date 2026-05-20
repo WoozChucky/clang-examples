@@ -48,8 +48,6 @@ struct SimulationSnapshot {
     // Minimal renderable state: a single float position for demo (x in [-1..1])
     float ObjectX;
     float ObjectVX;     // velocity for possible extrapolation
-    PerspectiveCamera3D GameCamera;
-    OrthographicCamera2D UICamera;
     FrameTimeStats FrameStats; // Frame timing statistics
 
 };

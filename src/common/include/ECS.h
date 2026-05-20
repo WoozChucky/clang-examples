@@ -13,8 +13,12 @@
 #include <type_traits>
 #include <utility>
 
+#include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include "input.h"
 
 // Cross-DLL export annotation. Defined as dllexport in ecs.dll's TU,
 // dllimport everywhere else. Allow override (defining ECS_API empty
@@ -101,6 +105,35 @@ struct ChildComponent {
 // Zero-size marker tagging the singleton directional light driven by the day/night cycle.
 struct SunMarker {};
 
+struct InputStateComponent {
+    bool    KeysDown[KEY_LAST + 1] = {};
+    bool    Pressed[KEY_LAST + 1]  = {};   // pressed this tick (cleared each drain)
+    double  MouseX = 0.0, MouseY = 0.0;
+    double  MouseDX = 0.0, MouseDY = 0.0;
+    int32_t Wheel = 0;
+};
+struct WorldCameraComponent {
+    glm::mat4 View{1.0f};
+    glm::mat4 Projection{1.0f};
+    glm::vec3 Position{0.0f};
+};
+struct UICameraComponent {
+    glm::mat4 View{1.0f};
+    glm::mat4 Projection{1.0f};
+};
+struct FreeLookControlComponent {
+    glm::vec3 Position{0.0f, 5.0f, 10.0f};
+    float Yaw = 0.0f;       // rotation.y
+    float Pitch = 0.0f;     // rotation.x
+    float Fov = glm::radians(80.0f);
+    float MoveSpeed = 7.5f;
+    float Sensitivity = 0.002f;
+    bool  MouseAimEnabled = false;
+};
+struct DayNightConfigComponent { float CycleSeconds = 10.0f; };
+struct AppControlComponent     { bool  QuitRequested = false; };
+struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; };
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -113,7 +146,14 @@ struct SunMarker {};
     X(LightningComponent) \
     X(ParentComponent) \
     X(ChildComponent) \
-    X(SunMarker)
+    X(SunMarker) \
+    X(InputStateComponent) \
+    X(WorldCameraComponent) \
+    X(UICameraComponent) \
+    X(FreeLookControlComponent) \
+    X(DayNightConfigComponent) \
+    X(AppControlComponent) \
+    X(ViewportComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)
@@ -354,6 +394,19 @@ public:
         return id;
     }
 
+    // Allocates an id NOT tracked in m_ActiveEntities (the ECS singleton entity).
+    // Invisible to GetActiveEntities()/GetEntityCount(); never recycled.
+    EntityId CreateReserved() {
+        return m_NextEntityId++;
+    }
+
+    // Removes all ACTIVE (gameplay) entities; leaves m_NextEntityId untouched so a
+    // previously-reserved id stays valid and is never re-handed-out.
+    void ClearActive() {
+        m_ActiveEntities.clear();
+        m_FreeEntities.clear();
+    }
+
     void DestroyEntity(const EntityId entity) {
         const auto it = std::ranges::find(m_ActiveEntities, entity);
         if (it != m_ActiveEntities.end()) {
@@ -392,6 +445,8 @@ private:
 
 class ECS_API ECS {
 public:
+    ECS() { m_SingletonEntity = m_EntityStore.CreateReserved(); }
+
     // Entity management
     EntityId CreateEntity() {
         return m_EntityStore.CreateEntity();
@@ -442,6 +497,13 @@ public:
     const ComponentArray<T>* GetComponentArray() const {
         return m_ComponentStore.GetComponentArray<T>();
     }
+
+    // Singleton-component sugar. Stored on a reserved hidden entity that is
+    // invisible to GetActiveEntities()/GetEntityCount() and survives Clear().
+    template<typename T> void SetSingleton(T value) { AddComponent<T>(m_SingletonEntity, std::move(value)); }
+    template<typename T> [[nodiscard]] const T* GetSingleton() const { return GetComponent<T>(m_SingletonEntity); }
+    template<typename T, typename F> void ModifySingleton(F&& fn) { Modify<T>(m_SingletonEntity, std::forward<F>(fn)); }
+    [[nodiscard]] EntityId SingletonEntity() const { return m_SingletonEntity; }
 
     // Iterate entities with specific components (simple view)
     template<typename... Components>
@@ -509,6 +571,7 @@ public:
 private:
     EntityStore m_EntityStore;
     ComponentStore m_ComponentStore;
+    EntityId m_SingletonEntity = INVALID_ENTITY;
 };
 
 // Per-T extern template declarations for ECS methods. Guarded with ECS_EXPORTS

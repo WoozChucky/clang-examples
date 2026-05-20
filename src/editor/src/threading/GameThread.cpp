@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <thread>
 #include <chrono>
@@ -15,6 +16,7 @@
 
 #include <GLFW/glfw3.h>
 #include <tracy/Tracy.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include "tiny_obj_loader.h"
 
 #include "lib.h"
@@ -52,7 +54,6 @@ void GameThread::RunLoop() {
 	}
 
     GameState gameState{};
-    gameState.PlatformInput = &m_AppContext->InputRing;
     gameState.Settings = &m_AppContext->Settings;
 
     // Load default world before any GameUpdate call. Guarded by WorldLoaded so
@@ -65,6 +66,12 @@ void GameThread::RunLoop() {
             SM_WARN("GameThread: default world '%s' not loaded (file missing or invalid)", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
         }
     }
+
+    // Seed singleton components so systems and game code can always find them.
+    gameState.World.SetSingleton(InputStateComponent{});
+    gameState.World.SetSingleton(ViewportComponent{
+        m_AppContext->Settings.windowWidth, m_AppContext->Settings.windowHeight });
+    gameState.World.SetSingleton(UICameraComponent{});
 
     // Initial load of Game.dll. If it fails, editor still runs without game logic
     // until the file watcher (installed in T14) picks up a subsequent rebuild.
@@ -326,6 +333,8 @@ void GameThread::RunLoop() {
 			gameState.DeltaTime = std::min(actualDt, targetDt * 2.0); // clamp to prevent spiral of death
 		    gameState.GameTime = TimeNowSec();
 
+			DrainInputToSingleton(gameState);
+
 			if (m_GameLib.IsValid()) {
                 m_GameLib.Update(&gameState);
             }
@@ -340,13 +349,24 @@ void GameThread::RunLoop() {
 				m_PluginManager->UpdateAll(gameState.DeltaTime);
 			}
 
-			if (gameState.QuitRequested) {
+			if (const auto* app = gameState.World.GetSingleton<AppControlComponent>(); app && app->QuitRequested) {
 				m_Running.store(false, std::memory_order_relaxed);
 				m_AppContext->ShutdownRequested.store(true, std::memory_order_relaxed);
 				break;
 			}
 
 			SimulateStep(targetDt); // advance simulation
+
+			// Keep Viewport + UI camera synced to the window each tick (cheap;
+			// removes the need for a separate resize signal).
+			const uint32_t vw = m_AppContext->Settings.windowWidth;
+			const uint32_t vh = m_AppContext->Settings.windowHeight;
+			gameState.World.ModifySingleton<ViewportComponent>([&](ViewportComponent& v){ v.Width = vw; v.Height = vh; });
+			gameState.World.ModifySingleton<UICameraComponent>([&](UICameraComponent& ui){
+				ui.Projection = glm::orthoRH_ZO(0.0f, float(vw), float(vh), 0.0f, -1.0f, 1.0f);
+				ui.View = glm::mat4(1.0f);
+			});
+
 			PublishSnapshot(gameState, frameStats); // publish to SnapshotRing (S -> R)
 		}
 
@@ -452,12 +472,44 @@ void GameThread::PublishSnapshot(GameState& state, const FrameTimeStats& frameSt
 	snap.ActualTPS = state.ActualTPS;  // Measured tick rate (work time only)
 	snap.ObjectX = m_simX;
 	snap.ObjectVX = m_simVX;
-	snap.GameCamera = state.GameCamera;
-	snap.UICamera = state.UICamera;
 	snap.FrameStats = frameStats;
 
 	// Single-writer seqlock publish
     m_AppContext->LatestSnapshot.store(snap);
+}
+
+void GameThread::DrainInputToSingleton(GameState& state) {
+    if (!state.World.GetSingleton<InputStateComponent>()) {
+        state.World.SetSingleton(InputStateComponent{});
+    }
+    double prevX = 0.0, prevY = 0.0;
+    if (const auto* in = state.World.GetSingleton<InputStateComponent>()) {
+        prevX = in->MouseX;
+        prevY = in->MouseY;
+    }
+
+    state.World.ModifySingleton<InputStateComponent>([&](InputStateComponent& s) {
+        std::memset(s.Pressed, 0, sizeof(s.Pressed));
+        s.Wheel = 0;
+        InputEvent ev{};
+        while (m_AppContext->InputRing.Pop(ev)) {
+            if (ev.Type == InputEventType::Key) {
+                const int k = static_cast<int>(ev.KeyEvent.Key);
+                if (k >= 0 && k <= KEY_LAST) {
+                    if (ev.KeyEvent.Action == PRESS || ev.KeyEvent.Action == REPEAT) s.KeysDown[k] = true;
+                    if (ev.KeyEvent.Action == RELEASE) s.KeysDown[k] = false;
+                    if (ev.KeyEvent.Action == PRESS) s.Pressed[k] = true;
+                }
+            } else if (ev.Type == InputEventType::MouseMove) {
+                s.MouseX = ev.MouseMoveEvent.X;
+                s.MouseY = ev.MouseMoveEvent.Y;
+            } else if (ev.Type == InputEventType::MouseWheel) {
+                s.Wheel = static_cast<int32_t>(ev.MouseScrollEvent.OffsetY);
+            }
+        }
+        s.MouseDX = s.MouseX - prevX;
+        s.MouseDY = s.MouseY - prevY;
+    });
 }
 
 void GameThread::EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir)
