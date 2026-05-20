@@ -143,6 +143,7 @@ bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext,
     m_AppContext = appContext;
     m_MeshSystem = meshSystem;
     m_MaterialSystem = materialSystem;
+    m_Renderer = renderer;
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -1632,6 +1633,41 @@ void ImGuiRenderer::Shutdown() {
     m_MeshSystem = nullptr;
     m_MaterialSystem = nullptr;
     ImGui::DestroyContext();
+}
+
+void ImGuiRenderer::ShutdownNvrhiOnly() {
+    // Device-bound resources only. ImGui context + fonts stay alive.
+    if (m_MeshPreviewRenderer) {
+        m_MeshPreviewRenderer.reset();
+    }
+    if (m_ImGuiNvrhi) {
+        m_ImGuiNvrhi.reset();
+    }
+}
+
+bool ImGuiRenderer::InitNvrhiForDevice(nvrhi::IDevice* device) {
+    if (!device) {
+        SM_ERROR("ImGuiRenderer::InitNvrhiForDevice: null device");
+        return false;
+    }
+
+    m_ImGuiNvrhi = std::make_unique<ImGui_NVRHI>();
+    if (!m_ImGuiNvrhi->init(device)) {
+        SM_ERROR("ImGuiRenderer::InitNvrhiForDevice: ImGui_NVRHI init failed");
+        return false;
+    }
+
+    m_MeshPreviewRenderer = std::make_unique<MeshPreviewRenderer>();
+    if (!m_MeshPreviewRenderer->Initialize(device, m_Renderer, 256, 256)) {
+        SM_ERROR("ImGuiRenderer::InitNvrhiForDevice: MeshPreviewRenderer init failed");
+        m_MeshPreviewRenderer.reset();
+        // Non-fatal: preview just won't render. Continue.
+    }
+
+    // Re-upload the font atlas against the new device.
+    m_ImGuiNvrhi->updateFontTexture();
+
+    return true;
 }
 
 std::shared_ptr<RegisteredFont> ImGuiRenderer::CreateFontFromFile(const char *fontFile, float fontSize) {
