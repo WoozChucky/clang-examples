@@ -1,5 +1,7 @@
 #include "RenderThread.h"
 
+#include <windows.h>   // MessageBoxA, ExitProcess, UINT
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -46,6 +48,48 @@ void RenderThread::RunLoop()
                 case RendererCommandType::Resize:
                     m_Renderer->Resize(cmd.ResizeParams.Width, cmd.ResizeParams.Height);
                     break;
+                case RendererCommandType::SwapBackend: {
+                    if (m_AppContext->SwapInProgress.load(std::memory_order_acquire)) {
+                        SM_WARN("RenderThread: swap already in progress; dropping duplicate");
+                        break;
+                    }
+                    const RendererAPI target = cmd.SwapBackend.TargetApi;
+                    SM_TRACE("RenderThread: SwapBackend -> %d requested", static_cast<int>(target));
+
+                    // 1. Signal GameThread to pause and wait for its ack (5 s timeout).
+                    m_AppContext->SwapInProgress.store(true, std::memory_order_release);
+                    {
+                        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                        while (!m_AppContext->GameThreadPaused.load(std::memory_order_acquire)) {
+                            if (std::chrono::steady_clock::now() > deadline) {
+                                SM_ERROR("RenderThread: GameThread did not pause in time");
+                                MessageBoxA(nullptr,
+                                    "GameThread did not pause for renderer swap; forcing exit.",
+                                    "Editor - swap failure", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+                                ExitProcess(static_cast<UINT>(-1));
+                            }
+                            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                        }
+                    }
+
+                    // 2. Perform the swap.
+                    const bool ok = m_Renderer->SwapBackend(target);
+
+                    // 3. Release GameThread regardless (so it can exit cleanly even on failure).
+                    m_AppContext->SwapInProgress.store(false, std::memory_order_release);
+
+                    if (!ok) {
+                        SM_ERROR("RenderThread: SwapBackend failed (fatal)");
+                        MessageBoxA(nullptr,
+                            "Failed to initialize the selected renderer backend.\n"
+                            "The editor cannot continue. Restart and choose a different\n"
+                            "backend via editor_settings.json or --backend=...",
+                            "Editor - swap failure", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+                        ExitProcess(static_cast<UINT>(-1));
+                    }
+                    SM_TRACE("RenderThread: SwapBackend complete");
+                    break;
+                }
                 default:
                     SM_WARN("RenderThread: Unknown command type: %d", static_cast<int>(cmd.Type));
                     break;
