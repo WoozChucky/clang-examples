@@ -4,6 +4,7 @@
 #include <string>
 
 #include <Game.h>  // GameState + GameUpdateFunc/GameResizeFunc/GameExitFunc/GameGetVersionFunc + GAME_API_VERSION
+#include "Systems.h"  // SystemScheduler + GameRegisterSystemsFunc
 
 /**
  * @brief RAII wrapper around a dynamically-loaded Game.dll. Owns HMODULE,
@@ -29,6 +30,10 @@ public:
      */
     bool LoadOrReload(const std::string& sourceDllPath, GameState* state);
 
+    /** @brief Sets the scheduler GameLibrary clears before unload + repopulates
+     *         after load via the game's GameRegisterSystems export. */
+    void SetScheduler(SystemScheduler* scheduler) { m_Scheduler = scheduler; }
+
     /** @brief True when GameUpdate is installed. */
     bool IsValid() const { return m_pGameUpdate != nullptr; }
 
@@ -50,5 +55,7 @@ private:
     GameResizeFunc      m_pGameResize     = nullptr;
     GameExitFunc        m_pGameExit       = nullptr;
     GameGetVersionFunc  m_pGameGetVersion = nullptr;
+    GameRegisterSystemsFunc m_pGameRegisterSystems = nullptr;
+    SystemScheduler*        m_Scheduler            = nullptr;  // not owned
     uint64_t            m_ReloadCounter   = 0;
 };
