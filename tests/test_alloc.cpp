@@ -83,6 +83,8 @@ static void T10_registry_register_unregister()
 static void T11_registry_foreach_and_sum()
 {
     auto& reg = Engine::Registry();
+    // baseline captured before registering (registry is a process-wide singleton)
+    Engine::AllocatorStats meshBase = reg.SumByCategory(Engine::MemCategory::Mesh);
     FakeAllocator a(Engine::MemCategory::Mesh, "A", 100, 1000);
     FakeAllocator b(Engine::MemCategory::Mesh, "B", 250, 2000);
     FakeAllocator c(Engine::MemCategory::Game, "C", 999, 9999);
@@ -93,8 +95,8 @@ static void T11_registry_foreach_and_sum()
     EXPECT(seen >= 3);
 
     Engine::AllocatorStats mesh = reg.SumByCategory(Engine::MemCategory::Mesh);
-    EXPECT_EQ(mesh.Used, (size_t)350);
-    EXPECT_EQ(mesh.Capacity, (size_t)3000);
+    EXPECT_EQ(mesh.Used - meshBase.Used, (size_t)350);
+    EXPECT_EQ(mesh.Capacity - meshBase.Capacity, (size_t)3000);
 
     reg.Unregister(&a); reg.Unregister(&b); reg.Unregister(&c);
 }

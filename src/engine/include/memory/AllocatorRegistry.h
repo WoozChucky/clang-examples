@@ -2,6 +2,7 @@
 #include <Engine.h>
 #include <memory/MemoryCategory.h>
 #include <memory/AllocatorStats.h>
+#include <cstddef>
 #include <functional>
 #include <mutex>
 #include <vector>
@@ -15,10 +16,12 @@ class IAllocator;
 // (defined in AllocatorRegistry.cpp) so callers never touch the std members
 // across the DLL boundary. Locked, but only on register/unregister/enumerate —
 // never on the allocation hot path.
+// Caller must Unregister(a) before *a is destroyed; the registry never owns or outlives its entries.
 class ENGINE_API AllocatorRegistry {
 public:
     void Register(IAllocator* a);
     void Unregister(IAllocator* a);
+    // The callback runs under the registry lock; it must NOT call back into the registry (non-recursive mutex -> deadlock).
     void ForEach(const std::function<void(IAllocator*)>& fn) const;
     AllocatorStats SumByCategory(MemCategory cat) const;
     [[nodiscard]] size_t Count() const;
