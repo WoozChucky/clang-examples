@@ -24,6 +24,9 @@ GameLibrary::~GameLibrary() {
     // Cannot call GameExit here — no GameState pointer at destruction.
     // Caller (GameThread shutdown) must call Unload(state) before destruction.
     if (m_Module) {
+        // Safety net: if Unload() wasn't called, still destroy game.dll-owned
+        // ISystem instances while their vtables are mapped, before FreeLibrary.
+        if (m_Scheduler) m_Scheduler->Clear();
         FreeLibrary(m_Module);
         m_Module = nullptr;
     }
