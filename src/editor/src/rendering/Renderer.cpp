@@ -194,7 +194,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 m_GpuTimer.Advance();
             }
 
-            m_ImGuiRenderer->Render(frameBuffer, deltaTime, snapshot, secs);
+            m_ImGuiRenderer->Render(frameBuffer, deltaTime, snapshot, world, secs);
 
             {
                 ZoneScopedN("Present");

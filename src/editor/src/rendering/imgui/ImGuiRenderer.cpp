@@ -326,7 +326,7 @@ void ImGuiRenderer::EditTransform(float* cameraView, float* cameraProjection, fl
     ImGuizmo::Manipulate(cameraView, cameraProjection, m_GizmoOperation, m_GizmoMode, matrix, nullptr, m_GizmoUseSnap ? &m_GizmoSnap[0] : nullptr);
 }
 
-void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot, float gpuFrameTimeMs) {
+void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot, const ECS* world, float gpuFrameTimeMs) {
     ZoneScopedN("ImGui");
     {
         ZoneScopedN("ImGui_ProcessInput");
@@ -810,8 +810,11 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                             const auto hasTextTransform = worldSnapshot->HasComponent<TextComponent>(selectedEntity);
                             // ImGuizmo integration: manipulate this entity's transform using camera
                             if (!hasTextTransform) {
-                                auto cameraView = snapshot.GameCamera.get_view_matrix();
-                                auto cameraProjection = snapshot.GameCamera.get_projection_matrix();
+                                glm::mat4 cameraView(1.0f), cameraProjection(1.0f);
+                                if (const auto* cam = world ? world->GetSingleton<WorldCameraComponent>() : nullptr) {
+                                    cameraView = cam->View;
+                                    cameraProjection = cam->Projection;
+                                }
 
                                 // Small inline gizmo controls specific to Transform component
                                 ImGui::Separator();

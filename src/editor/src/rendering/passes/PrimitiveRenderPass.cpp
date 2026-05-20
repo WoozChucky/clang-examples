@@ -236,7 +236,7 @@ void PrimitiveRenderPass::Render(
     nvrhi::ICommandList* commandList,
     nvrhi::IFramebuffer* frameBuffer,
     SimulationSnapshot& snapshot,
-    const ECS* /*world*/,
+    const ECS* world,
     double deltaTime,
     FrameAllocator* frameAllocator)
 {
@@ -260,8 +260,10 @@ void PrimitiveRenderPass::Render(
     commandList->beginMarker("PrimiviteRenderPass");
 
     // Common VP for this frame
-    glm::mat4 V = snapshot.GameCamera.get_view_matrix();
-    glm::mat4 P = snapshot.GameCamera.get_projection_matrix();
+    glm::mat4 V(1.0f), P(1.0f); glm::vec3 camPos(0.0f);
+    if (const auto* cam = world ? world->GetSingleton<WorldCameraComponent>() : nullptr) {
+        V = cam->View; P = cam->Projection; camPos = cam->Position;
+    }
 
     {
         ZoneScopedN("Upload ContantBuffer 1");
@@ -298,7 +300,7 @@ void PrimitiveRenderPass::Render(
         PerFrameCBData pf{};
         pf.Model = inst.transform;
         pf.VP = P * V;
-        pf.CameraPos = glm::vec4(snapshot.GameCamera.position, 0.0f);
+        pf.CameraPos = glm::vec4(camPos, 0.0f);
 
         commandList->writeBuffer(m_PerFrameConstantBuffer, &pf, sizeof(pf));
     }

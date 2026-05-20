@@ -353,8 +353,10 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
 
         // Update per-frame CB
         PerFrameCB perFrame{};
-        const glm::mat4 V = snapshot.GameCamera.get_view_matrix();
-        const glm::mat4 P = snapshot.GameCamera.get_projection_matrix();
+        glm::mat4 V(1.0f), P(1.0f); glm::vec3 camPos(0.0f);
+        if (const auto* cam = world ? world->GetSingleton<WorldCameraComponent>() : nullptr) {
+            V = cam->View; P = cam->Projection; camPos = cam->Position;
+        }
         perFrame.P  = P;
         perFrame.VP = P * V;
         perFrame.DirectionalLight.Direction = lightningDirection;

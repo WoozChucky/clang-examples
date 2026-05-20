@@ -272,25 +272,18 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
     commandList->beginMarker("UIRenderPass");
 
     if (m_PerFrameConstantBuffer) {
-        const auto vp = frameBuffer->getFramebufferInfo().getViewport();
-        const float w = vp.width();
-        const float h = vp.height();
-
-        // In the near future use the snapshot UICamera parameters to build the ortho matrix
-        // snapshot.UICamera.position
-        // snapshot.UICamera.dimensions
-        // snapshot.UICamera.zoom
-
-        // Map (0,0) top-left to (-1,+1), (w,h) to (+1,-1)
-        // Matrix that does: x' = 2/w*x - 1, y' = 1 - 2/h*y
-        glm::mat4 ortho(1.0f);
-        ortho[0][0] = 2.0f / w;  ortho[1][0] = 0.0f;       ortho[2][0] = 0.0f; ortho[3][0] = -1.0f; // column 0..3
-        ortho[0][1] = 0.0f;       ortho[1][1] = -2.0f / h; ortho[2][1] = 0.0f; ortho[3][1] =  1.0f;
-        ortho[0][2] = 0.0f;       ortho[1][2] = 0.0f;       ortho[2][2] = 1.0f; ortho[3][2] =  0.0f;
-        ortho[0][3] = 0.0f;       ortho[1][3] = 0.0f;       ortho[2][3] = 0.0f; ortho[3][3] =  1.0f;
+        // UI projection/view come from the ECS world snapshot (UICameraComponent),
+        // kept in sync with the window each tick by the game thread. This is the
+        // same window-dims ortho convention the manual build used previously:
+        // (0,0) top-left -> (-1,+1), (w,h) -> (+1,-1).
+        glm::mat4 uiProj(1.0f), uiView(1.0f);
+        if (const auto* ui = world ? world->GetSingleton<UICameraComponent>() : nullptr) {
+            uiProj = ui->Projection;
+            uiView = ui->View;
+        }
 
         UIFrameCBData uiFrame{};
-        uiFrame.Ortho = ortho;
+        uiFrame.Ortho = uiProj * uiView;
         commandList->writeBuffer(m_PerFrameConstantBuffer, &uiFrame, sizeof(uiFrame));
     }
 

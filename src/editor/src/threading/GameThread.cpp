@@ -16,6 +16,7 @@
 
 #include <GLFW/glfw3.h>
 #include <tracy/Tracy.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include "tiny_obj_loader.h"
 
 #include "lib.h"
@@ -71,6 +72,7 @@ void GameThread::RunLoop() {
     gameState.World.SetSingleton(InputStateComponent{});
     gameState.World.SetSingleton(ViewportComponent{
         m_AppContext->Settings.windowWidth, m_AppContext->Settings.windowHeight });
+    gameState.World.SetSingleton(UICameraComponent{});
 
     // Initial load of Game.dll. If it fails, editor still runs without game logic
     // until the file watcher (installed in T14) picks up a subsequent rebuild.
@@ -348,13 +350,24 @@ void GameThread::RunLoop() {
 				m_PluginManager->UpdateAll(gameState.DeltaTime);
 			}
 
-			if (gameState.QuitRequested) {
+			if (const auto* app = gameState.World.GetSingleton<AppControlComponent>(); app && app->QuitRequested) {
 				m_Running.store(false, std::memory_order_relaxed);
 				m_AppContext->ShutdownRequested.store(true, std::memory_order_relaxed);
 				break;
 			}
 
 			SimulateStep(targetDt); // advance simulation
+
+			// Keep Viewport + UI camera synced to the window each tick (cheap;
+			// removes the need for a separate resize signal).
+			const uint32_t vw = m_AppContext->Settings.windowWidth;
+			const uint32_t vh = m_AppContext->Settings.windowHeight;
+			gameState.World.ModifySingleton<ViewportComponent>([&](ViewportComponent& v){ v.Width = vw; v.Height = vh; });
+			gameState.World.ModifySingleton<UICameraComponent>([&](UICameraComponent& ui){
+				ui.Projection = glm::orthoRH_ZO(0.0f, float(vw), float(vh), 0.0f, -1.0f, 1.0f);
+				ui.View = glm::mat4(1.0f);
+			});
+
 			PublishSnapshot(gameState, frameStats); // publish to SnapshotRing (S -> R)
 		}
 
@@ -460,8 +473,6 @@ void GameThread::PublishSnapshot(GameState& state, const FrameTimeStats& frameSt
 	snap.ActualTPS = state.ActualTPS;  // Measured tick rate (work time only)
 	snap.ObjectX = m_simX;
 	snap.ObjectVX = m_simVX;
-	snap.GameCamera = state.GameCamera;
-	snap.UICamera = state.UICamera;
 	snap.FrameStats = frameStats;
 
 	// Single-writer seqlock publish

@@ -13,6 +13,7 @@ class MaterialSystem;
 class MeshPreviewRenderer;
 class Renderer;
 class RegisteredFont;
+class ECS;
 struct ApplicationContext;
 struct SimulationSnapshot;
 
@@ -22,7 +23,7 @@ public:
     ~ImGuiRenderer(); // Destructor defined in .cpp to allow unique_ptr with forward-declared type
 
     bool Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem, Renderer* renderer);
-    void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot, float gpuFrameTimeMs);
+    void Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, SimulationSnapshot& snapshot, const ECS* world, float gpuFrameTimeMs);
     void Shutdown();
 
     // Hot-swap: tear down only the device-bound NVRHI backend + preview
