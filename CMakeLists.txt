@@ -25,6 +25,9 @@ add_subdirectory(src/common)
 # ECS shared library (must be configured before game/editor link it)
 add_subdirectory(src/ecs)
 
+# Engine shared library (cross-cutting infra: allocator registry)
+add_subdirectory(src/engine)
+
 # game library
 add_subdirectory(src/game)
 
