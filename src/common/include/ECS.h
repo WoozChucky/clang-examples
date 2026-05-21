@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <array>
 #include <vector>
 #include <tuple>
 #include <unordered_map>
@@ -178,61 +179,67 @@ public:
 template<typename T>
 class ECS_API ComponentArray final : public IComponentArray {
 public:
+    ComponentArray() = default;
+    ~ComponentArray() override = default;
+    ComponentArray(ComponentArray&&) noexcept = default;
+    ComponentArray& operator=(ComponentArray&&) noexcept = default;
+
+    ComponentArray(const ComponentArray& other)
+        : m_Components(other.m_Components)
+        , m_IndexToEntity(other.m_IndexToEntity)
+    {
+        m_SparsePages.reserve(other.m_SparsePages.size());
+        for (const auto& page : other.m_SparsePages)
+            m_SparsePages.push_back(page ? std::make_unique<SparsePage>(*page) : nullptr);
+    }
+
+    ComponentArray& operator=(const ComponentArray& other) {
+        if (this != &other) {
+            ComponentArray tmp(other);
+            m_Components    = std::move(tmp.m_Components);
+            m_IndexToEntity = std::move(tmp.m_IndexToEntity);
+            m_SparsePages   = std::move(tmp.m_SparsePages);
+        }
+        return *this;
+    }
+
     void Add(const EntityId entity, T component) {
-        if (m_EntityToIndex.contains(entity)) {
-            // Update existing component
-            size_t index = m_EntityToIndex[entity];
-            m_Components[index] = component;
+        const uint32_t existing = SparseGet(entity);
+        if (existing != kInvalid) {
+            m_Components[existing] = component;
             return;
         }
-
-        // Add new component
-        const size_t newIndex = m_Components.size();
-        m_EntityToIndex[entity] = newIndex;
+        const uint32_t newIndex = static_cast<uint32_t>(m_Components.size());
+        SparseSet(entity, newIndex);
         m_Components.push_back(component);
         m_IndexToEntity.push_back(entity);
     }
 
     void Remove(const EntityId entity) override {
-        if (!m_EntityToIndex.contains(entity)) {
-            return; // Entity doesn't have this component
-        }
-
-        // Swap-and-pop for efficient removal
-        size_t indexOfRemoved = m_EntityToIndex[entity];
-        size_t indexOfLast = m_Components.size() - 1;
-
-        // Swap with last element
+        const uint32_t indexOfRemoved = SparseGet(entity);
+        if (indexOfRemoved == kInvalid) return;
+        const uint32_t indexOfLast = static_cast<uint32_t>(m_Components.size() - 1);
         m_Components[indexOfRemoved] = m_Components[indexOfLast];
-
-        // Update mappings for the swapped entity
-        EntityId entityOfLast = m_IndexToEntity[indexOfLast];
-        m_EntityToIndex[entityOfLast] = indexOfRemoved;
+        const EntityId entityOfLast = m_IndexToEntity[indexOfLast];
         m_IndexToEntity[indexOfRemoved] = entityOfLast;
-
-        // Remove old mappings
-        m_EntityToIndex.erase(entity);
+        SparseSet(entityOfLast, indexOfRemoved);
+        SparseClear(entity);
         m_IndexToEntity.pop_back();
-
         m_Components.pop_back();
     }
 
     T* Get(const EntityId entity) {
-        if (!m_EntityToIndex.contains(entity)) {
-            return nullptr;
-        }
-        return &m_Components[m_EntityToIndex[entity]];
+        const uint32_t index = SparseGet(entity);
+        return index == kInvalid ? nullptr : &m_Components[index];
     }
 
     const T* Get(const EntityId entity) const {
-        if (!m_EntityToIndex.contains(entity)) {
-            return nullptr;
-        }
-        return &m_Components[m_EntityToIndex.at(entity)];
+        const uint32_t index = SparseGet(entity);
+        return index == kInvalid ? nullptr : &m_Components[index];
     }
 
     [[nodiscard]] bool Has(const EntityId entity) const override {
-        return m_EntityToIndex.contains(entity);
+        return SparseGet(entity) != kInvalid;
     }
 
     [[nodiscard]] size_t Size() const override {
@@ -253,9 +260,33 @@ public:
     }
 
 private:
+    static constexpr uint32_t kInvalid  = UINT32_MAX;
+    static constexpr uint32_t kPageSize = 1024;
+    using SparsePage = std::array<uint32_t, kPageSize>;
+
+    [[nodiscard]] uint32_t SparseGet(EntityId entity) const {
+        const size_t page = static_cast<size_t>(entity / kPageSize);
+        if (page >= m_SparsePages.size() || !m_SparsePages[page]) return kInvalid;
+        return (*m_SparsePages[page])[entity % kPageSize];
+    }
+    void SparseSet(EntityId entity, uint32_t denseIndex) {
+        const size_t page = static_cast<size_t>(entity / kPageSize);
+        if (page >= m_SparsePages.size()) m_SparsePages.resize(page + 1);
+        if (!m_SparsePages[page]) {
+            m_SparsePages[page] = std::make_unique<SparsePage>();
+            m_SparsePages[page]->fill(kInvalid);
+        }
+        (*m_SparsePages[page])[entity % kPageSize] = denseIndex;
+    }
+    void SparseClear(EntityId entity) {
+        const size_t page = static_cast<size_t>(entity / kPageSize);
+        if (page < m_SparsePages.size() && m_SparsePages[page])
+            (*m_SparsePages[page])[entity % kPageSize] = kInvalid;
+    }
+
     std::vector<T> m_Components;
-    std::unordered_map<EntityId, size_t> m_EntityToIndex;
     std::vector<EntityId> m_IndexToEntity;
+    std::vector<std::unique_ptr<SparsePage>> m_SparsePages;
 };
 
 // Declare that ComponentArray<T> is instantiated elsewhere (in ecs.dll's TU).
