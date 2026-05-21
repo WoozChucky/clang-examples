@@ -296,12 +296,19 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
     if (world) {
 
+        // Collect text entities into an arena buffer (entity-only Each), reused below.
+        auto* textEnts = frameAllocator->AllocateArray<EntityId>(world->GetEntityCount());
+        uint32_t textCount = 0;
+        if (textEnts) {
+            world->Each<TransformComponent, TextComponent>([&](EntityId e){ textEnts[textCount++] = e; });
+        }
+
         // 1) Gather unique font sizes used by text entities (arena-backed dedup)
-        auto textEnts = world->View<TransformComponent, TextComponent>();
-        auto* usedFontSizes = frameAllocator->AllocateArray<size_t>(textEnts.size());
+        auto* usedFontSizes = frameAllocator->AllocateArray<size_t>(textCount);
         uint32_t fontSizeCount = 0;
         if (usedFontSizes) {
-            for (EntityId entity : textEnts) {
+            for (uint32_t ti = 0; ti < textCount; ++ti) {
+                const EntityId entity = textEnts[ti];
                 const auto* text = world->GetComponent<TextComponent>(entity);
                 if (text) {
                     const size_t fontSize = text->FontSize;
@@ -337,7 +344,8 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
             // Count glyphs for this font size
             uint32_t glyphCount = 0;
-            for (EntityId entity : textEnts) {
+            for (uint32_t ti = 0; ti < textCount; ++ti) {
+                const EntityId entity = textEnts[ti];
                 const auto* text = world->GetComponent<TextComponent>(entity);
                 if (text && text->FontSize == fontSize) {
                     glyphCount += static_cast<uint32_t>(text->Text.length());
@@ -360,7 +368,8 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
             uint32_t out = 0;
 
             // Generate instances for all text entities using this font size
-            for (EntityId entity : textEnts) {
+            for (uint32_t ti = 0; ti < textCount; ++ti) {
+                const EntityId entity = textEnts[ti];
                 auto* transform = world->GetComponent<TransformComponent>(entity);
                 auto* text = world->GetComponent<TextComponent>(entity);
 
