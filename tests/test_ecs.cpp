@@ -839,6 +839,67 @@ static void TM03_ecs_memorystats_aggregates()
     EXPECT(s.EntityReserved >= s.EntityUsed);
 }
 
+static void TCF01_copyfrom_reproduces_source_over_stale_dest()
+{
+    // src: ids spanning >= 3 sparse pages (page size 1024)
+    ComponentArray<TransformComponent> src;
+    src.Add(1,    TransformComponent{{1.0f,  0, 0}, {}, {1,1,1}});
+    src.Add(5,    TransformComponent{{5.0f,  0, 0}, {}, {1,1,1}});
+    src.Add(1025, TransformComponent{{25.0f, 0, 0}, {}, {1,1,1}}); // page 1
+    src.Add(2049, TransformComponent{{49.0f, 0, 0}, {}, {1,1,1}}); // page 2
+
+    // dest: DIFFERENT prior layout — different ids and MORE pages than src
+    ComponentArray<TransformComponent> dest;
+    dest.Add(2,    TransformComponent{{2.0f,  0, 0}, {}, {1,1,1}});
+    dest.Add(3000, TransformComponent{{30.0f, 0, 0}, {}, {1,1,1}}); // page 2 (different id)
+    dest.Add(9000, TransformComponent{{90.0f, 0, 0}, {}, {1,1,1}}); // page 8 -> dest has more pages
+
+    dest.CopyFrom(src);
+
+    // dest now mirrors src exactly
+    EXPECT_EQ(dest.Size(), src.Size());
+    EXPECT(dest.Has(1));    EXPECT_EQ(dest.Get(1)->Position.x,    1.0f);
+    EXPECT(dest.Has(5));    EXPECT_EQ(dest.Get(5)->Position.x,    5.0f);
+    EXPECT(dest.Has(1025)); EXPECT_EQ(dest.Get(1025)->Position.x, 25.0f);
+    EXPECT(dest.Has(2049)); EXPECT_EQ(dest.Get(2049)->Position.x, 49.0f);
+    // stale entries from the larger old layout must be gone
+    EXPECT(!dest.Has(2));
+    EXPECT(!dest.Has(3000));
+    EXPECT(!dest.Has(9000));
+
+    // deep copy: mutating src must not affect dest
+    src.Get(1)->Position.x = 999.0f;
+    EXPECT_EQ(dest.Get(1)->Position.x, 1.0f);
+}
+
+static void TCF02_copyfrom_empty_src_clears_dest()
+{
+    ComponentArray<TransformComponent> src; // empty
+    ComponentArray<TransformComponent> dest;
+    dest.Add(1,    TransformComponent{{1.0f, 0, 0}, {}, {1,1,1}});
+    dest.Add(1025, TransformComponent{{2.0f, 0, 0}, {}, {1,1,1}});
+
+    dest.CopyFrom(src);
+    EXPECT_EQ(dest.Size(), (size_t)0);
+    EXPECT(!dest.Has(1));
+    EXPECT(!dest.Has(1025));
+}
+
+static void TCF03_copyfrom_reuses_dense_capacity()
+{
+    ComponentArray<TransformComponent> dest;
+    for (EntityId i = 1; i <= 64; ++i) dest.Add(i, TransformComponent{});
+    const size_t capBefore = dest.GetComponents().capacity();
+
+    ComponentArray<TransformComponent> src;
+    src.Add(1, TransformComponent{{7.0f, 0, 0}, {}, {1,1,1}}); // far smaller than dest
+
+    dest.CopyFrom(src);
+    EXPECT_EQ(dest.Size(), (size_t)1);
+    EXPECT_EQ(dest.Get(1)->Position.x, 7.0f);
+    EXPECT_EQ(dest.GetComponents().capacity(), capBefore); // capacity reused, not shrunk/realloc'd
+}
+
 int main()
 {
     T00_smoke();
@@ -889,6 +950,9 @@ int main()
     TM01_componentarray_memorybytes_used_exact();
     TM02_componentarray_empty_memorybytes();
     TM03_ecs_memorystats_aggregates();
+    TCF01_copyfrom_reproduces_source_over_stale_dest();
+    TCF02_copyfrom_empty_src_clears_dest();
+    TCF03_copyfrom_reuses_dense_capacity();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

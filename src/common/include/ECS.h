@@ -208,6 +208,25 @@ public:
         return *this;
     }
 
+    // Deep-copies src into *this, reusing existing buffer capacity where possible.
+    // Result is structurally identical to a copy-constructed clone of src (same dense
+    // contents, same per-page null/non-null layout). Used by the array recycle pool.
+    void CopyFrom(const ComponentArray& src) {
+        m_Components.assign(src.m_Components.begin(), src.m_Components.end());
+        m_IndexToEntity.assign(src.m_IndexToEntity.begin(), src.m_IndexToEntity.end());
+
+        m_SparsePages.resize(src.m_SparsePages.size()); // drop any surplus dest pages
+        for (size_t i = 0; i < src.m_SparsePages.size(); ++i) {
+            if (!src.m_SparsePages[i]) {
+                m_SparsePages[i].reset();                                   // match src null slot
+            } else if (!m_SparsePages[i]) {
+                m_SparsePages[i] = std::make_unique<SparsePage>(*src.m_SparsePages[i]);
+            } else {
+                *m_SparsePages[i] = *src.m_SparsePages[i];                  // reuse 4 KB buffer
+            }
+        }
+    }
+
     void Add(const EntityId entity, T component) {
         const uint32_t existingIndex = SparseGet(entity);
         if (existingIndex != kInvalid) {
