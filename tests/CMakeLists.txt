@@ -28,6 +28,10 @@ target_link_libraries(test_alloc PRIVATE
     Engine
 )
 
+target_include_directories(test_alloc PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering/passes
+)
+
 set_target_properties(test_alloc PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests

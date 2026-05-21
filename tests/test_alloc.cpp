@@ -10,6 +10,7 @@
 #include <memory/AllocatorRegistry.h>
 #include <memory/ArenaAllocator.h>
 #include <memory/PoolAllocator.h>
+#include <MeshBatching.h>
 
 // Required by lib.h's SM_ASSERT. Test exe: print + abort, no MessageBox.
 void platform_debug_break(const char* expr, const char* file, int line, const char* message)
@@ -290,6 +291,74 @@ static void T34_pool_reset_rebuilds_full_freelist_across_slabs()
     EXPECT_EQ((size_t)handed, totalBlocks);
 }
 
+static void T40_batchruns_empty()
+{
+    BatchRun runs[1];
+    EXPECT_EQ(BuildBatchRuns(nullptr, 0, runs, 1), (uint32_t)0);
+    BatchEntry e[1] = {};
+    EXPECT_EQ(BuildBatchRuns(e, 0, runs, 1), (uint32_t)0);
+}
+
+static void T41_batchruns_single()
+{
+    BatchEntry e[1] = { {5, 7, 100} };
+    BatchRun runs[1];
+    EXPECT_EQ(BuildBatchRuns(e, 1, runs, 1), (uint32_t)1);
+    EXPECT_EQ(runs[0].begin, (uint32_t)0);
+    EXPECT_EQ(runs[0].count, (uint32_t)1);
+}
+
+static void T42_batchruns_all_same_key()
+{
+    BatchEntry e[3] = { {1,2,10}, {1,2,11}, {1,2,12} };
+    BatchRun runs[3];
+    EXPECT_EQ(BuildBatchRuns(e, 3, runs, 3), (uint32_t)1);
+    EXPECT_EQ(runs[0].begin, (uint32_t)0);
+    EXPECT_EQ(runs[0].count, (uint32_t)3);
+}
+
+static void T43_batchruns_all_distinct()
+{
+    BatchEntry e[3] = { {1,0,10}, {2,0,11}, {3,0,12} };
+    BatchRun runs[3];
+    EXPECT_EQ(BuildBatchRuns(e, 3, runs, 3), (uint32_t)3);
+    EXPECT_EQ(runs[0].count, (uint32_t)1);
+    EXPECT_EQ(runs[1].count, (uint32_t)1);
+    EXPECT_EQ(runs[2].count, (uint32_t)1);
+}
+
+static void T44_batchruns_mixed_unsorted()
+{
+    // keys before sort: (2,0)(1,0)(2,0)(1,1)(1,0)
+    // after sort:       (1,0)(1,0)(1,1)(2,0)(2,0) -> runs [0,2],[2,1],[3,2]
+    BatchEntry e[5] = { {2,0,10}, {1,0,11}, {2,0,12}, {1,1,13}, {1,0,14} };
+    BatchRun runs[5];
+    uint32_t n = BuildBatchRuns(e, 5, runs, 5);
+    EXPECT_EQ(n, (uint32_t)3);
+
+    // Runs are contiguous and cover all entries.
+    EXPECT_EQ(runs[0].begin, (uint32_t)0);
+    EXPECT_EQ(runs[1].begin, runs[0].begin + runs[0].count);
+    EXPECT_EQ(runs[2].begin, runs[1].begin + runs[1].count);
+    uint32_t covered = 0;
+    for (uint32_t r = 0; r < n; ++r) {
+        covered += runs[r].count;
+        const uint32_t b = runs[r].begin;
+        for (uint32_t i = 1; i < runs[r].count; ++i) {
+            EXPECT(e[b + i].meshId == e[b].meshId);
+            EXPECT(e[b + i].materialId == e[b].materialId);
+        }
+    }
+    EXPECT_EQ(covered, (uint32_t)5);
+}
+
+static void T45_batchruns_maxruns_cap()
+{
+    BatchEntry e[3] = { {1,0,10}, {2,0,11}, {3,0,12} };
+    BatchRun runs[2];
+    EXPECT_EQ(BuildBatchRuns(e, 3, runs, 2), (uint32_t)2); // stops at maxRuns
+}
+
 int main()
 {
     T00_smoke();
@@ -309,6 +378,12 @@ int main()
     T32_pool_reset_frees_all();
     T33_pool_dealloc_updates_stats();
     T34_pool_reset_rebuilds_full_freelist_across_slabs();
+    T40_batchruns_empty();
+    T41_batchruns_single();
+    T42_batchruns_all_same_key();
+    T43_batchruns_all_distinct();
+    T44_batchruns_mixed_unsorted();
+    T45_batchruns_maxruns_cap();
 
     if (g_Failures == 0) {
         std::printf("All allocator tests passed.\n");
