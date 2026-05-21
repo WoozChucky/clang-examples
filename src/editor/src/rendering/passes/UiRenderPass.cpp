@@ -337,7 +337,7 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
             // Count glyphs for this font size
             uint32_t glyphCount = 0;
-            for (EntityId entity : world->View<TransformComponent, TextComponent>()) {
+            for (EntityId entity : textEnts) {
                 const auto* text = world->GetComponent<TextComponent>(entity);
                 if (text && text->FontSize == fontSize) {
                     glyphCount += static_cast<uint32_t>(text->Text.length());
@@ -352,7 +352,7 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
             uint32_t out = 0;
 
             // Generate instances for all text entities using this font size
-            for (EntityId entity : world->View<TransformComponent, TextComponent>()) {
+            for (EntityId entity : textEnts) {
                 auto* transform = world->GetComponent<TransformComponent>(entity);
                 auto* text = world->GetComponent<TextComponent>(entity);
 
