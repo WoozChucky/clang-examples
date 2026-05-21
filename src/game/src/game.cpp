@@ -17,7 +17,7 @@ namespace {
 class TextRotationSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
-        for (EntityId e : ctx.world.View<TextComponent, TransformComponent>()) {
+        ctx.world.Each<TextComponent, TransformComponent>([&](EntityId e) {
             ctx.world.Modify<TransformComponent>(e, [&](auto& transform) {
                 constexpr float TWO_PI = 6.28318530718f;
                 transform.Rotation.z = fmodf(
@@ -31,7 +31,7 @@ public:
                 const float blue = 1.0f - red;
                 text.Color = glm::vec4(red, green, blue, 1.0f);
             });
-        }
+        });
     }
     const char* Name() const override { return "TextRotationSystem"; }
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
@@ -44,7 +44,7 @@ public:
     void Update(SystemContext& ctx) override {
         float kDayNightCycleSeconds = 10.0f;
         if (const auto* cfg = ctx.world.GetSingleton<DayNightConfigComponent>()) kDayNightCycleSeconds = cfg->CycleSeconds;
-        for (EntityId sun : ctx.world.View<SunMarker, LightningComponent>()) {
+        ctx.world.Each<SunMarker, LightningComponent>([&](EntityId sun) {
             ctx.world.Modify<LightningComponent>(sun, [&](auto& l) {
                 if (l.Type != LightningType::Directional) return;
 
@@ -78,7 +78,7 @@ public:
                 const glm::vec3 finalColor = baseColor * brightness;
                 l.Color = glm::vec4(finalColor, 1.0f);
             });
-        }
+        });
     }
     const char* Name() const override { return "DayNightSystem"; }
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
