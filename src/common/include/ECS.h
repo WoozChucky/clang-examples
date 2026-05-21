@@ -162,7 +162,7 @@ struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; 
 // #############################################################################
 
 // Byte accounting for a component array (read-only diagnostics).
-struct ArrayMemory { size_t Used; size_t Reserved; };
+struct ArrayMemory { size_t Used = 0; size_t Reserved = 0; };
 
 class IComponentArray {
 public:
@@ -525,12 +525,12 @@ ECS_API SnapshotPoolStats GetSnapshotPoolStats();
 
 // Aggregate ECS storage bytes (read-only diagnostics; excludes map/control-block overhead).
 struct EcsMemoryStats {
-    size_t ComponentUsed;
-    size_t ComponentReserved;
-    size_t EntityUsed;
-    size_t EntityReserved;
-    size_t ArrayCount;
-    size_t EntityCount;
+    size_t ComponentUsed = 0;
+    size_t ComponentReserved = 0;
+    size_t EntityUsed = 0;
+    size_t EntityReserved = 0;
+    size_t ArrayCount = 0;
+    size_t EntityCount = 0;
 };
 
 class ECS_API ECS {
