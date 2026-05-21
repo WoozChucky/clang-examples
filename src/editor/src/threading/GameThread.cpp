@@ -238,6 +238,7 @@ void GameThread::RunLoop() {
                     if (!res.success)
                     {
                         SM_ERROR("Model load failed for ticket %llu: %s", (unsigned long long)res.ticketId, res.error.c_str());
+                        if (res.Texture) { GetStagingPool().Return(res.Texture); res.Texture = nullptr; }
                         continue;
                     }
 
