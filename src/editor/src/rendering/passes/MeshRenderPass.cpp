@@ -326,6 +326,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         // Collect point lights into an arena array (capped to m_MaxPointLights)
         auto* pointLights = frameAllocator->AllocateArray<PointLightCPU>(m_MaxPointLights);
         uint32_t pointLightCount = 0;
+        if (!pointLights)
+            SM_WARN("MeshRenderPass: frame arena exhausted, point-light buffer not allocated");
 
         for (EntityId entity : world->View<TransformComponent, LightningComponent>()) {
             const auto* transform = world->GetComponent<TransformComponent>(entity);
@@ -391,8 +393,18 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                 entries[entryCount++] = BatchEntry{ meshComp->MeshId, materialId, entity };
             }
         }
+        else if (meshEnts.size() > 0)
+        {
+            char warn[128];
+            snprintf(warn, sizeof(warn),
+                     "MeshRenderPass: frame arena exhausted, dropped %zu mesh entities (no meshes drawn)",
+                     meshEnts.size());
+            SM_WARN(warn);
+        }
 
         BatchRun* runs = (entryCount > 0) ? frameAllocator->AllocateArray<BatchRun>(entryCount) : nullptr;
+        if (entryCount > 0 && entries && !runs)
+            SM_WARN("MeshRenderPass: frame arena exhausted, batch runs not allocated (no meshes drawn)");
         uint32_t runCount = (entries && runs) ? BuildBatchRuns(entries, entryCount, runs, entryCount) : 0;
 
         // Render each batch (run) with instancing
@@ -422,7 +434,14 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
             const auto instanceMark = frameAllocator->GetMarker();
             auto* instances = frameAllocator->AllocateArray<MeshInstanceCPU>(instanceCount);
             if (!instances)
+            {
+                char warn[128];
+                snprintf(warn, sizeof(warn),
+                         "MeshRenderPass: frame arena exhausted, dropped %u instances (mesh %u)",
+                         instanceCount, head.meshId);
+                SM_WARN(warn);
                 continue;
+            }
             uint32_t instanceOut = 0;
 
             for (uint32_t i = 0; i < instanceCount; ++i)
