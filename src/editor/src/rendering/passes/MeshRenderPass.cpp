@@ -5,7 +5,7 @@
 #include <nvrhi/utils.h>
 #include "lib.h"
 #include <glm/gtc/matrix_transform.hpp>
-#include <unordered_map>
+#include <algorithm>
 
 // HLSL shaders for mesh pass
 static const char* MESH_VS_HLSL = R"(
@@ -416,7 +416,10 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
 
             const uint32_t instanceCount = std::min(run.count, m_MaxInstances);
 
-            // Build instance data into an arena array
+            // Build instance data into an arena array. Mark the arena so this run's
+            // instances can be reclaimed after they're uploaded (writeBuffer copies
+            // immediately), keeping peak arena usage flat across many batches.
+            const auto instanceMark = frameAllocator->GetMarker();
             auto* instances = frameAllocator->AllocateArray<MeshInstanceCPU>(instanceCount);
             if (!instances)
                 continue;
@@ -456,7 +459,10 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
             }
 
             if (instanceOut == 0)
+            {
+                frameAllocator->RewindTo(instanceMark);
                 continue;
+            }
 
             // Upload instance data
             commandList->writeBuffer(m_InstanceBuffer, instances, instanceOut * sizeof(MeshInstanceCPU));
@@ -534,6 +540,9 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                 args.startVertexLocation = 0;
                 commandList->drawIndexed(args);
             }
+
+            // This run's instances have been uploaded + drawn; reclaim the arena space.
+            frameAllocator->RewindTo(instanceMark);
         }
     }
 
