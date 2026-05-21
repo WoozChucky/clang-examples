@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <string>
+#include <cstring>
 
 #include "lib.h"
 #include <memory/MemUtil.h>
@@ -11,6 +12,7 @@
 #include <memory/ArenaAllocator.h>
 #include <memory/PoolAllocator.h>
 #include <MeshBatching.h>
+#include "StagingBufferPool.h"
 
 // Required by lib.h's SM_ASSERT. Test exe: print + abort, no MessageBox.
 void platform_debug_break(const char* expr, const char* file, int line, const char* message)
@@ -371,6 +373,92 @@ static void T46_batchruns_cap_leaves_trailing_unbatched()
     EXPECT_EQ(runs[0].count, (uint32_t)2); // the (1,0) run only, NOT all 4
 }
 
+static void T50_staging_acquire_alignment()
+{
+    StagingBufferPool pool;
+    void* p = pool.Acquire(100);
+    EXPECT_NE(p, nullptr);
+    EXPECT_EQ((uintptr_t)p % 16, (uintptr_t)0);
+    std::memset(p, 0xAB, 100); // writing the full requested size must be valid
+    pool.Return(p);
+}
+
+static void T51_staging_return_then_acquire_reuses()
+{
+    StagingBufferPool pool;
+    void* a = pool.Acquire(64);
+    pool.Return(a);
+    void* b = pool.Acquire(64);
+    EXPECT_EQ(a, b);                                  // freed block reused
+    EXPECT_EQ(pool.Stats().Reuses, (uint64_t)1);
+    EXPECT_EQ(pool.Stats().Created, (size_t)1);
+    pool.Return(b);
+}
+
+static void T52_staging_grows_when_nothing_fits()
+{
+    StagingBufferPool pool;
+    void* a = pool.Acquire(64);
+    pool.Return(a);                                   // one free 64-byte block
+    void* big = pool.Acquire(128);                    // 64 < 128 -> must grow
+    EXPECT_NE(big, nullptr);
+    EXPECT_EQ(pool.Stats().Created, (size_t)2);
+    EXPECT_EQ(pool.Stats().Reuses, (uint64_t)0);
+    pool.Return(big);
+}
+
+static void T53_staging_best_fit_smallest()
+{
+    StagingBufferPool pool;
+    void* big = pool.Acquire(1024);
+    void* small = pool.Acquire(64);
+    pool.Return(big);
+    pool.Return(small);                               // free-list: 1024 and 64
+    void* got = pool.Acquire(32);                     // best-fit -> the 64 block
+    EXPECT_EQ(got, small);
+    pool.Return(got);
+}
+
+static void T54_staging_capacity_reused_not_shrunk()
+{
+    StagingBufferPool pool;
+    void* a = pool.Acquire(256);
+    pool.Return(a);
+    void* b = pool.Acquire(8);                        // reuses 256 block; cap stays 256
+    EXPECT_EQ(a, b);
+    EXPECT_EQ(pool.Stats().Created, (size_t)1);
+    pool.Return(b);
+    void* c = pool.Acquire(200);                      // still fits in 256 block, no growth
+    EXPECT_EQ(c, a);
+    EXPECT_EQ(pool.Stats().Created, (size_t)1);
+    pool.Return(c);
+}
+
+static void T55_staging_stats_math()
+{
+    StagingBufferPool pool;
+    void* a = pool.Acquire(100);
+    void* b = pool.Acquire(200);
+    StagingPoolStats s1 = pool.Stats();
+    EXPECT_EQ(s1.InUse, (size_t)2);
+    EXPECT_EQ(s1.Free, (size_t)0);
+    EXPECT_EQ(s1.ReservedBytes, (size_t)300);
+    EXPECT_EQ(s1.FreeBytes, (size_t)0);
+
+    pool.Return(a);
+    StagingPoolStats s2 = pool.Stats();
+    EXPECT_EQ(s2.InUse, (size_t)1);
+    EXPECT_EQ(s2.Free, (size_t)1);
+    EXPECT_EQ(s2.FreeBytes, (size_t)100);
+    EXPECT_EQ(s2.ReservedBytes, (size_t)300);         // never decremented
+
+    pool.Return(b);
+    StagingPoolStats s3 = pool.Stats();
+    EXPECT_EQ(s3.InUse, (size_t)0);
+    EXPECT_EQ(s3.Free, (size_t)2);
+    EXPECT_EQ(s3.FreeBytes, (size_t)300);
+}
+
 int main()
 {
     T00_smoke();
@@ -397,6 +485,12 @@ int main()
     T44_batchruns_mixed_unsorted();
     T45_batchruns_maxruns_cap();
     T46_batchruns_cap_leaves_trailing_unbatched();
+    T50_staging_acquire_alignment();
+    T51_staging_return_then_acquire_reuses();
+    T52_staging_grows_when_nothing_fits();
+    T53_staging_best_fit_smallest();
+    T54_staging_capacity_reused_not_shrunk();
+    T55_staging_stats_math();
 
     if (g_Failures == 0) {
         std::printf("All allocator tests passed.\n");
