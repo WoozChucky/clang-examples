@@ -13,6 +13,8 @@
 
 #include <tracy/Tracy.hpp>
 
+#include <memory/AllocatorRegistry.h>
+
 #include "passes/UiRenderPass.h"
 
 bool Renderer::Init(const RendererAPI api) {
@@ -102,11 +104,14 @@ bool Renderer::Init(const RendererAPI api) {
     }
     AddRenderPass(std::move(uiPass));
 
+    Engine::Registry().Register(&m_FrameAllocator);
 
     return true;
 }
 
 void Renderer::Shutdown(const uint32_t timeoutMs) {
+    Engine::Registry().Unregister(&m_FrameAllocator);
+
     if (m_ImGuiRenderer) {
         m_ImGuiRenderer.reset();
         m_ImGuiRenderer = nullptr;

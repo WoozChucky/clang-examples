@@ -537,6 +537,461 @@ static void TS05_system_mutates_ecs()
     if (t) EXPECT_EQ(t->Position.x, 2.0f);
 }
 
+static void TE01_each_visits_matching_entities()
+{
+    ECS w;
+    EntityId a = w.CreateEntity(); w.AddComponent(a, TransformComponent{});
+    EntityId b = w.CreateEntity(); w.AddComponent(b, TransformComponent{}); w.AddComponent(b, MeshComponent{});
+    EntityId c = w.CreateEntity(); w.AddComponent(c, MeshComponent{});
+    (void)a; (void)c;
+
+    int count = 0; EntityId seen = INVALID_ENTITY;
+    w.Each<TransformComponent, MeshComponent>([&](EntityId e){ ++count; seen = e; });
+    EXPECT_EQ(count, 1);
+    EXPECT_EQ(seen, b);
+}
+
+static void TE02_each_components_form()
+{
+    ECS w;
+    EntityId a = w.CreateEntity();
+    w.AddComponent(a, TransformComponent{{1.0f, 2.0f, 3.0f}, {}, {1, 1, 1}});
+    w.AddComponent(a, MeshComponent{ .MeshId = 42, .Visible = true });
+
+    int count = 0; uint32_t meshId = 0; float px = 0.0f;
+    w.Each<TransformComponent, MeshComponent>(
+        [&](EntityId, const TransformComponent& t, const MeshComponent& m){
+            ++count; meshId = m.MeshId; px = t.Position.x;
+        });
+    EXPECT_EQ(count, 1);
+    EXPECT_EQ(meshId, 42u);
+    EXPECT_EQ(px, 1.0f);
+}
+
+static void TE03_each_zero_matches()
+{
+    ECS w;
+    EntityId a = w.CreateEntity(); w.AddComponent(a, TransformComponent{});
+    (void)a;
+    int count = 0;
+    w.Each<MeshComponent>([&](EntityId){ ++count; });
+    EXPECT_EQ(count, 0);
+}
+
+static void TE04_each_single_component()
+{
+    ECS w;
+    w.AddComponent(w.CreateEntity(), TransformComponent{});
+    w.AddComponent(w.CreateEntity(), TransformComponent{});
+    w.CreateEntity(); // no components
+    int count = 0;
+    w.Each<TransformComponent>([&](EntityId){ ++count; });
+    EXPECT_EQ(count, 2);
+}
+
+static void TE05_each_does_not_change_entity_count()
+{
+    ECS w;
+    w.AddComponent(w.CreateEntity(), TransformComponent{});
+    size_t before = w.GetEntityCount();
+    w.Each<TransformComponent>([&](EntityId){});
+    EXPECT_EQ(w.GetEntityCount(), before);
+}
+
+static void TE06_each_components_form_multi_entity_aliases_storage()
+{
+    ECS w;
+    EntityId a = w.CreateEntity(); w.AddComponent(a, TransformComponent{}); w.AddComponent(a, MeshComponent{ .MeshId = 10, .Visible = true });
+    EntityId b = w.CreateEntity(); w.AddComponent(b, TransformComponent{}); // Transform only -> must be skipped
+    EntityId c = w.CreateEntity(); w.AddComponent(c, TransformComponent{}); w.AddComponent(c, MeshComponent{ .MeshId = 20, .Visible = true });
+    (void)b;
+
+    int count = 0; uint32_t meshIdSum = 0; bool aliases = true;
+    w.Each<TransformComponent, MeshComponent>(
+        [&](EntityId e, const TransformComponent&, const MeshComponent& m){
+            ++count;
+            meshIdSum += m.MeshId;
+            // the ref must point at the live component storage, not a copy
+            if (&m != w.GetComponent<MeshComponent>(e)) aliases = false;
+        });
+    EXPECT_EQ(count, 2);              // a and c, not b
+    EXPECT_EQ(meshIdSum, (uint32_t)30);
+    EXPECT(aliases);
+}
+
+static void TS01_componentarray_cross_page_ids()
+{
+    // ids 5 and 5000 will land in different pages once paged; behavior is
+    // page-agnostic on the current impl too.
+    ComponentArray<TransformComponent> arr;
+    arr.Add(5,    TransformComponent{{5.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(5000, TransformComponent{{50.0f, 0, 0}, {}, {1, 1, 1}});
+
+    EXPECT(arr.Has(5));
+    EXPECT(arr.Has(5000));
+    EXPECT(!arr.Has(6));
+    EXPECT(!arr.Has(0));
+    EXPECT_EQ(arr.Get(5)->Position.x, 5.0f);
+    EXPECT_EQ(arr.Get(5000)->Position.x, 50.0f);
+    EXPECT_EQ(arr.Size(), (size_t)2);
+}
+
+static void TS02_componentarray_high_id_only()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(5000, TransformComponent{});
+    EXPECT(arr.Has(5000));
+    EXPECT(!arr.Has(0));
+    EXPECT(!arr.Has(5));
+    EXPECT(!arr.Has(4999));
+    EXPECT(arr.Get(5) == nullptr);
+    EXPECT(arr.Get(5000) != nullptr);
+    EXPECT_EQ(arr.Size(), (size_t)1);
+}
+
+static void TS03_componentarray_swap_and_pop_preserves_others()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(10, TransformComponent{{10.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(20, TransformComponent{{20.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(30, TransformComponent{{30.0f, 0, 0}, {}, {1, 1, 1}});
+
+    arr.Remove(20); // middle removal -> last (30) swaps into 20's slot
+
+    EXPECT(!arr.Has(20));
+    EXPECT(arr.Has(10));
+    EXPECT(arr.Has(30));
+    EXPECT_EQ(arr.Get(10)->Position.x, 10.0f);
+    EXPECT_EQ(arr.Get(30)->Position.x, 30.0f);
+    EXPECT_EQ(arr.Size(), (size_t)2);
+}
+
+static void TS04_componentarray_remove_then_readd_same_id()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(7, TransformComponent{{7.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Remove(7);
+    EXPECT(!arr.Has(7));
+    EXPECT(arr.Get(7) == nullptr);
+
+    arr.Add(7, TransformComponent{{77.0f, 0, 0}, {}, {1, 1, 1}});
+    EXPECT(arr.Has(7));
+    EXPECT_EQ(arr.Get(7)->Position.x, 77.0f);
+    EXPECT_EQ(arr.Size(), (size_t)1);
+}
+
+static void TS05_componentarray_update_existing()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(3, TransformComponent{{1.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(3, TransformComponent{{2.0f, 0, 0}, {}, {1, 1, 1}}); // same id -> update
+    EXPECT_EQ(arr.Size(), (size_t)1);
+    EXPECT_EQ(arr.Get(3)->Position.x, 2.0f);
+}
+
+static void TS06_componentarray_clone_independent_after_swap_and_pop()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(1, TransformComponent{{1.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(2, TransformComponent{{2.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(3, TransformComponent{{3.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Remove(2); // exercise swap-and-pop before cloning
+
+    std::shared_ptr<IComponentArray> clonedBase = arr.Clone();
+    auto* cloned = static_cast<ComponentArray<TransformComponent>*>(clonedBase.get());
+
+    EXPECT_EQ(cloned->Size(), arr.Size());
+    EXPECT(cloned->Has(1));
+    EXPECT(cloned->Has(3));
+    EXPECT(!cloned->Has(2));
+    EXPECT_EQ(cloned->Get(3)->Position.x, 3.0f);
+
+    arr.Get(1)->Position.x = 999.0f;
+    arr.Remove(3);
+    EXPECT_EQ(cloned->Get(1)->Position.x, 1.0f);
+    EXPECT(cloned->Has(3));
+    EXPECT_EQ(cloned->Get(3)->Position.x, 3.0f);
+}
+
+static void TS07_clone_and_assign_independent_across_pages()
+{
+    // ids 5 (page 0) and 5000 (page ~4) -> outer page vector has nullptr holes.
+    // Exercises the copy ctor's multi-page deep-copy + nullptr-hole preservation,
+    // plus copy-assignment independence (Rule-of-5 coverage).
+    ComponentArray<TransformComponent> arr;
+    arr.Add(5,    TransformComponent{{5.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(5000, TransformComponent{{50.0f, 0, 0}, {}, {1, 1, 1}});
+
+    std::shared_ptr<IComponentArray> clonedBase = arr.Clone();
+    auto* cloned = static_cast<ComponentArray<TransformComponent>*>(clonedBase.get());
+    EXPECT_EQ(cloned->Size(), (size_t)2);
+    EXPECT(cloned->Has(5));
+    EXPECT(cloned->Has(5000));
+    EXPECT_EQ(cloned->Get(5)->Position.x, 5.0f);
+    EXPECT_EQ(cloned->Get(5000)->Position.x, 50.0f);
+
+    // Mutate original across both pages; clone must be unaffected.
+    arr.Get(5)->Position.x = 111.0f;
+    arr.Remove(5000);
+    EXPECT_EQ(cloned->Get(5)->Position.x, 5.0f);
+    EXPECT(cloned->Has(5000));
+    EXPECT_EQ(cloned->Get(5000)->Position.x, 50.0f);
+
+    // Copy-assignment yields an independent array too.
+    ComponentArray<TransformComponent> assigned;
+    assigned = *cloned;
+    EXPECT(assigned.Has(5));
+    EXPECT(assigned.Has(5000));
+    cloned->Get(5)->Position.x = 222.0f;
+    EXPECT_EQ(assigned.Get(5)->Position.x, 5.0f);
+}
+
+static void TP01_snapshot_pool_reuses_object()
+{
+    ECS w;
+    w.AddComponent(w.CreateEntity(), TransformComponent{});
+    auto s1 = w.CreateSnapshot();
+    const ECS* p = s1.get();
+    s1.reset();                       // recycle p
+    auto s2 = w.CreateSnapshot();     // LIFO -> reacquires p
+    EXPECT_EQ(s2.get(), p);
+}
+
+static void TP02_snapshot_isolated_after_recycle()
+{
+    ECS w;
+    EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{{1.0f, 0, 0}, {}, {1, 1, 1}});
+
+    auto s1 = w.CreateSnapshot();
+    s1.reset();                       // recycle the object s2 will reuse
+
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 9.0f; });
+    auto s2 = w.CreateSnapshot();     // reuses the recycled object
+
+    const auto* t = s2->GetComponent<TransformComponent>(e);
+    EXPECT(t != nullptr);
+    EXPECT_EQ(t->Position.x, 9.0f);   // current master state, not stale s1 (1.0)
+
+    w.Modify<TransformComponent>(e, [](auto& tt){ tt.Position.x = 5.0f; });
+    EXPECT_EQ(s2->GetComponent<TransformComponent>(e)->Position.x, 9.0f); // COW isolation
+}
+
+static void TP03_snapshot_pool_stats_deltas()
+{
+    const SnapshotPoolStats before = GetSnapshotPoolStats();
+
+    ECS w;
+    w.AddComponent(w.CreateEntity(), TransformComponent{});
+    auto s = w.CreateSnapshot();
+    const SnapshotPoolStats held = GetSnapshotPoolStats();
+    EXPECT_EQ(held.InUse, before.InUse + 1);
+
+    s.reset();
+    const SnapshotPoolStats dropped = GetSnapshotPoolStats();
+    EXPECT_EQ(dropped.InUse, before.InUse);
+    EXPECT(dropped.Free >= 1);
+
+    auto s2 = w.CreateSnapshot();     // served from the free-list
+    const SnapshotPoolStats reused = GetSnapshotPoolStats();
+    EXPECT(reused.Reuses > before.Reuses);
+    s2.reset();
+}
+
+static void TM01_componentarray_memorybytes_used_exact()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(1, TransformComponent{});
+    arr.Add(2, TransformComponent{});
+    arr.Add(3, TransformComponent{});
+
+    ArrayMemory m = arr.MemoryBytes();
+    EXPECT_EQ(m.Used, (size_t)(3 * sizeof(TransformComponent) + 3 * sizeof(EntityId)));
+    EXPECT(m.Reserved >= m.Used);
+    EXPECT(m.Reserved >= (size_t)4096);   // >= one 4 KB sparse page allocated
+
+    arr.Remove(2);                         // swap-and-pop -> 2 live
+    ArrayMemory m2 = arr.MemoryBytes();
+    EXPECT_EQ(m2.Used, (size_t)(2 * sizeof(TransformComponent) + 2 * sizeof(EntityId)));
+}
+
+static void TM02_componentarray_empty_memorybytes()
+{
+    ComponentArray<TransformComponent> arr;
+    ArrayMemory m = arr.MemoryBytes();
+    EXPECT_EQ(m.Used, (size_t)0);
+}
+
+static void TM03_ecs_memorystats_aggregates()
+{
+    ECS w;
+    EntityId a = w.CreateEntity();
+    EntityId b = w.CreateEntity();
+    w.AddComponent(a, TransformComponent{});
+    w.AddComponent(b, TransformComponent{});
+    w.AddComponent(a, MeshComponent{});
+
+    EcsMemoryStats s = w.MemoryStats();
+    EXPECT_EQ(s.EntityCount, (size_t)2);    // singleton reserved entity excluded
+    EXPECT_EQ(s.ArrayCount, (size_t)2);     // Transform + Mesh
+    EXPECT(s.ComponentUsed >= (size_t)(2 * sizeof(TransformComponent) + 1 * sizeof(MeshComponent)));
+    EXPECT(s.ComponentReserved >= s.ComponentUsed);
+    EXPECT(s.EntityReserved >= s.EntityUsed);
+}
+
+static void TCF01_copyfrom_reproduces_source_over_stale_dest()
+{
+    // src: ids spanning >= 3 sparse pages (page size 1024)
+    ComponentArray<TransformComponent> src;
+    src.Add(1,    TransformComponent{{1.0f,  0, 0}, {}, {1,1,1}});
+    src.Add(5,    TransformComponent{{5.0f,  0, 0}, {}, {1,1,1}});
+    src.Add(1025, TransformComponent{{25.0f, 0, 0}, {}, {1,1,1}}); // page 1
+    src.Add(2049, TransformComponent{{49.0f, 0, 0}, {}, {1,1,1}}); // page 2
+
+    // dest: DIFFERENT prior layout — different ids and MORE pages than src
+    ComponentArray<TransformComponent> dest;
+    dest.Add(2,    TransformComponent{{2.0f,  0, 0}, {}, {1,1,1}});
+    dest.Add(3000, TransformComponent{{30.0f, 0, 0}, {}, {1,1,1}}); // page 2 (different id)
+    dest.Add(9000, TransformComponent{{90.0f, 0, 0}, {}, {1,1,1}}); // page 8 -> dest has more pages
+
+    dest.CopyFrom(src);
+
+    // dest now mirrors src exactly
+    EXPECT_EQ(dest.Size(), src.Size());
+    EXPECT(dest.Has(1));    EXPECT_EQ(dest.Get(1)->Position.x,    1.0f);
+    EXPECT(dest.Has(5));    EXPECT_EQ(dest.Get(5)->Position.x,    5.0f);
+    EXPECT(dest.Has(1025)); EXPECT_EQ(dest.Get(1025)->Position.x, 25.0f);
+    EXPECT(dest.Has(2049)); EXPECT_EQ(dest.Get(2049)->Position.x, 49.0f);
+    // stale entries from the larger old layout must be gone
+    EXPECT(!dest.Has(2));
+    EXPECT(!dest.Has(3000));
+    EXPECT(!dest.Has(9000));
+
+    // deep copy: mutating src must not affect dest
+    src.Get(1)->Position.x = 999.0f;
+    EXPECT_EQ(dest.Get(1)->Position.x, 1.0f);
+}
+
+static void TCF02_copyfrom_empty_src_clears_dest()
+{
+    ComponentArray<TransformComponent> src; // empty
+    ComponentArray<TransformComponent> dest;
+    dest.Add(1,    TransformComponent{{1.0f, 0, 0}, {}, {1,1,1}});
+    dest.Add(1025, TransformComponent{{2.0f, 0, 0}, {}, {1,1,1}});
+
+    dest.CopyFrom(src);
+    EXPECT_EQ(dest.Size(), (size_t)0);
+    EXPECT(!dest.Has(1));
+    EXPECT(!dest.Has(1025));
+}
+
+static void TCF03_copyfrom_reuses_dense_capacity()
+{
+    ComponentArray<TransformComponent> dest;
+    for (EntityId i = 1; i <= 64; ++i) dest.Add(i, TransformComponent{});
+    const size_t capBefore = dest.GetComponents().capacity();
+
+    ComponentArray<TransformComponent> src;
+    src.Add(1, TransformComponent{{7.0f, 0, 0}, {}, {1,1,1}}); // far smaller than dest
+
+    dest.CopyFrom(src);
+    EXPECT_EQ(dest.Size(), (size_t)1);
+    EXPECT_EQ(dest.Get(1)->Position.x, 7.0f);
+    EXPECT_EQ(dest.GetComponents().capacity(), capBefore); // capacity reused, not shrunk/realloc'd
+}
+
+static void TCOW01_pool_reuses_recycled_array()
+{
+    ECS w;
+    EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{{1.0f, 0, 0}, {}, {1,1,1}});
+
+    auto s1 = w.CreateSnapshot();                                   // master slot = A; s1 shares A
+    const void* pA = static_cast<const void*>(s1->GetArray<TransformComponent>());
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 2.0f; }); // clone -> master = B
+    const void* pB = static_cast<const void*>(w.GetArray<TransformComponent>());
+    EXPECT_NE(pA, pB);                                              // B is a fresh array
+    s1.reset();                                                    // A refcount 0 -> recycled
+
+    auto s2 = w.CreateSnapshot();                                  // master = B; s2 shares B; dirty cleared
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 3.0f; }); // clone -> Acquire pool -> reuse A
+    const void* pReused = static_cast<const void*>(w.GetArray<TransformComponent>());
+    EXPECT_EQ(pReused, pA);                                        // recycled A came back from the pool
+    EXPECT_NE(pReused, pB);
+    s2.reset();
+}
+
+static void TCOW02_pooled_clone_preserves_isolation_after_recycle()
+{
+    ECS w;
+    EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{{1.0f, 0, 0}, {}, {1,1,1}});
+
+    auto s1 = w.CreateSnapshot();
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 2.0f; }); // clone B
+    s1.reset();                                                    // recycle A
+
+    auto s2 = w.CreateSnapshot();                                  // s2 shares B (x == 2)
+    EXPECT_EQ(s2->GetComponent<TransformComponent>(e)->Position.x, 2.0f);
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 3.0f; }); // reuse A from pool, CopyFrom B
+
+    // the reuse-clone into recycled A must NOT corrupt the live snapshot B
+    EXPECT_EQ(s2->GetComponent<TransformComponent>(e)->Position.x, 2.0f);
+    EXPECT_EQ(w.GetComponent<TransformComponent>(e)->Position.x, 3.0f);
+    s2.reset();
+}
+
+static void TCOW03_array_pool_stats_deltas()
+{
+    ECS w;
+    EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{});
+    auto s1 = w.CreateSnapshot();                                  // s1 shares A1
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 1.0f; }); // clone A1 -> A2 (master)
+
+    const ComponentArrayPoolStats held = GetComponentArrayPoolStats();
+    s1.reset();                                                    // A1 recycled -> Free +1, InUse -1
+    const ComponentArrayPoolStats afterDrop = GetComponentArrayPoolStats();
+    EXPECT_EQ(afterDrop.Free, held.Free + 1);
+    EXPECT_EQ(afterDrop.InUse, held.InUse - 1);
+
+    auto s2 = w.CreateSnapshot();                                  // shares A2 (no array-pool op)
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 2.0f; }); // clone -> reuse A1
+    const ComponentArrayPoolStats reused = GetComponentArrayPoolStats();
+    EXPECT(reused.Reuses > held.Reuses);                           // a free-list reuse happened
+    EXPECT_EQ(reused.Free, afterDrop.Free - 1);                    // free-list consumed by the reuse
+    s2.reset();
+}
+
+static void TCOW04_remove_all_components_path_pools_and_isolates()
+{
+    // Exercises the type-erased Clone() / RemoveAllComponents clone path (DestroyEntity),
+    // distinct from the MutateArray/Modify path the other TCOW tests drive.
+    ECS w;
+    EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{{1.0f, 0, 0}, {}, {1,1,1}});
+
+    auto s1 = w.CreateSnapshot();                                   // master slot = A; s1 shares A
+    const void* pA = static_cast<const void*>(s1->GetArray<TransformComponent>());
+    w.DestroyEntity(e);                                             // RemoveAllComponents -> Clone() -> master = B
+    const void* pB = static_cast<const void*>(w.GetArray<TransformComponent>());
+    EXPECT_NE(pA, pB);                                              // B is a fresh array
+    EXPECT(s1->HasComponent<TransformComponent>(e));               // snapshot still sees e (isolation)
+    EXPECT(!w.IsValidEntity(e));                                    // master dropped e
+    s1.reset();                                                     // A refcount 0 -> recycled (free-list: [A])
+
+    // Drive the Clone() path again; the recycled A must come back from the pool.
+    EntityId e2 = w.CreateEntity();
+    w.AddComponent(e2, TransformComponent{{2.0f, 0, 0}, {}, {1,1,1}});
+    auto s2 = w.CreateSnapshot();                                   // shares current master array; clears dirty
+    w.DestroyEntity(e2);                                            // RemoveAllComponents -> Clone() -> Acquire -> reuse A
+    const void* pReused = static_cast<const void*>(w.GetArray<TransformComponent>());
+    EXPECT_EQ(pReused, pA);                                         // recycled A returned via the Clone path
+    EXPECT(s2->HasComponent<TransformComponent>(e2));              // s2 still sees e2 (isolation after reuse)
+    EXPECT(!w.IsValidEntity(e2));
+    s2.reset();
+}
+
 int main()
 {
     T00_smoke();
@@ -568,6 +1023,32 @@ int main()
     TSG03_singleton_entity_hidden();
     TSG04_snapshot_preserves_singletons();
     TSG05_clear_preserves_singletons_removes_gameplay();
+    TE01_each_visits_matching_entities();
+    TE02_each_components_form();
+    TE03_each_zero_matches();
+    TE04_each_single_component();
+    TE05_each_does_not_change_entity_count();
+    TE06_each_components_form_multi_entity_aliases_storage();
+    TS01_componentarray_cross_page_ids();
+    TS02_componentarray_high_id_only();
+    TS03_componentarray_swap_and_pop_preserves_others();
+    TS04_componentarray_remove_then_readd_same_id();
+    TS05_componentarray_update_existing();
+    TS06_componentarray_clone_independent_after_swap_and_pop();
+    TS07_clone_and_assign_independent_across_pages();
+    TP01_snapshot_pool_reuses_object();
+    TP02_snapshot_isolated_after_recycle();
+    TP03_snapshot_pool_stats_deltas();
+    TM01_componentarray_memorybytes_used_exact();
+    TM02_componentarray_empty_memorybytes();
+    TM03_ecs_memorystats_aggregates();
+    TCF01_copyfrom_reproduces_source_over_stale_dest();
+    TCF02_copyfrom_empty_src_clears_dest();
+    TCF03_copyfrom_reuses_dense_capacity();
+    TCOW01_pool_reuses_recycled_array();
+    TCOW02_pooled_clone_preserves_isolation_after_recycle();
+    TCOW03_array_pool_stats_deltas();
+    TCOW04_remove_all_components_path_pools_and_isolates();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

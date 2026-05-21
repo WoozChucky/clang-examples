@@ -2,7 +2,9 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <array>
 #include <vector>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
@@ -159,6 +161,9 @@ struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; 
 //                           Component Storage (Type-erased container)
 // #############################################################################
 
+// Byte accounting for a component array (read-only diagnostics).
+struct ArrayMemory { size_t Used = 0; size_t Reserved = 0; };
+
 class IComponentArray {
 public:
     virtual ~IComponentArray() = default;
@@ -172,75 +177,112 @@ public:
      * @return shared_ptr owning a fresh copy of the array contents.
      */
     [[nodiscard]] virtual std::shared_ptr<IComponentArray> Clone() const = 0;
+
+    [[nodiscard]] virtual ArrayMemory MemoryBytes() const = 0;
 };
 
 template<typename T>
 class ECS_API ComponentArray final : public IComponentArray {
 public:
+    ComponentArray() = default;
+    ~ComponentArray() override = default;
+    ComponentArray(ComponentArray&&) noexcept = default;
+    ComponentArray& operator=(ComponentArray&&) noexcept = default;
+
+    ComponentArray(const ComponentArray& other)
+        : m_Components(other.m_Components)
+        , m_IndexToEntity(other.m_IndexToEntity)
+    {
+        m_SparsePages.reserve(other.m_SparsePages.size());
+        for (const auto& page : other.m_SparsePages)
+            m_SparsePages.push_back(page ? std::make_unique<SparsePage>(*page) : nullptr);
+    }
+
+    ComponentArray& operator=(const ComponentArray& other) {
+        if (this != &other) {
+            ComponentArray tmp(other);
+            m_Components    = std::move(tmp.m_Components);
+            m_IndexToEntity = std::move(tmp.m_IndexToEntity);
+            m_SparsePages   = std::move(tmp.m_SparsePages);
+        }
+        return *this;
+    }
+
+    // Deep-copies src into *this, reusing existing buffer capacity where possible.
+    // Result is structurally identical to a copy-constructed clone of src (same dense
+    // contents, same per-page null/non-null layout). Used by the array recycle pool.
+    void CopyFrom(const ComponentArray& src) {
+        m_Components.assign(src.m_Components.begin(), src.m_Components.end());
+        m_IndexToEntity.assign(src.m_IndexToEntity.begin(), src.m_IndexToEntity.end());
+
+        m_SparsePages.resize(src.m_SparsePages.size()); // drop any surplus dest pages
+        for (size_t i = 0; i < src.m_SparsePages.size(); ++i) {
+            if (!src.m_SparsePages[i]) {
+                m_SparsePages[i].reset();                                   // match src null slot
+            } else if (!m_SparsePages[i]) {
+                m_SparsePages[i] = std::make_unique<SparsePage>(*src.m_SparsePages[i]);
+            } else {
+                *m_SparsePages[i] = *src.m_SparsePages[i];                  // reuse 4 KB buffer
+            }
+        }
+    }
+
     void Add(const EntityId entity, T component) {
-        if (m_EntityToIndex.contains(entity)) {
-            // Update existing component
-            size_t index = m_EntityToIndex[entity];
-            m_Components[index] = component;
+        const uint32_t existingIndex = SparseGet(entity);
+        if (existingIndex != kInvalid) {
+            m_Components[existingIndex] = component;
             return;
         }
-
-        // Add new component
-        const size_t newIndex = m_Components.size();
-        m_EntityToIndex[entity] = newIndex;
+        const uint32_t newIndex = static_cast<uint32_t>(m_Components.size());
+        SparseSet(entity, newIndex);
         m_Components.push_back(component);
         m_IndexToEntity.push_back(entity);
     }
 
     void Remove(const EntityId entity) override {
-        if (!m_EntityToIndex.contains(entity)) {
-            return; // Entity doesn't have this component
-        }
-
-        // Swap-and-pop for efficient removal
-        size_t indexOfRemoved = m_EntityToIndex[entity];
-        size_t indexOfLast = m_Components.size() - 1;
-
-        // Swap with last element
+        const uint32_t indexOfRemoved = SparseGet(entity);
+        if (indexOfRemoved == kInvalid) return;
+        const uint32_t indexOfLast = static_cast<uint32_t>(m_Components.size() - 1);
         m_Components[indexOfRemoved] = m_Components[indexOfLast];
-
-        // Update mappings for the swapped entity
-        EntityId entityOfLast = m_IndexToEntity[indexOfLast];
-        m_EntityToIndex[entityOfLast] = indexOfRemoved;
+        const EntityId entityOfLast = m_IndexToEntity[indexOfLast];
         m_IndexToEntity[indexOfRemoved] = entityOfLast;
-
-        // Remove old mappings
-        m_EntityToIndex.erase(entity);
+        SparseSet(entityOfLast, indexOfRemoved);
+        SparseClear(entity);
         m_IndexToEntity.pop_back();
-
         m_Components.pop_back();
     }
 
     T* Get(const EntityId entity) {
-        if (!m_EntityToIndex.contains(entity)) {
-            return nullptr;
-        }
-        return &m_Components[m_EntityToIndex[entity]];
+        const uint32_t index = SparseGet(entity);
+        return index == kInvalid ? nullptr : &m_Components[index];
     }
 
     const T* Get(const EntityId entity) const {
-        if (!m_EntityToIndex.contains(entity)) {
-            return nullptr;
-        }
-        return &m_Components[m_EntityToIndex.at(entity)];
+        const uint32_t index = SparseGet(entity);
+        return index == kInvalid ? nullptr : &m_Components[index];
     }
 
     [[nodiscard]] bool Has(const EntityId entity) const override {
-        return m_EntityToIndex.contains(entity);
+        return SparseGet(entity) != kInvalid;
     }
 
     [[nodiscard]] size_t Size() const override {
         return m_Components.size();
     }
 
-    [[nodiscard]] std::shared_ptr<IComponentArray> Clone() const override {
-        return std::make_shared<ComponentArray<T>>(*this);
+    [[nodiscard]] ArrayMemory MemoryBytes() const override {
+        ArrayMemory m{};
+        m.Used     = m_Components.size()    * sizeof(T)
+                   + m_IndexToEntity.size() * sizeof(EntityId);
+        m.Reserved = m_Components.capacity()    * sizeof(T)
+                   + m_IndexToEntity.capacity() * sizeof(EntityId)
+                   + m_SparsePages.capacity()   * sizeof(std::unique_ptr<SparsePage>);
+        for (const auto& page : m_SparsePages)
+            if (page) m.Reserved += sizeof(SparsePage);   // 4 KB each
+        return m;
     }
+
+    [[nodiscard]] std::shared_ptr<IComponentArray> Clone() const override; // defined in ecs.cpp (uses the array pool)
 
     // Iterator access for systems
     std::vector<T>& GetComponents() { return m_Components; }
@@ -252,9 +294,37 @@ public:
     }
 
 private:
+    // Paged sparse set: EntityId -> dense index. A touched page is a fixed 4 KB
+    // (1024 * uint32_t); absent pages stay nullptr. Entity ids are dense + recycled
+    // (EntityStore), so page count stays low (~maxLiveId/kPageSize). Clone copies
+    // only the non-null pages (memcpy each) — the cheap-COW win over the old hashmap.
+    static constexpr uint32_t kInvalid  = UINT32_MAX;
+    static constexpr uint32_t kPageSize = 1024;
+    using SparsePage = std::array<uint32_t, kPageSize>;
+
+    [[nodiscard]] uint32_t SparseGet(EntityId entity) const {
+        const size_t page = static_cast<size_t>(entity / kPageSize);
+        if (page >= m_SparsePages.size() || !m_SparsePages[page]) return kInvalid;
+        return (*m_SparsePages[page])[entity % kPageSize];
+    }
+    void SparseSet(EntityId entity, uint32_t denseIndex) {
+        const size_t page = static_cast<size_t>(entity / kPageSize);
+        if (page >= m_SparsePages.size()) m_SparsePages.resize(page + 1);
+        if (!m_SparsePages[page]) {
+            m_SparsePages[page] = std::make_unique<SparsePage>();
+            m_SparsePages[page]->fill(kInvalid);
+        }
+        (*m_SparsePages[page])[entity % kPageSize] = denseIndex;
+    }
+    void SparseClear(EntityId entity) {
+        const size_t page = static_cast<size_t>(entity / kPageSize);
+        if (page < m_SparsePages.size() && m_SparsePages[page])
+            (*m_SparsePages[page])[entity % kPageSize] = kInvalid;
+    }
+
     std::vector<T> m_Components;
-    std::unordered_map<EntityId, size_t> m_EntityToIndex;
     std::vector<EntityId> m_IndexToEntity;
+    std::vector<std::unique_ptr<SparsePage>> m_SparsePages;
 };
 
 // Declare that ComponentArray<T> is instantiated elsewhere (in ecs.dll's TU).
@@ -350,6 +420,17 @@ public:
      */
     void ClearDirty();
 
+    [[nodiscard]] ArrayMemory MemoryBytes(size_t& outArrayCount) const {
+        ArrayMemory sum{};
+        outArrayCount = m_ComponentArrays.size();
+        for (const auto& [type, slot] : m_ComponentArrays) {
+            const ArrayMemory m = slot->MemoryBytes();
+            sum.Used     += m.Used;
+            sum.Reserved += m.Reserved;
+        }
+        return sum;
+    }
+
 private:
 #ifndef NDEBUG
     std::thread::id m_OwnerThread = std::this_thread::get_id();
@@ -423,6 +504,13 @@ public:
         return m_ActiveEntities.size();
     }
 
+    [[nodiscard]] ArrayMemory MemoryBytes() const {
+        ArrayMemory m{};
+        m.Used     = (m_ActiveEntities.size()     + m_FreeEntities.size())     * sizeof(EntityId);
+        m.Reserved = (m_ActiveEntities.capacity() + m_FreeEntities.capacity()) * sizeof(EntityId);
+        return m;
+    }
+
     [[nodiscard]] const std::vector<EntityId>& GetActiveEntities() const {
         return m_ActiveEntities;
     }
@@ -442,6 +530,35 @@ private:
 // #############################################################################
 //                           ECS World (Main API)
 // #############################################################################
+
+// Stats for the snapshot object pool (see ecs.cpp). Rendered by the editor Memory panel.
+struct SnapshotPoolStats {
+    size_t   Free;     // idle ECS objects in the pool free-list
+    size_t   InUse;    // currently handed out (live snapshots)
+    size_t   Created;  // total ECS objects ever allocated by the pool
+    uint64_t Reuses;   // # of Acquire calls served from the free-list
+};
+ECS_API SnapshotPoolStats GetSnapshotPoolStats();
+
+// Stats for the per-type ComponentArray recycle pool (COW Part 2), aggregated across
+// all component types. Rendered by the editor Memory panel.
+struct ComponentArrayPoolStats {
+    size_t   Free;     // arrays sitting on the free-lists (summed over types)
+    size_t   InUse;    // arrays handed out and not yet recycled
+    size_t   Created;  // total arrays ever allocated by the pools
+    uint64_t Reuses;   // # of Acquire calls served from a free-list
+};
+ECS_API ComponentArrayPoolStats GetComponentArrayPoolStats();
+
+// Aggregate ECS storage bytes (read-only diagnostics; excludes map/control-block overhead).
+struct EcsMemoryStats {
+    size_t ComponentUsed = 0;
+    size_t ComponentReserved = 0;
+    size_t EntityUsed = 0;
+    size_t EntityReserved = 0;
+    size_t ArrayCount = 0;
+    size_t EntityCount = 0;
+};
 
 class ECS_API ECS {
 public:
@@ -505,16 +622,31 @@ public:
     template<typename T, typename F> void ModifySingleton(F&& fn) { Modify<T>(m_SingletonEntity, std::forward<F>(fn)); }
     [[nodiscard]] EntityId SingletonEntity() const { return m_SingletonEntity; }
 
-    // Iterate entities with specific components (simple view)
-    template<typename... Components>
-    [[nodiscard]] std::vector<EntityId> View() const {
-        std::vector<EntityId> result;
+    /**
+     * @brief Zero-allocation iteration over entities that have all Components.
+     *        If the callback accepts (EntityId, const Components&...), each
+     *        queried component is passed by const reference (guaranteed non-null
+     *        on a full match); otherwise the callback is invoked with (EntityId).
+     *        A callback invocable both ways takes the components form.
+     * @note  Each<>() (empty component pack) visits every active entity.
+     * @threading const; safe on snapshots. Mutation still goes through
+     *            Modify/MutateArray (the refs here are read-only).
+     * @warning   In the components form, do NOT call MutateArray on a *queried*
+     *            component type inside the callback: the COW clone would leave the
+     *            passed const refs dangling. Mutate via the entity id + Modify, or
+     *            mutate only non-queried types.
+     */
+    template<typename... Components, typename F>
+    void Each(F&& fn) const {
         for (EntityId entity : m_EntityStore.GetActiveEntities()) {
-            if (HasComponents<Components...>(entity)) {
-                result.push_back(entity);
+            if constexpr (std::is_invocable_v<F, EntityId, const Components&...>) {
+                const std::tuple ptrs{ GetComponent<Components>(entity)... };
+                const bool all = std::apply([](auto*... p){ return (p && ...); }, ptrs);
+                if (all) std::apply([&](auto*... p){ fn(entity, *p...); }, ptrs);
+            } else {
+                if ((HasComponent<Components>(entity) && ...)) fn(entity);
             }
         }
-        return result;
     }
 
     /**
@@ -567,6 +699,28 @@ public:
      * @snapshot The returned ECS exposes only const accessors.
      */
     [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot();
+
+    /**
+     * @brief Resets a recycled snapshot for reuse by the pool: drops this
+     *        snapshot's component-array refs (so uniquely-owned arrays free now).
+     *        The reuse win is the recycled ECS shell + EntityStore vector capacity;
+     *        the array map is reassigned wholesale by CreateSnapshot on reacquire.
+     * @threading Runs from the pool's recycling deleter on WHATEVER thread drops
+     *            the last ref. Must stay assert-free: only Cleanup() (no
+     *            AssertOwnerThread). Do NOT call ClearDirty() here.
+     */
+    void ResetForRecycle() { m_ComponentStore.Cleanup(); }
+
+    [[nodiscard]] EcsMemoryStats MemoryStats() const {
+        size_t arrayCount = 0;
+        const ArrayMemory comp = m_ComponentStore.MemoryBytes(arrayCount);
+        const ArrayMemory ent  = m_EntityStore.MemoryBytes();
+        return EcsMemoryStats{
+            comp.Used, comp.Reserved,
+            ent.Used,  ent.Reserved,
+            arrayCount, m_EntityStore.GetEntityCount()
+        };
+    }
 
 private:
     EntityStore m_EntityStore;
@@ -637,12 +791,11 @@ if (world.HasComponents<TransformComponent, MeshComponent>(player)) {
     // Entity has both components
 }
 
-// Iterate all entities with specific components (simple system, read-only)
-for (EntityId entity : world.View<TransformComponent, MeshComponent>()) {
-    const auto* transform = world.GetComponent<TransformComponent>(entity);
-    const auto* mesh = world.GetComponent<MeshComponent>(entity);
-    // Render mesh at transform position (read only)
-}
+// Iterate all entities with specific components (read-only)
+world.Each<TransformComponent, MeshComponent>(
+    [](EntityId entity, const TransformComponent& transform, const MeshComponent& mesh) {
+        // Render mesh at transform position (read only)
+    });
 
 // Bulk-mutate all transforms in a system (COW-safe, one clone per tick)
 {

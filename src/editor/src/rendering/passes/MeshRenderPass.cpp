@@ -1,10 +1,11 @@
 #include "MeshRenderPass.h"
 
 #include "Renderer.h"
+#include "MeshBatching.h"
 #include <nvrhi/utils.h>
 #include "lib.h"
 #include <glm/gtc/matrix_transform.hpp>
-#include <unordered_map>
+#include <algorithm>
 
 // HLSL shaders for mesh pass
 static const char* MESH_VS_HLSL = R"(
@@ -283,7 +284,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                             SimulationSnapshot& snapshot,
                             const ECS* world,
                             double /*deltaTime*/,
-                            FrameAllocator* /*frameAllocator*/)
+                            FrameAllocator* frameAllocator)
 {
     if (!m_Pipeline)
     {
@@ -322,34 +323,34 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         glm::vec4 lightningDirection(0.0f, -1.0f, 0.0f, 0.0f); // default arbitrary direction
         glm::vec4 lightningColor(0.0f);
 
-        // Collect point lights into a temporary CPU array (capped to m_MaxPointLights)
-        std::vector<PointLightCPU> pointLights;
-        pointLights.reserve(16);
+        // Collect point lights into an arena array (capped to m_MaxPointLights)
+        auto* pointLights = frameAllocator->AllocateArray<PointLightCPU>(m_MaxPointLights);
+        uint32_t pointLightCount = 0;
+        if (!pointLights)
+            SM_WARN("MeshRenderPass: frame arena exhausted, point-light buffer not allocated");
 
-        for (EntityId entity : world->View<TransformComponent, LightningComponent>()) {
-            const auto* transform = world->GetComponent<TransformComponent>(entity);
-            const auto* lightning = world->GetComponent<LightningComponent>(entity);
-            if (!transform || !lightning) continue;
-
-            if (lightning->Type == LightningType::Directional)
+        world->Each<TransformComponent, LightningComponent>(
+            [&](EntityId, const TransformComponent& transform, const LightningComponent& lightning)
+        {
+            if (lightning.Type == LightningType::Directional)
             {
-                lightningDirection = lightning->Direction;
-                lightningColor = lightning->Color;
+                lightningDirection = lightning.Direction;
+                lightningColor = lightning.Color;
                 // keep scanning for points in case; do not break
             }
-            else if (lightning->Type == LightningType::Point)
+            else if (lightning.Type == LightningType::Point)
             {
-                if (pointLights.size() < m_MaxPointLights)
+                if (pointLights && pointLightCount < m_MaxPointLights)
                 {
                     PointLightCPU pl{};
-                    pl.Position = glm::vec4(transform->Position, 1.0f);
-                    pl.Color = lightning->Color;
-                    pl.Intensity = lightning->Intensity;
-                    pl.Range = lightning->Range;
-                    pointLights.push_back(pl);
+                    pl.Position = glm::vec4(transform.Position, 1.0f);
+                    pl.Color = lightning.Color;
+                    pl.Intensity = lightning.Intensity;
+                    pl.Range = lightning.Range;
+                    pointLights[pointLightCount++] = pl;
                 }
             }
-        }
+        });
 
         // Update per-frame CB
         PerFrameCB perFrame{};
@@ -361,72 +362,88 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         perFrame.VP = P * V;
         perFrame.DirectionalLight.Direction = lightningDirection;
         perFrame.DirectionalLight.Color = lightningColor;
-        perFrame.PointLightCount = static_cast<uint32_t>(pointLights.size());
+        perFrame.PointLightCount = pointLightCount;
         perFrame.Ambient = 0.1f; // hardcoded ambient for now
         commandList->writeBuffer(m_PerFrameCB, &perFrame, sizeof(perFrame));
 
         // Upload point lights data (if any)
-        if (m_PointLightBuffer && !pointLights.empty())
+        if (m_PointLightBuffer && pointLightCount > 0)
         {
-            commandList->writeBuffer(m_PointLightBuffer, pointLights.data(), static_cast<uint32_t>(pointLights.size() * sizeof(PointLightCPU)));
+            commandList->writeBuffer(m_PointLightBuffer, pointLights, pointLightCount * sizeof(PointLightCPU));
         }
 
-        // Group entities by (MeshId, MaterialId) for optimal batching
-        struct BatchKey {
-            uint32_t meshId;
-            uint32_t materialId;
-            bool operator==(const BatchKey& other) const {
-                return meshId == other.meshId && materialId == other.materialId;
-            }
-        };
-        struct BatchKeyHash {
-            size_t operator()(const BatchKey& k) const {
-                return std::hash<uint32_t>()(k.meshId) ^ (std::hash<uint32_t>()(k.materialId) << 1);
-            }
-        };
-
-        std::unordered_map<BatchKey, std::vector<EntityId>, BatchKeyHash> batches;
-        for (EntityId entity : world->View<TransformComponent, MeshComponent>())
+        // Group entities by (MeshId, MaterialId) into a flat arena array, then
+        // sort into contiguous runs (one run == one draw batch). No node-based map.
+        auto* entries = frameAllocator->AllocateArray<BatchEntry>(world->GetEntityCount());
+        uint32_t entryCount = 0;
+        if (entries)
         {
-            const auto* meshComp = world->GetComponent<MeshComponent>(entity);
-            if (!meshComp || !meshComp->Visible)
-                continue;
+            world->Each<TransformComponent, MeshComponent>(
+                [&](EntityId e, const TransformComponent&, const MeshComponent& meshComp)
+            {
+                if (!meshComp.Visible)
+                    return;
 
-            const auto* materialComp = world->GetComponent<MaterialComponent>(entity);
-            uint32_t materialId = materialComp ? materialComp->MaterialId : MaterialSystem::MissingMaterial;
+                const auto* materialComp = world->GetComponent<MaterialComponent>(e);
+                uint32_t materialId = materialComp ? materialComp->MaterialId : MaterialSystem::MissingMaterial;
 
-            BatchKey key{ .meshId=meshComp->MeshId, .materialId=materialId };
-            batches[key].push_back(entity);
+                entries[entryCount++] = BatchEntry{ meshComp.MeshId, materialId, e };
+            });
+        }
+        else if (world->GetEntityCount() > 0)
+        {
+            char warn[128];
+            snprintf(warn, sizeof(warn),
+                     "MeshRenderPass: frame arena exhausted, dropped up to %zu entities (no meshes drawn)",
+                     world->GetEntityCount());
+            SM_WARN(warn);
         }
 
-        // Render each batch with instancing
+        BatchRun* runs = (entryCount > 0) ? frameAllocator->AllocateArray<BatchRun>(entryCount) : nullptr;
+        if (entryCount > 0 && entries && !runs)
+            SM_WARN("MeshRenderPass: frame arena exhausted, batch runs not allocated (no meshes drawn)");
+        uint32_t runCount = (entries && runs) ? BuildBatchRuns(entries, entryCount, runs, entryCount) : 0;
+
+        // Render each batch (run) with instancing
         nvrhi::GraphicsState state;
         state.pipeline = m_Pipeline;
         state.framebuffer = frameBuffer;
         state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
 
-        for (const auto& [batchKey, entities] : batches)
+        for (uint32_t r = 0; r < runCount; ++r)
         {
-            if (entities.empty())
-                continue;
+            const BatchRun& run = runs[r];
+            const BatchEntry& head = entries[run.begin];
 
             // Query systems for GPU resources
-            auto meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(batchKey.meshId);
+            auto meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(head.meshId);
             if (!meshResources.valid)
             {
-                SM_WARN("MeshRenderPass: Invalid mesh ID %u", batchKey.meshId);
-               meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(MeshSystem::MissingMesh);
+                SM_WARN("MeshRenderPass: Invalid mesh ID %u", head.meshId);
+                meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(MeshSystem::MissingMesh);
             }
 
-            const uint32_t instanceCount = std::min(static_cast<uint32_t>(entities.size()), m_MaxInstances);
+            const uint32_t instanceCount = std::min(run.count, m_MaxInstances);
 
-            // Build instance data
-            std::vector<MeshInstanceCPU> instances;
-            instances.reserve(instanceCount);
-
-            for (size_t i = 0; i < instanceCount; ++i)
+            // Build instance data into an arena array. Mark the arena so this run's
+            // instances can be reclaimed after they're uploaded (writeBuffer copies
+            // immediately), keeping peak arena usage flat across many batches.
+            const auto instanceMark = frameAllocator->GetMarker();
+            auto* instances = frameAllocator->AllocateArray<MeshInstanceCPU>(instanceCount);
+            if (!instances)
             {
-                EntityId entity = entities[i];
+                char warn[128];
+                snprintf(warn, sizeof(warn),
+                         "MeshRenderPass: frame arena exhausted, dropped %u instances (mesh %u)",
+                         instanceCount, head.meshId);
+                SM_WARN(warn);
+                continue;
+            }
+            uint32_t instanceOut = 0;
+
+            for (uint32_t i = 0; i < instanceCount; ++i)
+            {
+                EntityId entity = entries[run.begin + i].entity;
                 const auto* transform = world->GetComponent<TransformComponent>(entity);
                 const auto* material = world->GetComponent<MaterialComponent>(entity);
 
@@ -454,15 +471,17 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                 inst.BaseColor = baseColor;
                 inst.Flags = flags;
 
-                instances.push_back(inst);
+                instances[instanceOut++] = inst;
             }
 
-            if (instances.empty())
+            if (instanceOut == 0)
+            {
+                frameAllocator->RewindTo(instanceMark);
                 continue;
+            }
 
             // Upload instance data
-            commandList->writeBuffer(m_InstanceBuffer, instances.data(), instances.size() * sizeof(MeshInstanceCPU));
-
+            commandList->writeBuffer(m_InstanceBuffer, instances, instanceOut * sizeof(MeshInstanceCPU));
 
             if (meshResources.subMeshes.size() > 0) {
 
@@ -472,7 +491,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                     auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(subMesh.MaterialIndex);
                     if (!materialResources.valid)
                     {
-                        SM_WARN("MeshRenderPass: Invalid material ID %u", batchKey.materialId);
+                        SM_WARN("MeshRenderPass: Invalid material ID %u", head.materialId);
                         materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
                     }
 
@@ -496,7 +515,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                     commandList->setGraphicsState(state);
 
                     args.vertexCount = subMesh.IndexCount;
-                    args.instanceCount = static_cast<uint32_t>(instances.size());
+                    args.instanceCount = instanceOut;
                     args.startIndexLocation = subMesh.IndexStart;
                     args.startVertexLocation = 0;
                     commandList->drawIndexed(args);
@@ -504,10 +523,10 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
 
             } else {
 
-                auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(batchKey.materialId);
+                auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(head.materialId);
                 if (!materialResources.valid)
                 {
-                    SM_WARN("MeshRenderPass: Invalid material ID %u", batchKey.materialId);
+                    SM_WARN("MeshRenderPass: Invalid material ID %u", head.materialId);
                     materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
                 }
 
@@ -532,11 +551,14 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
 
                 nvrhi::DrawArguments args{};
                 args.vertexCount = meshResources.indexCount;
-                args.instanceCount = static_cast<uint32_t>(instances.size());
+                args.instanceCount = instanceOut;
                 args.startIndexLocation = 0;
                 args.startVertexLocation = 0;
                 commandList->drawIndexed(args);
             }
+
+            // This run's instances have been uploaded + drawn; reclaim the arena space.
+            frameAllocator->RewindTo(instanceMark);
         }
     }
 

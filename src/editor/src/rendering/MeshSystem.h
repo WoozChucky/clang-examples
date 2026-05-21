@@ -3,6 +3,7 @@
 #include <nvrhi/nvrhi.h>
 #include <vector>
 #include <cstdint>
+#include <span>
 
 #include "ApplicationContext.h"
 
@@ -29,7 +30,7 @@ public:
     struct MeshResources {
         nvrhi::BufferHandle vertexBuffer;
         nvrhi::BufferHandle indexBuffer;
-        std::vector<SubMesh> subMeshes;
+        std::span<const SubMesh> subMeshes; // non-owning view into the MeshEntry's vector
         uint32_t vertexCount = 0;
         uint32_t indexCount = 0;
         bool valid = false;

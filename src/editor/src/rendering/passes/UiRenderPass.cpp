@@ -296,27 +296,41 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
     if (world) {
 
-        // 1) Gather unique font sizes used by text entities
-        std::vector<size_t> usedFontSizes;
-        for (EntityId entity : world->View<TransformComponent, TextComponent>()) {
-            const auto* text = world->GetComponent<TextComponent>(entity);
-            if (text) {
-                const size_t fontSize = text->FontSize;
-                bool found = false;
-                for (size_t fs : usedFontSizes) {
-                    if (fs == fontSize) {
-                        found = true;
-                        break;
+        // Collect text entities into an arena buffer (entity-only Each), reused below.
+        auto* textEnts = frameAllocator->AllocateArray<EntityId>(world->GetEntityCount());
+        uint32_t textCount = 0;
+        if (textEnts) {
+            world->Each<TransformComponent, TextComponent>([&](EntityId e){ textEnts[textCount++] = e; });
+        } else if (world->GetEntityCount() > 0) {
+            SM_WARN("UiRenderPass: frame arena exhausted, dropped all text entities");
+        }
+
+        // 1) Gather unique font sizes used by text entities (arena-backed dedup)
+        auto* usedFontSizes = frameAllocator->AllocateArray<size_t>(textCount);
+        uint32_t fontSizeCount = 0;
+        if (usedFontSizes) {
+            for (uint32_t ti = 0; ti < textCount; ++ti) {
+                const EntityId entity = textEnts[ti];
+                const auto* text = world->GetComponent<TextComponent>(entity);
+                if (text) {
+                    const size_t fontSize = text->FontSize;
+                    bool found = false;
+                    for (uint32_t k = 0; k < fontSizeCount; ++k) {
+                        if (usedFontSizes[k] == fontSize) {
+                            found = true;
+                            break;
+                        }
                     }
-                }
-                if (!found) {
-                    usedFontSizes.push_back(fontSize);
+                    if (!found) {
+                        usedFontSizes[fontSizeCount++] = fontSize;
+                    }
                 }
             }
         }
 
         // 2) For each unique font size, render all text using that atlas
-        for (size_t fontSize : usedFontSizes) {
+        for (uint32_t fsIdx = 0; fsIdx < fontSizeCount; ++fsIdx) {
+            const size_t fontSize = usedFontSizes[fsIdx];
             // Get or load atlas for this font size
             auto* atlas = m_FontManager.GetAtlas({FontManager::DEFAULT_FONT.Path, fontSize}, m_Device, commandList);
             if (!atlas || !atlas->texture) continue;
@@ -332,7 +346,8 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
             // Count glyphs for this font size
             uint32_t glyphCount = 0;
-            for (EntityId entity : world->View<TransformComponent, TextComponent>()) {
+            for (uint32_t ti = 0; ti < textCount; ++ti) {
+                const EntityId entity = textEnts[ti];
                 const auto* text = world->GetComponent<TextComponent>(entity);
                 if (text && text->FontSize == fontSize) {
                     glyphCount += static_cast<uint32_t>(text->Text.length());
@@ -344,10 +359,19 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
             // Allocate glyph instances for this font
             auto* glyphInstances = frameAllocator->AllocateArray<UIInstanceCPU>(glyphCount);
+            if (!glyphInstances) {
+                char warn[128];
+                snprintf(warn, sizeof(warn),
+                         "UiRenderPass: frame arena exhausted, dropped %u glyphs (font size %zu)",
+                         glyphCount, fontSize);
+                SM_WARN(warn);
+                continue; // arena exhausted: skip this font size
+            }
             uint32_t out = 0;
 
             // Generate instances for all text entities using this font size
-            for (EntityId entity : world->View<TransformComponent, TextComponent>()) {
+            for (uint32_t ti = 0; ti < textCount; ++ti) {
+                const EntityId entity = textEnts[ti];
                 auto* transform = world->GetComponent<TransformComponent>(entity);
                 auto* text = world->GetComponent<TextComponent>(entity);
 

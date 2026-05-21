@@ -9,6 +9,7 @@
 
 #include "lib.h"
 #include "Timing.h"
+#include "StagingBufferPool.h"
 
 #include <tracy/Tracy.hpp>
 
@@ -108,10 +109,10 @@ void RenderThread::RunLoop()
                         cmd.MeshRequest.SubMeshes, static_cast<uint32_t>(cmd.MeshRequest.SubMeshCount)
                     );
 
-                    // Free allocated memory from GameThread
-                    if (cmd.MeshRequest.Vertices) std::free(cmd.MeshRequest.Vertices);
-                    if (cmd.MeshRequest.Indices) std::free(cmd.MeshRequest.Indices);
-                    if (cmd.MeshRequest.SubMeshes) std::free(cmd.MeshRequest.SubMeshes);
+                    // Return staging buffers to the pool
+                    if (cmd.MeshRequest.Vertices) GetStagingPool().Return(cmd.MeshRequest.Vertices);
+                    if (cmd.MeshRequest.Indices) GetStagingPool().Return(cmd.MeshRequest.Indices);
+                    if (cmd.MeshRequest.SubMeshes) GetStagingPool().Return(cmd.MeshRequest.SubMeshes);
 
                     RendererResponse response{};
                     response.Type = RendererResponseType::MeshUpload;
@@ -137,8 +138,8 @@ void RenderThread::RunLoop()
                         cmd.MaterialRequest.Height
                     );
 
-                    // Free allocated memory from GameThread
-                    if (cmd.MaterialRequest.Texture) std::free(cmd.MaterialRequest.Texture);
+                    // Return staging buffer to the pool
+                    if (cmd.MaterialRequest.Texture) GetStagingPool().Return(cmd.MaterialRequest.Texture);
 
                     RendererResponse response{};
                     response.Type = RendererResponseType::MaterialUpload;
