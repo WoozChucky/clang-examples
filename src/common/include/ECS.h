@@ -515,6 +515,10 @@ public:
      * @note  Each<>() (empty component pack) visits every active entity.
      * @threading const; safe on snapshots. Mutation still goes through
      *            Modify/MutateArray (the refs here are read-only).
+     * @warning   In the components form, do NOT call MutateArray on a *queried*
+     *            component type inside the callback: the COW clone would leave the
+     *            passed const refs dangling. Mutate via the entity id + Modify, or
+     *            mutate only non-queried types.
      */
     template<typename... Components, typename F>
     void Each(F&& fn) const {
