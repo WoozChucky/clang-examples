@@ -189,7 +189,10 @@ MeshSystem::MeshResources MeshSystem::GetMeshResources(uint32_t meshId) const
     resources.indexBuffer = entry.indexBuffer;
     resources.vertexCount = entry.vertexCount;
     resources.indexCount = entry.indexCount;
-    resources.subMeshes = entry.subMeshes;
+    // Non-owning view into the entry's vector. Valid only while m_Meshes is not
+    // mutated; mesh adds are drained before render passes run, so the span is
+    // valid for the duration of a frame's Render calls.
+    resources.subMeshes = std::span<const SubMesh>(entry.subMeshes);
     resources.valid = true;
 
     return resources;
