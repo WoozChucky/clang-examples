@@ -349,7 +349,14 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
             // Allocate glyph instances for this font
             auto* glyphInstances = frameAllocator->AllocateArray<UIInstanceCPU>(glyphCount);
-            if (!glyphInstances) continue; // arena exhausted: skip this font size
+            if (!glyphInstances) {
+                char warn[128];
+                snprintf(warn, sizeof(warn),
+                         "UiRenderPass: frame arena exhausted, dropped %u glyphs (font size %zu)",
+                         glyphCount, fontSize);
+                SM_WARN(warn);
+                continue; // arena exhausted: skip this font size
+            }
             uint32_t out = 0;
 
             // Generate instances for all text entities using this font size
