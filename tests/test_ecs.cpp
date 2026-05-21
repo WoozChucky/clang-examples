@@ -900,6 +900,69 @@ static void TCF03_copyfrom_reuses_dense_capacity()
     EXPECT_EQ(dest.GetComponents().capacity(), capBefore); // capacity reused, not shrunk/realloc'd
 }
 
+static void TCOW01_pool_reuses_recycled_array()
+{
+    ECS w;
+    EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{{1.0f, 0, 0}, {}, {1,1,1}});
+
+    auto s1 = w.CreateSnapshot();                                   // master slot = A; s1 shares A
+    const void* pA = static_cast<const void*>(s1->GetArray<TransformComponent>());
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 2.0f; }); // clone -> master = B
+    const void* pB = static_cast<const void*>(w.GetArray<TransformComponent>());
+    EXPECT_NE(pA, pB);                                              // B is a fresh array
+    s1.reset();                                                    // A refcount 0 -> recycled
+
+    auto s2 = w.CreateSnapshot();                                  // master = B; s2 shares B; dirty cleared
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 3.0f; }); // clone -> Acquire pool -> reuse A
+    const void* pReused = static_cast<const void*>(w.GetArray<TransformComponent>());
+    EXPECT_EQ(pReused, pA);                                        // recycled A came back from the pool
+    EXPECT_NE(pReused, pB);
+    s2.reset();
+}
+
+static void TCOW02_pooled_clone_preserves_isolation_after_recycle()
+{
+    ECS w;
+    EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{{1.0f, 0, 0}, {}, {1,1,1}});
+
+    auto s1 = w.CreateSnapshot();
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 2.0f; }); // clone B
+    s1.reset();                                                    // recycle A
+
+    auto s2 = w.CreateSnapshot();                                  // s2 shares B (x == 2)
+    EXPECT_EQ(s2->GetComponent<TransformComponent>(e)->Position.x, 2.0f);
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 3.0f; }); // reuse A from pool, CopyFrom B
+
+    // the reuse-clone into recycled A must NOT corrupt the live snapshot B
+    EXPECT_EQ(s2->GetComponent<TransformComponent>(e)->Position.x, 2.0f);
+    EXPECT_EQ(w.GetComponent<TransformComponent>(e)->Position.x, 3.0f);
+    s2.reset();
+}
+
+static void TCOW03_array_pool_stats_deltas()
+{
+    ECS w;
+    EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{});
+    auto s1 = w.CreateSnapshot();                                  // s1 shares A1
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 1.0f; }); // clone A1 -> A2 (master)
+
+    const ComponentArrayPoolStats held = GetComponentArrayPoolStats();
+    s1.reset();                                                    // A1 recycled -> Free +1, InUse -1
+    const ComponentArrayPoolStats afterDrop = GetComponentArrayPoolStats();
+    EXPECT_EQ(afterDrop.Free, held.Free + 1);
+    EXPECT_EQ(afterDrop.InUse, held.InUse - 1);
+
+    auto s2 = w.CreateSnapshot();                                  // shares A2 (no array-pool op)
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 2.0f; }); // clone -> reuse A1
+    const ComponentArrayPoolStats reused = GetComponentArrayPoolStats();
+    EXPECT(reused.Reuses > held.Reuses);                           // a free-list reuse happened
+    EXPECT_EQ(reused.Free, afterDrop.Free - 1);                    // free-list consumed by the reuse
+    s2.reset();
+}
+
 int main()
 {
     T00_smoke();
@@ -953,6 +1016,9 @@ int main()
     TCF01_copyfrom_reproduces_source_over_stale_dest();
     TCF02_copyfrom_empty_src_clears_dest();
     TCF03_copyfrom_reuses_dense_capacity();
+    TCOW01_pool_reuses_recycled_array();
+    TCOW02_pooled_clone_preserves_isolation_after_recycle();
+    TCOW03_array_pool_stats_deltas();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

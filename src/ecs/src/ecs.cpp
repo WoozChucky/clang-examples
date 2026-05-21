@@ -1,6 +1,76 @@
 // ECS code home. All template instantiations + dllexport definitions live here.
 #include "ECS.h"
 #include <mutex>
+#include <atomic>
+
+namespace {
+
+// Aggregate counters across all per-type ComponentArray pools. Atomic so the panel
+// (RenderThread) can read while GameThread/RenderThread Acquire/Recycle. Free stays
+// equal to the summed free-list sizes (++ on Recycle, -- on reuse-Acquire).
+struct ArrayPoolCountersT {
+    std::atomic<size_t>   Free{0};
+    std::atomic<size_t>   InUse{0};
+    std::atomic<size_t>   Created{0};
+    std::atomic<uint64_t> Reuses{0};
+    void OnCreate()  noexcept { ++InUse; ++Created; }
+    void OnReuse()   noexcept { --Free;  ++InUse; ++Reuses; }
+    void OnRecycle() noexcept { ++Free;  --InUse; }
+};
+ArrayPoolCountersT& ArrayPoolCounters() { static ArrayPoolCountersT c; return c; }
+
+// Per-type free-list of recycled ComponentArray<T>. Mutex-guarded: Recycle fires from a
+// shared_ptr deleter on whatever thread drops the last ref (RenderThread when a snapshot
+// recycles, GameThread otherwise). Non-leaked Meyers singleton per T; safe because the
+// app joins both threads + resets LatestWorldSnapshot before static destruction, so no
+// Recycle races the dtor. No InUse==0 assert (shutdown ordering, matching the staging pool).
+template<typename T>
+class ComponentArrayPool {
+public:
+    ComponentArray<T>* Acquire() {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        if (!m_Free.empty()) {
+            ComponentArray<T>* a = m_Free.back();
+            m_Free.pop_back();
+            ArrayPoolCounters().OnReuse();
+            return a;
+        }
+        ArrayPoolCounters().OnCreate();
+        return new ComponentArray<T>();
+    }
+    void Recycle(ComponentArray<T>* a) noexcept {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        m_Free.push_back(a);
+        ArrayPoolCounters().OnRecycle();
+    }
+    ~ComponentArrayPool() { for (ComponentArray<T>* a : m_Free) delete a; }
+private:
+    std::mutex m_Mutex;
+    std::vector<ComponentArray<T>*> m_Free;
+};
+
+template<typename T>
+ComponentArrayPool<T>& GetArrayPool() { static ComponentArrayPool<T> pool; return pool; }
+
+// Acquire a recycled (or fresh) array, copy src into it reusing capacity, and wrap it in a
+// shared_ptr whose deleter returns it to the pool instead of freeing.
+template<typename T>
+std::shared_ptr<ComponentArray<T>> MakePooledClone(const ComponentArray<T>& src) {
+    ComponentArray<T>* arr = GetArrayPool<T>().Acquire();
+    arr->CopyFrom(src);
+    return std::shared_ptr<ComponentArray<T>>(arr, [](ComponentArray<T>* p) noexcept {
+        GetArrayPool<T>().Recycle(p);
+    });
+}
+
+} // namespace
+
+// Out-of-line so it can reach the file-local array pool. Instantiated for each registered
+// T by the explicit `template class ComponentArray<T>` block below.
+template<typename T>
+std::shared_ptr<IComponentArray> ComponentArray<T>::Clone() const {
+    return MakePooledClone(*this);
+}
 
 // Explicit class template instantiations — emits one full copy of
 // ComponentArray<T> (methods, vtable, RTTI) per registered T into ecs.dll.
@@ -20,8 +90,7 @@ ComponentArray<T>& ComponentStore::MutateArray() {
     }
     if (m_DirtyThisTick.insert(typeIndex).second) {
         // First mutation since last snapshot — clone.
-        slot = std::make_shared<ComponentArray<T>>(
-                   static_cast<const ComponentArray<T>&>(*slot));
+        slot = MakePooledClone<T>(static_cast<const ComponentArray<T>&>(*slot));
     }
     return static_cast<ComponentArray<T>&>(*slot);
 }
@@ -185,6 +254,16 @@ std::shared_ptr<const ECS> ECS::CreateSnapshot() {
 
 SnapshotPoolStats GetSnapshotPoolStats() {
     return GetSnapshotPool().Stats();
+}
+
+ComponentArrayPoolStats GetComponentArrayPoolStats() {
+    const auto& c = ArrayPoolCounters();
+    return ComponentArrayPoolStats{
+        c.Free.load(std::memory_order_relaxed),
+        c.InUse.load(std::memory_order_relaxed),
+        c.Created.load(std::memory_order_relaxed),
+        c.Reuses.load(std::memory_order_relaxed)
+    };
 }
 
 void ECS::Clear() {

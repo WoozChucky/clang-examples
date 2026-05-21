@@ -282,9 +282,7 @@ public:
         return m;
     }
 
-    [[nodiscard]] std::shared_ptr<IComponentArray> Clone() const override {
-        return std::make_shared<ComponentArray<T>>(*this);
-    }
+    [[nodiscard]] std::shared_ptr<IComponentArray> Clone() const override; // defined in ecs.cpp (uses the array pool)
 
     // Iterator access for systems
     std::vector<T>& GetComponents() { return m_Components; }
@@ -541,6 +539,16 @@ struct SnapshotPoolStats {
     uint64_t Reuses;   // # of Acquire calls served from the free-list
 };
 ECS_API SnapshotPoolStats GetSnapshotPoolStats();
+
+// Stats for the per-type ComponentArray recycle pool (COW Part 2), aggregated across
+// all component types. Rendered by the editor Memory panel.
+struct ComponentArrayPoolStats {
+    size_t   Free;     // arrays sitting on the free-lists (summed over types)
+    size_t   InUse;    // arrays handed out and not yet recycled
+    size_t   Created;  // total arrays ever allocated by the pools
+    uint64_t Reuses;   // # of Acquire calls served from a free-list
+};
+ECS_API ComponentArrayPoolStats GetComponentArrayPoolStats();
 
 // Aggregate ECS storage bytes (read-only diagnostics; excludes map/control-block overhead).
 struct EcsMemoryStats {
