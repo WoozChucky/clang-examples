@@ -6,6 +6,8 @@
 #include <memory/IAllocator.h>
 #include <memory/MemoryCategory.h>
 
+#include <ECS.h>
+
 void DrawMemoryPanel(bool* open)
 {
     if (open && !*open) return;
@@ -60,6 +62,14 @@ void DrawMemoryPanel(bool* open)
             });
             ImGui::EndTable();
         }
+    }
+
+    if (ImGui::CollapsingHeader("Snapshot Pool", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const SnapshotPoolStats s = GetSnapshotPoolStats();
+        ImGui::Text("Free:    %zu", s.Free);
+        ImGui::Text("In use:  %zu", s.InUse);
+        ImGui::Text("Created: %zu", s.Created);
+        ImGui::Text("Reuses:  %llu", (unsigned long long)s.Reuses);
     }
 
     ImGui::End();
