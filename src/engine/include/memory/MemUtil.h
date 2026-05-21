@@ -5,6 +5,8 @@
 
 namespace Engine {
 
+// Precondition: alignment must be a non-zero power of two (the bit-mask form
+// below silently misbehaves otherwise). All callers pass alignof(...).
 constexpr size_t AlignUp(size_t value, size_t alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
 }

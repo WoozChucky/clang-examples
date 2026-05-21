@@ -58,8 +58,12 @@ static void T02_category_tostring()
 // Minimal IAllocator for registry tests — does not actually allocate.
 class FakeAllocator final : public Engine::IAllocator {
 public:
-    FakeAllocator(Engine::MemCategory cat, const char* name, size_t used, size_t cap)
-        : m_Category(cat), m_Name(name) { m_Stats.Used = used; m_Stats.Peak = used; m_Stats.Capacity = cap; }
+    FakeAllocator(Engine::MemCategory cat, const char* name, size_t used, size_t cap,
+                  uint64_t allocCount = 0, uint64_t freeCount = 0)
+        : m_Category(cat), m_Name(name) {
+        m_Stats.Used = used; m_Stats.Peak = used; m_Stats.Capacity = cap;
+        m_Stats.AllocCount = allocCount; m_Stats.FreeCount = freeCount;
+    }
     void* Allocate(size_t, size_t) override { return nullptr; }
     void  Deallocate(void*, size_t) override {}
     const Engine::AllocatorStats& Stats() const override { return m_Stats; }
@@ -87,9 +91,9 @@ static void T11_registry_foreach_and_sum()
     auto& reg = Engine::Registry();
     // baseline captured before registering (registry is a process-wide singleton)
     Engine::AllocatorStats meshBase = reg.SumByCategory(Engine::MemCategory::Mesh);
-    FakeAllocator a(Engine::MemCategory::Mesh, "A", 100, 1000);
-    FakeAllocator b(Engine::MemCategory::Mesh, "B", 250, 2000);
-    FakeAllocator c(Engine::MemCategory::Game, "C", 999, 9999);
+    FakeAllocator a(Engine::MemCategory::Mesh, "A", 100, 1000, 5, 2);
+    FakeAllocator b(Engine::MemCategory::Mesh, "B", 250, 2000, 7, 3);
+    FakeAllocator c(Engine::MemCategory::Game, "C", 999, 9999, 11, 4);
     reg.Register(&a); reg.Register(&b); reg.Register(&c);
 
     int seen = 0;
@@ -99,6 +103,9 @@ static void T11_registry_foreach_and_sum()
     Engine::AllocatorStats mesh = reg.SumByCategory(Engine::MemCategory::Mesh);
     EXPECT_EQ(mesh.Used - meshBase.Used, (size_t)350);
     EXPECT_EQ(mesh.Capacity - meshBase.Capacity, (size_t)3000);
+    EXPECT_EQ(mesh.Peak - meshBase.Peak, (size_t)350);
+    EXPECT_EQ(mesh.AllocCount - meshBase.AllocCount, (uint64_t)12);
+    EXPECT_EQ(mesh.FreeCount - meshBase.FreeCount, (uint64_t)5);
 
     reg.Unregister(&a); reg.Unregister(&b); reg.Unregister(&c);
 }
