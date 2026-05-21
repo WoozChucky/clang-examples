@@ -112,7 +112,11 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     Engine::Registry().Unregister(&m_FrameAllocator);
 
     if (m_Overlay) {
-        m_Overlay->Shutdown();
+        // reset() destroys the overlay, whose destructor performs teardown (e.g.
+        // ~ImGuiRenderer calls Shutdown()). Do NOT also call Shutdown() explicitly:
+        // ImGuiRenderer::Shutdown() unconditionally DestroyContext()s, so a double
+        // call null-derefs GImGui. RAII via reset() = single teardown, matching the
+        // pre-refactor behavior.
         m_Overlay.reset();
     }
 
