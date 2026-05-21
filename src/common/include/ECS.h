@@ -204,9 +204,9 @@ public:
     }
 
     void Add(const EntityId entity, T component) {
-        const uint32_t existing = SparseGet(entity);
-        if (existing != kInvalid) {
-            m_Components[existing] = component;
+        const uint32_t existingIndex = SparseGet(entity);
+        if (existingIndex != kInvalid) {
+            m_Components[existingIndex] = component;
             return;
         }
         const uint32_t newIndex = static_cast<uint32_t>(m_Components.size());
@@ -260,6 +260,10 @@ public:
     }
 
 private:
+    // Paged sparse set: EntityId -> dense index. A touched page is a fixed 4 KB
+    // (1024 * uint32_t); absent pages stay nullptr. Entity ids are dense + recycled
+    // (EntityStore), so page count stays low (~maxLiveId/kPageSize). Clone copies
+    // only the non-null pages (memcpy each) — the cheap-COW win over the old hashmap.
     static constexpr uint32_t kInvalid  = UINT32_MAX;
     static constexpr uint32_t kPageSize = 1024;
     using SparsePage = std::array<uint32_t, kPageSize>;
