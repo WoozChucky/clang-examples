@@ -301,6 +301,8 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
         uint32_t textCount = 0;
         if (textEnts) {
             world->Each<TransformComponent, TextComponent>([&](EntityId e){ textEnts[textCount++] = e; });
+        } else if (world->GetEntityCount() > 0) {
+            SM_WARN("UiRenderPass: frame arena exhausted, dropped all text entities");
         }
 
         // 1) Gather unique font sizes used by text entities (arena-backed dedup)
