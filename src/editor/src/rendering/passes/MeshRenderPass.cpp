@@ -329,30 +329,28 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         if (!pointLights)
             SM_WARN("MeshRenderPass: frame arena exhausted, point-light buffer not allocated");
 
-        for (EntityId entity : world->View<TransformComponent, LightningComponent>()) {
-            const auto* transform = world->GetComponent<TransformComponent>(entity);
-            const auto* lightning = world->GetComponent<LightningComponent>(entity);
-            if (!transform || !lightning) continue;
-
-            if (lightning->Type == LightningType::Directional)
+        world->Each<TransformComponent, LightningComponent>(
+            [&](EntityId, const TransformComponent& transform, const LightningComponent& lightning)
+        {
+            if (lightning.Type == LightningType::Directional)
             {
-                lightningDirection = lightning->Direction;
-                lightningColor = lightning->Color;
+                lightningDirection = lightning.Direction;
+                lightningColor = lightning.Color;
                 // keep scanning for points in case; do not break
             }
-            else if (lightning->Type == LightningType::Point)
+            else if (lightning.Type == LightningType::Point)
             {
                 if (pointLights && pointLightCount < m_MaxPointLights)
                 {
                     PointLightCPU pl{};
-                    pl.Position = glm::vec4(transform->Position, 1.0f);
-                    pl.Color = lightning->Color;
-                    pl.Intensity = lightning->Intensity;
-                    pl.Range = lightning->Range;
+                    pl.Position = glm::vec4(transform.Position, 1.0f);
+                    pl.Color = lightning.Color;
+                    pl.Intensity = lightning.Intensity;
+                    pl.Range = lightning.Range;
                     pointLights[pointLightCount++] = pl;
                 }
             }
-        }
+        });
 
         // Update per-frame CB
         PerFrameCB perFrame{};
@@ -376,29 +374,28 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
 
         // Group entities by (MeshId, MaterialId) into a flat arena array, then
         // sort into contiguous runs (one run == one draw batch). No node-based map.
-        auto meshEnts = world->View<TransformComponent, MeshComponent>();
-        auto* entries = frameAllocator->AllocateArray<BatchEntry>(meshEnts.size());
+        auto* entries = frameAllocator->AllocateArray<BatchEntry>(world->GetEntityCount());
         uint32_t entryCount = 0;
         if (entries)
         {
-            for (EntityId entity : meshEnts)
+            world->Each<TransformComponent, MeshComponent>(
+                [&](EntityId e, const TransformComponent&, const MeshComponent& meshComp)
             {
-                const auto* meshComp = world->GetComponent<MeshComponent>(entity);
-                if (!meshComp || !meshComp->Visible)
-                    continue;
+                if (!meshComp.Visible)
+                    return;
 
-                const auto* materialComp = world->GetComponent<MaterialComponent>(entity);
+                const auto* materialComp = world->GetComponent<MaterialComponent>(e);
                 uint32_t materialId = materialComp ? materialComp->MaterialId : MaterialSystem::MissingMaterial;
 
-                entries[entryCount++] = BatchEntry{ meshComp->MeshId, materialId, entity };
-            }
+                entries[entryCount++] = BatchEntry{ meshComp.MeshId, materialId, e };
+            });
         }
-        else if (meshEnts.size() > 0)
+        else if (world->GetEntityCount() > 0)
         {
             char warn[128];
             snprintf(warn, sizeof(warn),
-                     "MeshRenderPass: frame arena exhausted, dropped %zu mesh entities (no meshes drawn)",
-                     meshEnts.size());
+                     "MeshRenderPass: frame arena exhausted, dropped up to %zu entities (no meshes drawn)",
+                     world->GetEntityCount());
             SM_WARN(warn);
         }
 
