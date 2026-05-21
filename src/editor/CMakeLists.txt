@@ -20,7 +20,8 @@ add_executable(editor
     src/rendering/imgui/imgui_nvrhi.cpp
     src/rendering/imgui/registered_font.cpp
     src/rendering/imgui/MeshPreviewRenderer.cpp
-        
+    src/rendering/imgui/MemoryPanel.cpp
+
     # Shader Compilation
     src/rendering/shader/ShaderCompiler.cpp
         

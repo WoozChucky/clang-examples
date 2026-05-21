@@ -19,6 +19,7 @@
 #include "MeshLoader.h"
 #include "MaterialLoader.h"
 #include "MeshPreviewRenderer.h"
+#include "MemoryPanel.h"
 
 #include "ApplicationContext.h"
 #include "registered_font.h"
@@ -476,6 +477,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         // Dockspace covering the full work area (no banner offset in Phase B).
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+
+        static bool s_ShowMemoryPanel = true;
+        DrawMemoryPanel(&s_ShowMemoryPanel);
 
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
