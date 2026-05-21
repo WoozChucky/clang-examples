@@ -619,6 +619,100 @@ static void TE06_each_components_form_multi_entity_aliases_storage()
     EXPECT(aliases);
 }
 
+static void TS01_componentarray_cross_page_ids()
+{
+    // ids 5 and 5000 will land in different pages once paged; behavior is
+    // page-agnostic on the current impl too.
+    ComponentArray<TransformComponent> arr;
+    arr.Add(5,    TransformComponent{{5.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(5000, TransformComponent{{50.0f, 0, 0}, {}, {1, 1, 1}});
+
+    EXPECT(arr.Has(5));
+    EXPECT(arr.Has(5000));
+    EXPECT(!arr.Has(6));
+    EXPECT(!arr.Has(0));
+    EXPECT_EQ(arr.Get(5)->Position.x, 5.0f);
+    EXPECT_EQ(arr.Get(5000)->Position.x, 50.0f);
+    EXPECT_EQ(arr.Size(), (size_t)2);
+}
+
+static void TS02_componentarray_high_id_only()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(5000, TransformComponent{});
+    EXPECT(arr.Has(5000));
+    EXPECT(!arr.Has(0));
+    EXPECT(!arr.Has(5));
+    EXPECT(!arr.Has(4999));
+    EXPECT(arr.Get(5) == nullptr);
+    EXPECT(arr.Get(5000) != nullptr);
+    EXPECT_EQ(arr.Size(), (size_t)1);
+}
+
+static void TS03_componentarray_swap_and_pop_preserves_others()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(10, TransformComponent{{10.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(20, TransformComponent{{20.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(30, TransformComponent{{30.0f, 0, 0}, {}, {1, 1, 1}});
+
+    arr.Remove(20); // middle removal -> last (30) swaps into 20's slot
+
+    EXPECT(!arr.Has(20));
+    EXPECT(arr.Has(10));
+    EXPECT(arr.Has(30));
+    EXPECT_EQ(arr.Get(10)->Position.x, 10.0f);
+    EXPECT_EQ(arr.Get(30)->Position.x, 30.0f);
+    EXPECT_EQ(arr.Size(), (size_t)2);
+}
+
+static void TS04_componentarray_remove_then_readd_same_id()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(7, TransformComponent{{7.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Remove(7);
+    EXPECT(!arr.Has(7));
+    EXPECT(arr.Get(7) == nullptr);
+
+    arr.Add(7, TransformComponent{{77.0f, 0, 0}, {}, {1, 1, 1}});
+    EXPECT(arr.Has(7));
+    EXPECT_EQ(arr.Get(7)->Position.x, 77.0f);
+    EXPECT_EQ(arr.Size(), (size_t)1);
+}
+
+static void TS05_componentarray_update_existing()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(3, TransformComponent{{1.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(3, TransformComponent{{2.0f, 0, 0}, {}, {1, 1, 1}}); // same id -> update
+    EXPECT_EQ(arr.Size(), (size_t)1);
+    EXPECT_EQ(arr.Get(3)->Position.x, 2.0f);
+}
+
+static void TS06_componentarray_clone_independent_after_swap_and_pop()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(1, TransformComponent{{1.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(2, TransformComponent{{2.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(3, TransformComponent{{3.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Remove(2); // exercise swap-and-pop before cloning
+
+    std::shared_ptr<IComponentArray> clonedBase = arr.Clone();
+    auto* cloned = static_cast<ComponentArray<TransformComponent>*>(clonedBase.get());
+
+    EXPECT_EQ(cloned->Size(), arr.Size());
+    EXPECT(cloned->Has(1));
+    EXPECT(cloned->Has(3));
+    EXPECT(!cloned->Has(2));
+    EXPECT_EQ(cloned->Get(3)->Position.x, 3.0f);
+
+    arr.Get(1)->Position.x = 999.0f;
+    arr.Remove(3);
+    EXPECT_EQ(cloned->Get(1)->Position.x, 1.0f);
+    EXPECT(cloned->Has(3));
+    EXPECT_EQ(cloned->Get(3)->Position.x, 3.0f);
+}
+
 int main()
 {
     T00_smoke();
@@ -656,6 +750,12 @@ int main()
     TE04_each_single_component();
     TE05_each_does_not_change_entity_count();
     TE06_each_components_form_multi_entity_aliases_storage();
+    TS01_componentarray_cross_page_ids();
+    TS02_componentarray_high_id_only();
+    TS03_componentarray_swap_and_pop_preserves_others();
+    TS04_componentarray_remove_then_readd_same_id();
+    TS05_componentarray_update_existing();
+    TS06_componentarray_clone_independent_after_swap_and_pop();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);
