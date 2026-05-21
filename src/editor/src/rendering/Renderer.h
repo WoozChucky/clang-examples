@@ -9,7 +9,7 @@
 #include "IRenderPass.h"
 
 #include "FrameAllocator.h"
-#include "imgui/ImGuiRenderer.h"
+#include "IOverlay.h"
 
 // Systems for managing GPU resources
 #include "MeshSystem.h"
@@ -98,6 +98,9 @@ public:
     void AddRenderPass(std::unique_ptr<IRenderPass> pass);
     void RemoveRenderPass(IRenderPass* pass);
 
+    // Inject an optional overlay BEFORE Init(); the renderer Inits/Renders/tears it down.
+    void SetOverlay(std::unique_ptr<IOverlay> overlay) { m_Overlay = std::move(overlay); }
+
     // Resource upload APIs
     MeshHandle AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
                        const uint32_t* indices, uint32_t indexCount, SubMesh* subMeshes = nullptr, uint32_t subMeshCount = 0);
@@ -117,7 +120,7 @@ private:
 
     constexpr static uint32_t   SHUTDOWN_TIMEOUT = 5000;
 
-    std::unique_ptr<ImGuiRenderer> m_ImGuiRenderer;
+    std::unique_ptr<IOverlay> m_Overlay;  // optional; editor injects ImGui, runtime injects none
 
     nvrhi::DeviceHandle         m_Device = nullptr;
     nvrhi::CommandListHandle    m_CommandList = nullptr;

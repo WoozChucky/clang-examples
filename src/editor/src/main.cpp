@@ -16,6 +16,7 @@
 #include "alloc.h"
 #include "lib.h"
 #include "Application.h"
+#include "rendering/imgui/ImGuiOverlay.h"
 #include "utilities/SettingsManager.h"
 
 void platform_debug_break(const char* expr, const char* file, int line, const char* message)
@@ -104,7 +105,7 @@ int main(int argc, char** argv) {
     }
 
     Application app;
-    if (!app.Init(cli.override_)) {
+    if (!app.Init(cli.override_, []{ return std::make_unique<ImGuiOverlay>(); })) {
         SM_ERROR("Application initialization failed!");
         MessageBoxA(nullptr,
                     "Renderer initialization failed.\n\n"

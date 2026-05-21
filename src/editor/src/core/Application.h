@@ -12,7 +12,7 @@ public:
 
     // backendOverride: if set, replaces the persisted Settings.Backend
     // for this run only (no disk write).
-    bool Init(std::optional<RendererAPI> backendOverride = std::nullopt);
+    bool Init(std::optional<RendererAPI> backendOverride = std::nullopt, OverlayFactory overlayFactory = {});
 
     void Run();
 
