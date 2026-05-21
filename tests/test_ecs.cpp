@@ -537,6 +537,67 @@ static void TS05_system_mutates_ecs()
     if (t) EXPECT_EQ(t->Position.x, 2.0f);
 }
 
+static void TE01_each_visits_matching_entities()
+{
+    ECS w;
+    EntityId a = w.CreateEntity(); w.AddComponent(a, TransformComponent{});
+    EntityId b = w.CreateEntity(); w.AddComponent(b, TransformComponent{}); w.AddComponent(b, MeshComponent{});
+    EntityId c = w.CreateEntity(); w.AddComponent(c, MeshComponent{});
+    (void)a; (void)c;
+
+    int count = 0; EntityId seen = INVALID_ENTITY;
+    w.Each<TransformComponent, MeshComponent>([&](EntityId e){ ++count; seen = e; });
+    EXPECT_EQ(count, 1);
+    EXPECT_EQ(seen, b);
+}
+
+static void TE02_each_components_form()
+{
+    ECS w;
+    EntityId a = w.CreateEntity();
+    w.AddComponent(a, TransformComponent{{1.0f, 2.0f, 3.0f}, {}, {1, 1, 1}});
+    w.AddComponent(a, MeshComponent{ .MeshId = 42, .Visible = true });
+
+    int count = 0; uint32_t meshId = 0; float px = 0.0f;
+    w.Each<TransformComponent, MeshComponent>(
+        [&](EntityId, const TransformComponent& t, const MeshComponent& m){
+            ++count; meshId = m.MeshId; px = t.Position.x;
+        });
+    EXPECT_EQ(count, 1);
+    EXPECT_EQ(meshId, 42u);
+    EXPECT_EQ(px, 1.0f);
+}
+
+static void TE03_each_zero_matches()
+{
+    ECS w;
+    EntityId a = w.CreateEntity(); w.AddComponent(a, TransformComponent{});
+    (void)a;
+    int count = 0;
+    w.Each<MeshComponent>([&](EntityId){ ++count; });
+    EXPECT_EQ(count, 0);
+}
+
+static void TE04_each_single_component()
+{
+    ECS w;
+    w.AddComponent(w.CreateEntity(), TransformComponent{});
+    w.AddComponent(w.CreateEntity(), TransformComponent{});
+    w.CreateEntity(); // no components
+    int count = 0;
+    w.Each<TransformComponent>([&](EntityId){ ++count; });
+    EXPECT_EQ(count, 2);
+}
+
+static void TE05_each_does_not_change_entity_count()
+{
+    ECS w;
+    w.AddComponent(w.CreateEntity(), TransformComponent{});
+    size_t before = w.GetEntityCount();
+    w.Each<TransformComponent>([&](EntityId){});
+    EXPECT_EQ(w.GetEntityCount(), before);
+}
+
 int main()
 {
     T00_smoke();
@@ -568,6 +629,11 @@ int main()
     TSG03_singleton_entity_hidden();
     TSG04_snapshot_preserves_singletons();
     TSG05_clear_preserves_singletons_removes_gameplay();
+    TE01_each_visits_matching_entities();
+    TE02_each_components_form();
+    TE03_each_zero_matches();
+    TE04_each_single_component();
+    TE05_each_does_not_change_entity_count();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

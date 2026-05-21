@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <vector>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
@@ -504,6 +505,27 @@ public:
     template<typename T> [[nodiscard]] const T* GetSingleton() const { return GetComponent<T>(m_SingletonEntity); }
     template<typename T, typename F> void ModifySingleton(F&& fn) { Modify<T>(m_SingletonEntity, std::forward<F>(fn)); }
     [[nodiscard]] EntityId SingletonEntity() const { return m_SingletonEntity; }
+
+    /**
+     * @brief Zero-allocation iteration over entities that have all Components.
+     *        If the callback accepts (EntityId, const Components&...), each
+     *        queried component is passed by const reference (guaranteed non-null
+     *        on a full match); otherwise the callback is invoked with (EntityId).
+     * @threading const; safe on snapshots. Mutation still goes through
+     *            Modify/MutateArray (the refs here are read-only).
+     */
+    template<typename... Components, typename F>
+    void Each(F&& fn) const {
+        for (EntityId entity : m_EntityStore.GetActiveEntities()) {
+            if constexpr (std::is_invocable_v<F, EntityId, const Components&...>) {
+                const std::tuple ptrs{ GetComponent<Components>(entity)... };
+                const bool all = std::apply([](auto*... p){ return (p && ...); }, ptrs);
+                if (all) std::apply([&](auto*... p){ fn(entity, *p...); }, ptrs);
+            } else {
+                if ((HasComponent<Components>(entity) && ...)) fn(entity);
+            }
+        }
+    }
 
     // Iterate entities with specific components (simple view)
     template<typename... Components>
