@@ -8,6 +8,8 @@
 
 #include <ECS.h>
 
+#include "StagingBufferPool.h"
+
 #include <string>
 #include <cstdio>
 
@@ -88,6 +90,16 @@ void DrawMemoryPanel(bool* open, const ECS* world)
         ImGui::Text("In use:  %zu", s.InUse);
         ImGui::Text("Created: %zu", s.Created);
         ImGui::Text("Reuses:  %llu", (unsigned long long)s.Reuses);
+    }
+
+    if (ImGui::CollapsingHeader("Staging Pool", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const StagingPoolStats s = GetStagingPoolStats();
+        ImGui::Text("Free:       %zu", s.Free);
+        ImGui::Text("In use:     %zu", s.InUse);
+        ImGui::Text("Created:    %zu", s.Created);
+        ImGui::Text("Reuses:     %llu", (unsigned long long)s.Reuses);
+        ImGui::Text("Reserved:   %s", FormatBytes(s.ReservedBytes).c_str());
+        ImGui::Text("Free bytes: %s", FormatBytes(s.FreeBytes).c_str());
     }
 
     if (world && ImGui::CollapsingHeader("ECS Memory", ImGuiTreeNodeFlags_DefaultOpen)) {
