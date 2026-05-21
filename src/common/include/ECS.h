@@ -529,18 +529,6 @@ public:
         }
     }
 
-    // Iterate entities with specific components (simple view)
-    template<typename... Components>
-    [[nodiscard]] std::vector<EntityId> View() const {
-        std::vector<EntityId> result;
-        for (EntityId entity : m_EntityStore.GetActiveEntities()) {
-            if (HasComponents<Components...>(entity)) {
-                result.push_back(entity);
-            }
-        }
-        return result;
-    }
-
     /**
      * @brief Single-entity in-place edit. Lambda receives a `T&` referring
      *        to the cloned-for-this-tick array slot.
@@ -661,12 +649,11 @@ if (world.HasComponents<TransformComponent, MeshComponent>(player)) {
     // Entity has both components
 }
 
-// Iterate all entities with specific components (simple system, read-only)
-for (EntityId entity : world.View<TransformComponent, MeshComponent>()) {
-    const auto* transform = world.GetComponent<TransformComponent>(entity);
-    const auto* mesh = world.GetComponent<MeshComponent>(entity);
-    // Render mesh at transform position (read only)
-}
+// Iterate all entities with specific components (read-only)
+world.Each<TransformComponent, MeshComponent>(
+    [](EntityId entity, const TransformComponent& transform, const MeshComponent& mesh) {
+        // Render mesh at transform position (read only)
+    });
 
 // Bulk-mutate all transforms in a system (COW-safe, one clone per tick)
 {
