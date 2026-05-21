@@ -629,8 +629,10 @@ public:
     [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot();
 
     /**
-     * @brief Resets a recycled snapshot for reuse by the pool. Releases this
-     *        snapshot's component-array refs but keeps the map's bucket capacity.
+     * @brief Resets a recycled snapshot for reuse by the pool: drops this
+     *        snapshot's component-array refs (so uniquely-owned arrays free now).
+     *        The reuse win is the recycled ECS shell + EntityStore vector capacity;
+     *        the array map is reassigned wholesale by CreateSnapshot on reacquire.
      * @threading Runs from the pool's recycling deleter on WHATEVER thread drops
      *            the last ref. Must stay assert-free: only Cleanup() (no
      *            AssertOwnerThread). Do NOT call ClearDirty() here.

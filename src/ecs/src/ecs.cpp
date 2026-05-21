@@ -134,7 +134,7 @@ public:
         ++m_InUse;
         return e;
     }
-    void Recycle(ECS* e) {
+    void Recycle(ECS* e) noexcept {   // runs from a shared_ptr deleter (noexcept context)
         e->ResetForRecycle();
         std::lock_guard<std::mutex> lock(m_Mutex);
         m_Free.push_back(e);
@@ -144,7 +144,13 @@ public:
         std::lock_guard<std::mutex> lock(m_Mutex);
         return SnapshotPoolStats{ m_Free.size(), m_InUse, m_Created, m_Reuses };
     }
-    ~SnapshotPool() { for (ECS* e : m_Free) delete e; }
+    ~SnapshotPool() {
+        // m_InUse must be 0 at process exit: the app joins both threads and resets
+        // LatestWorldSnapshot before static destruction, so every snapshot has been
+        // recycled. A non-zero count here means a snapshot outlived teardown.
+        assert(m_InUse == 0 && "SnapshotPool destroyed with live snapshots");
+        for (ECS* e : m_Free) delete e;
+    }
 private:
     mutable std::mutex m_Mutex;
     std::vector<ECS*>  m_Free;
@@ -169,7 +175,10 @@ std::shared_ptr<const ECS> ECS::CreateSnapshot() {
     snap->m_SingletonEntity = m_SingletonEntity;
     snap->m_ComponentStore.CopyArraysFrom(m_ComponentStore);
     m_ComponentStore.ClearDirty();
-    return std::shared_ptr<const ECS>(snap, [](const ECS* p) {
+    // The custom deleter recycles instead of freeing, so this can't use make_shared
+    // (which would tie the object's lifetime to the control block + free it). The
+    // per-tick control-block alloc here is intentional; do NOT "optimize" to make_shared.
+    return std::shared_ptr<const ECS>(snap, [](const ECS* p) noexcept {
         GetSnapshotPool().Recycle(const_cast<ECS*>(p));
     });
 }
