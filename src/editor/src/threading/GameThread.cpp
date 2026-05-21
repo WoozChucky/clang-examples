@@ -1,4 +1,5 @@
 #include "GameThread.h"
+#include "StagingBufferPool.h"
 
 #include <windows.h>
 #include <cstddef>
@@ -219,6 +220,16 @@ void GameThread::RunLoop() {
                     }
                 }
 
+                auto requeueAndStop = [this](ModelLoadResult& cur,
+                                             std::queue<ModelLoadResult>& remaining) {
+                    std::scoped_lock lg(m_JobMutex);
+                    m_CompletedJobs.push(std::move(cur));
+                    while (!remaining.empty()) {
+                        m_CompletedJobs.push(std::move(remaining.front()));
+                        remaining.pop();
+                    }
+                };
+
                 while (!local.empty())
                 {
                     ModelLoadResult res = std::move(local.front());
@@ -230,48 +241,51 @@ void GameThread::RunLoop() {
                         continue;
                     }
 
-                    // Send mesh upload command
-                    RendererCommand meshCmd{};
-                    meshCmd.Type = RendererCommandType::RequestMesh;
-                    meshCmd.TicketId = res.ticketId; // Use entity ID as ticket
-                    meshCmd.MeshRequest.VertexCount = res.vertices.size();
-                    meshCmd.MeshRequest.IndexCount = res.indices.size();
-                    meshCmd.MeshRequest.SubMeshCount = res.subMeshes.size() > 1 ? res.subMeshes.size() : 0;
-                    meshCmd.MeshRequest.Vertices = nullptr;
-                    meshCmd.MeshRequest.Indices = nullptr;
-                    meshCmd.MeshRequest.SubMeshes = nullptr;
+                    if (!res.MeshUploaded)
+                    {
+                        // Send mesh upload command
+                        RendererCommand meshCmd{};
+                        meshCmd.Type = RendererCommandType::RequestMesh;
+                        meshCmd.TicketId = res.ticketId; // Use entity ID as ticket
+                        meshCmd.MeshRequest.VertexCount = res.vertices.size();
+                        meshCmd.MeshRequest.IndexCount = res.indices.size();
+                        meshCmd.MeshRequest.SubMeshCount = res.subMeshes.size() > 1 ? res.subMeshes.size() : 0;
+                        meshCmd.MeshRequest.Vertices = nullptr;
+                        meshCmd.MeshRequest.Indices = nullptr;
+                        meshCmd.MeshRequest.SubMeshes = nullptr;
 
-                    if (meshCmd.MeshRequest.VertexCount > 0)
-                    {
-                        meshCmd.MeshRequest.Vertices = static_cast<MeshVertex*>(std::malloc(meshCmd.MeshRequest.VertexCount * sizeof(MeshVertex)));
-                        std::memcpy(meshCmd.MeshRequest.Vertices, res.vertices.data(), meshCmd.MeshRequest.VertexCount * sizeof(MeshVertex));
-                    }
-                    if (meshCmd.MeshRequest.IndexCount > 0)
-                    {
-                        meshCmd.MeshRequest.Indices = static_cast<uint32_t*>(std::malloc(meshCmd.MeshRequest.IndexCount * sizeof(uint32_t)));
-                        std::memcpy(meshCmd.MeshRequest.Indices, res.indices.data(), meshCmd.MeshRequest.IndexCount * sizeof(uint32_t));
-                    }
-                    if (meshCmd.MeshRequest.SubMeshCount > 0)
-                    {
-                        meshCmd.MeshRequest.SubMeshes = static_cast<SubMesh*>(std::malloc(meshCmd.MeshRequest.SubMeshCount * sizeof(SubMesh)));
-                        std::memcpy(meshCmd.MeshRequest.SubMeshes, res.subMeshes.data(), meshCmd.MeshRequest.SubMeshCount * sizeof(SubMesh));
-                    }
+                        if (meshCmd.MeshRequest.VertexCount > 0)
+                        {
+                            meshCmd.MeshRequest.Vertices = static_cast<MeshVertex*>(GetStagingPool().Acquire(meshCmd.MeshRequest.VertexCount * sizeof(MeshVertex)));
+                            std::memcpy(meshCmd.MeshRequest.Vertices, res.vertices.data(), meshCmd.MeshRequest.VertexCount * sizeof(MeshVertex));
+                        }
+                        if (meshCmd.MeshRequest.IndexCount > 0)
+                        {
+                            meshCmd.MeshRequest.Indices = static_cast<uint32_t*>(GetStagingPool().Acquire(meshCmd.MeshRequest.IndexCount * sizeof(uint32_t)));
+                            std::memcpy(meshCmd.MeshRequest.Indices, res.indices.data(), meshCmd.MeshRequest.IndexCount * sizeof(uint32_t));
+                        }
+                        if (meshCmd.MeshRequest.SubMeshCount > 0)
+                        {
+                            meshCmd.MeshRequest.SubMeshes = static_cast<SubMesh*>(GetStagingPool().Acquire(meshCmd.MeshRequest.SubMeshCount * sizeof(SubMesh)));
+                            std::memcpy(meshCmd.MeshRequest.SubMeshes, res.subMeshes.data(), meshCmd.MeshRequest.SubMeshCount * sizeof(SubMesh));
+                        }
 
-                    if (!m_AppContext->GRCommandRing.Push(meshCmd))
-                    {
-                        SM_WARN("GRCommandRing full, retrying mesh upload next frame (ticket %llu)", (unsigned long long)res.ticketId);
-                        if (meshCmd.MeshRequest.Vertices) std::free(meshCmd.MeshRequest.Vertices);
-                        if (meshCmd.MeshRequest.Indices) std::free(meshCmd.MeshRequest.Indices);
-                        if (meshCmd.MeshRequest.SubMeshes) std::free(meshCmd.MeshRequest.SubMeshes);
-                        std::scoped_lock lg(m_JobMutex);
-                        m_CompletedJobs.push(std::move(res));
-                        break;
+                        if (!m_AppContext->GRCommandRing.Push(meshCmd))
+                        {
+                            SM_WARN("GRCommandRing full, retrying mesh upload next frame (ticket %llu)", (unsigned long long)res.ticketId);
+                            if (meshCmd.MeshRequest.Vertices) GetStagingPool().Return(meshCmd.MeshRequest.Vertices);
+                            if (meshCmd.MeshRequest.Indices) GetStagingPool().Return(meshCmd.MeshRequest.Indices);
+                            if (meshCmd.MeshRequest.SubMeshes) GetStagingPool().Return(meshCmd.MeshRequest.SubMeshes);
+                            requeueAndStop(res, local);
+                            break;
+                        }
+                        res.MeshUploaded = true; // mesh is on the ring; a retry must not re-upload it
                     }
 
                     if (!res.Texture)
                         continue; // No texture to upload
 
-                    // Send material upload command (with default white for now, no texture loading yet)
+                    // Send material upload command
                     RendererCommand materialCmd{};
                     materialCmd.Type = RendererCommandType::RequestMaterial;
                     materialCmd.TicketId = res.ticketId; // Same ticket ID to associate with entity
@@ -282,8 +296,9 @@ void GameThread::RunLoop() {
                     if (!m_AppContext->GRCommandRing.Push(materialCmd))
                     {
                         SM_WARN("GRCommandRing full, retrying material upload next frame (ticket %llu)", (unsigned long long)res.ticketId);
-                        // Material command failed, but mesh command succeeded - this is a problem
-                        // For now, continue and hope it succeeds next frame
+                        // Keep res.Texture (the only copy) for the retry; do NOT Return it here.
+                        requeueAndStop(res, local);
+                        break;
                     }
                 }
             }
@@ -634,10 +649,11 @@ void GameThread::WorkerThreadFunc()
                         } else {
                             result.Width = width;
                             result.Height = height;
-                            result.Texture = nullptr;
+                            if (result.Texture) { GetStagingPool().Return(result.Texture); result.Texture = nullptr; }
                             if (!pixels.empty()) {
-                                result.Texture = static_cast<uint32_t*>(std::malloc(static_cast<unsigned long long>(width * height) * sizeof(uint32_t)));
-                                std::memcpy(result.Texture, pixels.data(), static_cast<unsigned long long>(width * height) * sizeof(uint32_t));
+                                const size_t texBytes = static_cast<size_t>(width) * height * sizeof(uint32_t);
+                                result.Texture = static_cast<uint32_t*>(GetStagingPool().Acquire(texBytes));
+                                std::memcpy(result.Texture, pixels.data(), texBytes);
                             }
                         }
                     }

@@ -50,6 +50,7 @@ private:
         uint32_t Width{0};
         uint32_t Height{0};
         uint32_t* Texture{nullptr}; // optional RGBA8 pixels (w*h entries)
+        bool MeshUploaded{false};   // set once the mesh command is on the ring; gates retry re-upload
     };
 
     void DrainInputToSingleton(GameState& state);
