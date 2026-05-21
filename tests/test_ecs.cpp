@@ -598,6 +598,27 @@ static void TE05_each_does_not_change_entity_count()
     EXPECT_EQ(w.GetEntityCount(), before);
 }
 
+static void TE06_each_components_form_multi_entity_aliases_storage()
+{
+    ECS w;
+    EntityId a = w.CreateEntity(); w.AddComponent(a, TransformComponent{}); w.AddComponent(a, MeshComponent{ .MeshId = 10, .Visible = true });
+    EntityId b = w.CreateEntity(); w.AddComponent(b, TransformComponent{}); // Transform only -> must be skipped
+    EntityId c = w.CreateEntity(); w.AddComponent(c, TransformComponent{}); w.AddComponent(c, MeshComponent{ .MeshId = 20, .Visible = true });
+    (void)b;
+
+    int count = 0; uint32_t meshIdSum = 0; bool aliases = true;
+    w.Each<TransformComponent, MeshComponent>(
+        [&](EntityId e, const TransformComponent&, const MeshComponent& m){
+            ++count;
+            meshIdSum += m.MeshId;
+            // the ref must point at the live component storage, not a copy
+            if (&m != w.GetComponent<MeshComponent>(e)) aliases = false;
+        });
+    EXPECT_EQ(count, 2);              // a and c, not b
+    EXPECT_EQ(meshIdSum, (uint32_t)30);
+    EXPECT(aliases);
+}
+
 int main()
 {
     T00_smoke();
@@ -634,6 +655,7 @@ int main()
     TE03_each_zero_matches();
     TE04_each_single_component();
     TE05_each_does_not_change_entity_count();
+    TE06_each_components_form_multi_entity_aliases_storage();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

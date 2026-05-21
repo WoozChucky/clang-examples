@@ -511,6 +511,8 @@ public:
      *        If the callback accepts (EntityId, const Components&...), each
      *        queried component is passed by const reference (guaranteed non-null
      *        on a full match); otherwise the callback is invoked with (EntityId).
+     *        A callback invocable both ways takes the components form.
+     * @note  Each<>() (empty component pack) visits every active entity.
      * @threading const; safe on snapshots. Mutation still goes through
      *            Modify/MutateArray (the refs here are read-only).
      */
