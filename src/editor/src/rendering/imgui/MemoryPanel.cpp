@@ -102,6 +102,14 @@ void DrawMemoryPanel(bool* open, const ECS* world)
         ImGui::Text("Free bytes: %s", FormatBytes(s.FreeBytes).c_str());
     }
 
+    if (ImGui::CollapsingHeader("ComponentArray Pool", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const ComponentArrayPoolStats s = GetComponentArrayPoolStats();
+        ImGui::Text("Free:    %zu", s.Free);
+        ImGui::Text("In use:  %zu", s.InUse);
+        ImGui::Text("Created: %zu", s.Created);
+        ImGui::Text("Reuses:  %llu", (unsigned long long)s.Reuses);
+    }
+
     if (world && ImGui::CollapsingHeader("ECS Memory", ImGuiTreeNodeFlags_DefaultOpen)) {
         const EcsMemoryStats s = world->MemoryStats();
         ImGui::Text("Component used:     %s", FormatBytes(s.ComponentUsed).c_str());
