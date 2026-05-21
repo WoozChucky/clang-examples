@@ -12,6 +12,9 @@ namespace Engine {
 // fragmentation. Grows by adding a new slab when full; slabs are never moved or
 // freed until destruction, so every outstanding pointer stays valid. O(1)
 // alloc/free. Not thread-safe.
+// Deallocate is unchecked: double-free, freeing a foreign pointer, or freeing a
+// pointer obtained before a Reset() is undefined behavior and will corrupt the
+// stats and the free-list. Caller owns correctness.
 class PoolAllocator : public IAllocator {
 public:
     PoolAllocator(size_t blockSize, size_t blockCount, size_t blockAlign,
@@ -35,6 +38,7 @@ public:
     PoolAllocator& operator=(const PoolAllocator&) = delete;
 
     void* Allocate(size_t size, size_t align) override {
+        if (size == 0) return nullptr;
         SM_ASSERT(size <= m_Stride, "PoolAllocator '%s': request %zu exceeds block %zu",
                   m_Name, size, m_Stride);
         SM_ASSERT(align <= m_BlockAlign, "PoolAllocator '%s': align %zu exceeds %zu",
@@ -51,6 +55,8 @@ public:
 
     void Deallocate(void* ptr, size_t = 0) override {
         if (!ptr) return;
+        SM_ASSERT(m_Stats.Used >= m_Stride,
+                  "PoolAllocator '%s': Deallocate underflow (double-free or foreign ptr?)", m_Name);
         *reinterpret_cast<void**>(ptr) = m_FreeList;
         m_FreeList = ptr;
         m_Stats.Used -= m_Stride;

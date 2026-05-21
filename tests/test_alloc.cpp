@@ -247,6 +247,42 @@ static void T32_pool_reset_frees_all()
     EXPECT_NE(a, nullptr);
 }
 
+static void T33_pool_dealloc_updates_stats()
+{
+    Engine::PoolAllocator p(32, 4, 16, Engine::MemCategory::Mesh, "T33");
+    void* a = p.Allocate(32, 16);
+    EXPECT_NE(a, nullptr);
+    const size_t usedAfterAlloc = p.Stats().Used;
+    EXPECT(usedAfterAlloc > 0);
+    p.Deallocate(a);
+    EXPECT_EQ(p.Stats().Used, (size_t)0);
+    EXPECT_EQ(p.Stats().FreeCount, (uint64_t)1);
+    EXPECT_EQ(p.Stats().AllocCount, (uint64_t)1);
+}
+
+static void T34_pool_reset_rebuilds_full_freelist_across_slabs()
+{
+    // blockCount 2; allocate 3 to force a second slab (total capacity 4 blocks).
+    Engine::PoolAllocator p(32, 2, 16, Engine::MemCategory::Mesh, "T34");
+    void* a = p.Allocate(32, 16);
+    void* b = p.Allocate(32, 16);
+    void* c = p.Allocate(32, 16); // forces growth -> 2 slabs, 4 blocks total
+    EXPECT_NE(a, nullptr); EXPECT_NE(b, nullptr); EXPECT_NE(c, nullptr);
+    const size_t totalBlocks = p.Stats().Capacity / 32; // stride==32 here
+    EXPECT_EQ(totalBlocks, (size_t)4);
+
+    p.Reset();
+    EXPECT_EQ(p.Stats().Used, (size_t)0);
+
+    // Every block across both slabs must be allocatable again, none null.
+    int handed = 0;
+    for (size_t i = 0; i < totalBlocks; ++i) {
+        void* blk = p.Allocate(32, 16);
+        if (blk) ++handed;
+    }
+    EXPECT_EQ((size_t)handed, totalBlocks);
+}
+
 int main()
 {
     T00_smoke();
@@ -264,6 +300,8 @@ int main()
     T30_pool_alloc_free_reuse();
     T31_pool_grows_and_keeps_pointers_valid();
     T32_pool_reset_frees_all();
+    T33_pool_dealloc_updates_stats();
+    T34_pool_reset_rebuilds_full_freelist_across_slabs();
 
     if (g_Failures == 0) {
         std::printf("All allocator tests passed.\n");
