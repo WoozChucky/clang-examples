@@ -296,27 +296,32 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
     if (world) {
 
-        // 1) Gather unique font sizes used by text entities
-        std::vector<size_t> usedFontSizes;
-        for (EntityId entity : world->View<TransformComponent, TextComponent>()) {
-            const auto* text = world->GetComponent<TextComponent>(entity);
-            if (text) {
-                const size_t fontSize = text->FontSize;
-                bool found = false;
-                for (size_t fs : usedFontSizes) {
-                    if (fs == fontSize) {
-                        found = true;
-                        break;
+        // 1) Gather unique font sizes used by text entities (arena-backed dedup)
+        auto textEnts = world->View<TransformComponent, TextComponent>();
+        auto* usedFontSizes = frameAllocator->AllocateArray<size_t>(textEnts.size());
+        uint32_t fontSizeCount = 0;
+        if (usedFontSizes) {
+            for (EntityId entity : textEnts) {
+                const auto* text = world->GetComponent<TextComponent>(entity);
+                if (text) {
+                    const size_t fontSize = text->FontSize;
+                    bool found = false;
+                    for (uint32_t k = 0; k < fontSizeCount; ++k) {
+                        if (usedFontSizes[k] == fontSize) {
+                            found = true;
+                            break;
+                        }
                     }
-                }
-                if (!found) {
-                    usedFontSizes.push_back(fontSize);
+                    if (!found) {
+                        usedFontSizes[fontSizeCount++] = fontSize;
+                    }
                 }
             }
         }
 
         // 2) For each unique font size, render all text using that atlas
-        for (size_t fontSize : usedFontSizes) {
+        for (uint32_t fsIdx = 0; fsIdx < fontSizeCount; ++fsIdx) {
+            const size_t fontSize = usedFontSizes[fsIdx];
             // Get or load atlas for this font size
             auto* atlas = m_FontManager.GetAtlas({FontManager::DEFAULT_FONT.Path, fontSize}, m_Device, commandList);
             if (!atlas || !atlas->texture) continue;
