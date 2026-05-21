@@ -8,7 +8,7 @@
 
 #include <ECS.h>
 
-void DrawMemoryPanel(bool* open)
+void DrawMemoryPanel(bool* open, const ECS* world)
 {
     if (open && !*open) return;
     if (!ImGui::Begin("Memory", open)) { ImGui::End(); return; }
@@ -70,6 +70,17 @@ void DrawMemoryPanel(bool* open)
         ImGui::Text("In use:  %zu", s.InUse);
         ImGui::Text("Created: %zu", s.Created);
         ImGui::Text("Reuses:  %llu", (unsigned long long)s.Reuses);
+    }
+
+    if (world && ImGui::CollapsingHeader("ECS Memory", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const EcsMemoryStats s = world->MemoryStats();
+        ImGui::Text("Component used:     %zu", s.ComponentUsed);
+        ImGui::Text("Component reserved: %zu", s.ComponentReserved);
+        ImGui::Text("Entity used:        %zu", s.EntityUsed);
+        ImGui::Text("Entity reserved:    %zu", s.EntityReserved);
+        ImGui::Text("Total reserved:     %zu", s.ComponentReserved + s.EntityReserved);
+        ImGui::Text("Arrays: %zu   Entities: %zu", s.ArrayCount, s.EntityCount);
+        ImGui::TextDisabled("(buffers only; excludes map/control-block overhead)");
     }
 
     ImGui::End();

@@ -479,7 +479,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
         static bool s_ShowMemoryPanel = true;
-        DrawMemoryPanel(&s_ShowMemoryPanel);
+        DrawMemoryPanel(&s_ShowMemoryPanel, world);
 
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
