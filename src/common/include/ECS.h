@@ -161,6 +161,9 @@ struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; 
 //                           Component Storage (Type-erased container)
 // #############################################################################
 
+// Byte accounting for a component array (read-only diagnostics).
+struct ArrayMemory { size_t Used; size_t Reserved; };
+
 class IComponentArray {
 public:
     virtual ~IComponentArray() = default;
@@ -174,6 +177,8 @@ public:
      * @return shared_ptr owning a fresh copy of the array contents.
      */
     [[nodiscard]] virtual std::shared_ptr<IComponentArray> Clone() const = 0;
+
+    [[nodiscard]] virtual ArrayMemory MemoryBytes() const = 0;
 };
 
 template<typename T>
@@ -244,6 +249,18 @@ public:
 
     [[nodiscard]] size_t Size() const override {
         return m_Components.size();
+    }
+
+    [[nodiscard]] ArrayMemory MemoryBytes() const override {
+        ArrayMemory m{};
+        m.Used     = m_Components.size()    * sizeof(T)
+                   + m_IndexToEntity.size() * sizeof(EntityId);
+        m.Reserved = m_Components.capacity()    * sizeof(T)
+                   + m_IndexToEntity.capacity() * sizeof(EntityId)
+                   + m_SparsePages.capacity()   * sizeof(std::unique_ptr<SparsePage>);
+        for (const auto& page : m_SparsePages)
+            if (page) m.Reserved += sizeof(SparsePage);   // 4 KB each
+        return m;
     }
 
     [[nodiscard]] std::shared_ptr<IComponentArray> Clone() const override {
@@ -386,6 +403,17 @@ public:
      */
     void ClearDirty();
 
+    [[nodiscard]] ArrayMemory MemoryBytes(size_t& outArrayCount) const {
+        ArrayMemory sum{};
+        outArrayCount = m_ComponentArrays.size();
+        for (const auto& [type, slot] : m_ComponentArrays) {
+            const ArrayMemory m = slot->MemoryBytes();
+            sum.Used     += m.Used;
+            sum.Reserved += m.Reserved;
+        }
+        return sum;
+    }
+
 private:
 #ifndef NDEBUG
     std::thread::id m_OwnerThread = std::this_thread::get_id();
@@ -459,6 +487,13 @@ public:
         return m_ActiveEntities.size();
     }
 
+    [[nodiscard]] ArrayMemory MemoryBytes() const {
+        ArrayMemory m{};
+        m.Used     = (m_ActiveEntities.size()     + m_FreeEntities.size())     * sizeof(EntityId);
+        m.Reserved = (m_ActiveEntities.capacity() + m_FreeEntities.capacity()) * sizeof(EntityId);
+        return m;
+    }
+
     [[nodiscard]] const std::vector<EntityId>& GetActiveEntities() const {
         return m_ActiveEntities;
     }
@@ -487,6 +522,16 @@ struct SnapshotPoolStats {
     uint64_t Reuses;   // # of Acquire calls served from the free-list
 };
 ECS_API SnapshotPoolStats GetSnapshotPoolStats();
+
+// Aggregate ECS storage bytes (read-only diagnostics; excludes map/control-block overhead).
+struct EcsMemoryStats {
+    size_t ComponentUsed;
+    size_t ComponentReserved;
+    size_t EntityUsed;
+    size_t EntityReserved;
+    size_t ArrayCount;
+    size_t EntityCount;
+};
 
 class ECS_API ECS {
 public:
@@ -638,6 +683,17 @@ public:
      *            AssertOwnerThread). Do NOT call ClearDirty() here.
      */
     void ResetForRecycle() { m_ComponentStore.Cleanup(); }
+
+    [[nodiscard]] EcsMemoryStats MemoryStats() const {
+        size_t arrayCount = 0;
+        const ArrayMemory comp = m_ComponentStore.MemoryBytes(arrayCount);
+        const ArrayMemory ent  = m_EntityStore.MemoryBytes();
+        return EcsMemoryStats{
+            comp.Used, comp.Reserved,
+            ent.Used,  ent.Reserved,
+            arrayCount, m_EntityStore.GetEntityCount()
+        };
+    }
 
 private:
     EntityStore m_EntityStore;

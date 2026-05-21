@@ -798,6 +798,47 @@ static void TP03_snapshot_pool_stats_deltas()
     s2.reset();
 }
 
+static void TM01_componentarray_memorybytes_used_exact()
+{
+    ComponentArray<TransformComponent> arr;
+    arr.Add(1, TransformComponent{});
+    arr.Add(2, TransformComponent{});
+    arr.Add(3, TransformComponent{});
+
+    ArrayMemory m = arr.MemoryBytes();
+    EXPECT_EQ(m.Used, (size_t)(3 * sizeof(TransformComponent) + 3 * sizeof(EntityId)));
+    EXPECT(m.Reserved >= m.Used);
+    EXPECT(m.Reserved >= (size_t)4096);   // >= one 4 KB sparse page allocated
+
+    arr.Remove(2);                         // swap-and-pop -> 2 live
+    ArrayMemory m2 = arr.MemoryBytes();
+    EXPECT_EQ(m2.Used, (size_t)(2 * sizeof(TransformComponent) + 2 * sizeof(EntityId)));
+}
+
+static void TM02_componentarray_empty_memorybytes()
+{
+    ComponentArray<TransformComponent> arr;
+    ArrayMemory m = arr.MemoryBytes();
+    EXPECT_EQ(m.Used, (size_t)0);
+}
+
+static void TM03_ecs_memorystats_aggregates()
+{
+    ECS w;
+    EntityId a = w.CreateEntity();
+    EntityId b = w.CreateEntity();
+    w.AddComponent(a, TransformComponent{});
+    w.AddComponent(b, TransformComponent{});
+    w.AddComponent(a, MeshComponent{});
+
+    EcsMemoryStats s = w.MemoryStats();
+    EXPECT_EQ(s.EntityCount, (size_t)2);    // singleton reserved entity excluded
+    EXPECT_EQ(s.ArrayCount, (size_t)2);     // Transform + Mesh
+    EXPECT(s.ComponentUsed >= (size_t)(2 * sizeof(TransformComponent) + 1 * sizeof(MeshComponent)));
+    EXPECT(s.ComponentReserved >= s.ComponentUsed);
+    EXPECT(s.EntityReserved >= s.EntityUsed);
+}
+
 int main()
 {
     T00_smoke();
@@ -845,6 +886,9 @@ int main()
     TP01_snapshot_pool_reuses_object();
     TP02_snapshot_isolated_after_recycle();
     TP03_snapshot_pool_stats_deltas();
+    TM01_componentarray_memorybytes_used_exact();
+    TM02_componentarray_empty_memorybytes();
+    TM03_ecs_memorystats_aggregates();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);
