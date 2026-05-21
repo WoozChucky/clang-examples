@@ -8,6 +8,24 @@
 
 #include <ECS.h>
 
+#include <string>
+#include <cstdio>
+
+// Humanize a byte count, keeping the exact value in parens (>= 1 KB).
+static std::string FormatBytes(size_t bytes)
+{
+    char buf[64];
+    if (bytes < 1024)
+        std::snprintf(buf, sizeof(buf), "%zu B", bytes);
+    else if (bytes < 1024ull * 1024)
+        std::snprintf(buf, sizeof(buf), "%.1f KB (%zu)", bytes / 1024.0, bytes);
+    else if (bytes < 1024ull * 1024 * 1024)
+        std::snprintf(buf, sizeof(buf), "%.1f MB (%zu)", bytes / (1024.0 * 1024.0), bytes);
+    else
+        std::snprintf(buf, sizeof(buf), "%.2f GB (%zu)", bytes / (1024.0 * 1024.0 * 1024.0), bytes);
+    return buf;
+}
+
 void DrawMemoryPanel(bool* open, const ECS* world)
 {
     if (open && !*open) return;
@@ -30,9 +48,9 @@ void DrawMemoryPanel(bool* open, const ECS* world)
                 if (s.Capacity == 0 && s.Used == 0) continue;
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn(); ImGui::TextUnformatted(Engine::ToString(cat));
-                ImGui::TableNextColumn(); ImGui::Text("%zu", s.Used);
-                ImGui::TableNextColumn(); ImGui::Text("%zu", s.Peak);
-                ImGui::TableNextColumn(); ImGui::Text("%zu", s.Capacity);
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(FormatBytes(s.Used).c_str());
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(FormatBytes(s.Peak).c_str());
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(FormatBytes(s.Capacity).c_str());
             }
             ImGui::EndTable();
         }
@@ -54,9 +72,9 @@ void DrawMemoryPanel(bool* open, const ECS* world)
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn(); ImGui::TextUnformatted(a->Name() ? a->Name() : "<unnamed>");
                 ImGui::TableNextColumn(); ImGui::TextUnformatted(Engine::ToString(a->Category()));
-                ImGui::TableNextColumn(); ImGui::Text("%zu", s.Used);
-                ImGui::TableNextColumn(); ImGui::Text("%zu", s.Peak);
-                ImGui::TableNextColumn(); ImGui::Text("%zu", s.Capacity);
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(FormatBytes(s.Used).c_str());
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(FormatBytes(s.Peak).c_str());
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(FormatBytes(s.Capacity).c_str());
                 ImGui::TableNextColumn(); ImGui::Text("%llu/%llu",
                     (unsigned long long)s.AllocCount, (unsigned long long)s.FreeCount);
             });
@@ -74,11 +92,11 @@ void DrawMemoryPanel(bool* open, const ECS* world)
 
     if (world && ImGui::CollapsingHeader("ECS Memory", ImGuiTreeNodeFlags_DefaultOpen)) {
         const EcsMemoryStats s = world->MemoryStats();
-        ImGui::Text("Component used:     %zu", s.ComponentUsed);
-        ImGui::Text("Component reserved: %zu", s.ComponentReserved);
-        ImGui::Text("Entity used:        %zu", s.EntityUsed);
-        ImGui::Text("Entity reserved:    %zu", s.EntityReserved);
-        ImGui::Text("Total reserved:     %zu", s.ComponentReserved + s.EntityReserved);
+        ImGui::Text("Component used:     %s", FormatBytes(s.ComponentUsed).c_str());
+        ImGui::Text("Component reserved: %s", FormatBytes(s.ComponentReserved).c_str());
+        ImGui::Text("Entity used:        %s", FormatBytes(s.EntityUsed).c_str());
+        ImGui::Text("Entity reserved:    %s", FormatBytes(s.EntityReserved).c_str());
+        ImGui::Text("Total reserved:     %s", FormatBytes(s.ComponentReserved + s.EntityReserved).c_str());
         ImGui::Text("Arrays: %zu   Entities: %zu", s.ArrayCount, s.EntityCount);
         ImGui::TextDisabled("(buffers only; excludes map/control-block overhead)");
     }
