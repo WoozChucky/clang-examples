@@ -963,6 +963,35 @@ static void TCOW03_array_pool_stats_deltas()
     s2.reset();
 }
 
+static void TCOW04_remove_all_components_path_pools_and_isolates()
+{
+    // Exercises the type-erased Clone() / RemoveAllComponents clone path (DestroyEntity),
+    // distinct from the MutateArray/Modify path the other TCOW tests drive.
+    ECS w;
+    EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{{1.0f, 0, 0}, {}, {1,1,1}});
+
+    auto s1 = w.CreateSnapshot();                                   // master slot = A; s1 shares A
+    const void* pA = static_cast<const void*>(s1->GetArray<TransformComponent>());
+    w.DestroyEntity(e);                                             // RemoveAllComponents -> Clone() -> master = B
+    const void* pB = static_cast<const void*>(w.GetArray<TransformComponent>());
+    EXPECT_NE(pA, pB);                                              // B is a fresh array
+    EXPECT(s1->HasComponent<TransformComponent>(e));               // snapshot still sees e (isolation)
+    EXPECT(!w.IsValidEntity(e));                                    // master dropped e
+    s1.reset();                                                     // A refcount 0 -> recycled (free-list: [A])
+
+    // Drive the Clone() path again; the recycled A must come back from the pool.
+    EntityId e2 = w.CreateEntity();
+    w.AddComponent(e2, TransformComponent{{2.0f, 0, 0}, {}, {1,1,1}});
+    auto s2 = w.CreateSnapshot();                                   // shares current master array; clears dirty
+    w.DestroyEntity(e2);                                            // RemoveAllComponents -> Clone() -> Acquire -> reuse A
+    const void* pReused = static_cast<const void*>(w.GetArray<TransformComponent>());
+    EXPECT_EQ(pReused, pA);                                         // recycled A returned via the Clone path
+    EXPECT(s2->HasComponent<TransformComponent>(e2));              // s2 still sees e2 (isolation after reuse)
+    EXPECT(!w.IsValidEntity(e2));
+    s2.reset();
+}
+
 int main()
 {
     T00_smoke();
@@ -1019,6 +1048,7 @@ int main()
     TCOW01_pool_reuses_recycled_array();
     TCOW02_pooled_clone_preserves_isolation_after_recycle();
     TCOW03_array_pool_stats_deltas();
+    TCOW04_remove_all_components_path_pools_and_isolates();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

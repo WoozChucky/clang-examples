@@ -56,11 +56,13 @@ ComponentArrayPool<T>& GetArrayPool() { static ComponentArrayPool<T> pool; retur
 // shared_ptr whose deleter returns it to the pool instead of freeing.
 template<typename T>
 std::shared_ptr<ComponentArray<T>> MakePooledClone(const ComponentArray<T>& src) {
-    ComponentArray<T>* arr = GetArrayPool<T>().Acquire();
+    // Wrap BEFORE copying: if CopyFrom throws (e.g. bad_alloc on a grow), the deleter
+    // returns the array to the pool, keeping InUse/Free balanced (no leak).
+    std::shared_ptr<ComponentArray<T>> arr(
+        GetArrayPool<T>().Acquire(),
+        [](ComponentArray<T>* p) noexcept { GetArrayPool<T>().Recycle(p); });
     arr->CopyFrom(src);
-    return std::shared_ptr<ComponentArray<T>>(arr, [](ComponentArray<T>* p) noexcept {
-        GetArrayPool<T>().Recycle(p);
-    });
+    return arr;
 }
 
 } // namespace
