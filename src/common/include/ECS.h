@@ -479,6 +479,15 @@ private:
 //                           ECS World (Main API)
 // #############################################################################
 
+// Stats for the snapshot object pool (see ecs.cpp). Rendered by the editor Memory panel.
+struct SnapshotPoolStats {
+    size_t   Free;     // idle ECS objects in the pool free-list
+    size_t   InUse;    // currently handed out (live snapshots)
+    size_t   Created;  // total ECS objects ever allocated by the pool
+    uint64_t Reuses;   // # of Acquire calls served from the free-list
+};
+ECS_API SnapshotPoolStats GetSnapshotPoolStats();
+
 class ECS_API ECS {
 public:
     ECS() { m_SingletonEntity = m_EntityStore.CreateReserved(); }
@@ -618,6 +627,15 @@ public:
      * @snapshot The returned ECS exposes only const accessors.
      */
     [[nodiscard]] std::shared_ptr<const ECS> CreateSnapshot();
+
+    /**
+     * @brief Resets a recycled snapshot for reuse by the pool. Releases this
+     *        snapshot's component-array refs but keeps the map's bucket capacity.
+     * @threading Runs from the pool's recycling deleter on WHATEVER thread drops
+     *            the last ref. Must stay assert-free: only Cleanup() (no
+     *            AssertOwnerThread). Do NOT call ClearDirty() here.
+     */
+    void ResetForRecycle() { m_ComponentStore.Cleanup(); }
 
 private:
     EntityStore m_EntityStore;

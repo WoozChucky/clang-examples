@@ -1,5 +1,6 @@
 // ECS code home. All template instantiations + dllexport definitions live here.
 #include "ECS.h"
+#include <mutex>
 
 // Explicit class template instantiations — emits one full copy of
 // ComponentArray<T> (methods, vtable, RTTI) per registered T into ecs.dll.
@@ -111,13 +112,70 @@ void ECS::DestroyEntity(EntityId entity) {
     m_EntityStore.DestroyEntity(entity);
 }
 
+namespace {
+
+// Recycles ECS snapshot objects so CreateSnapshot doesn't allocate the shell +
+// EntityStore vectors + array map every tick. Mutex-guarded (Acquire once/tick on
+// GameThread; Recycle from the deleter on whatever thread drops the last ref).
+// LIFO so single-threaded reuse is deterministic.
+class SnapshotPool {
+public:
+    ECS* Acquire() {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        if (!m_Free.empty()) {
+            ECS* e = m_Free.back();
+            m_Free.pop_back();
+            ++m_InUse;
+            ++m_Reuses;
+            return e;
+        }
+        ECS* e = new ECS();
+        ++m_Created;
+        ++m_InUse;
+        return e;
+    }
+    void Recycle(ECS* e) {
+        e->ResetForRecycle();
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        m_Free.push_back(e);
+        --m_InUse;
+    }
+    SnapshotPoolStats Stats() const {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        return SnapshotPoolStats{ m_Free.size(), m_InUse, m_Created, m_Reuses };
+    }
+    ~SnapshotPool() { for (ECS* e : m_Free) delete e; }
+private:
+    mutable std::mutex m_Mutex;
+    std::vector<ECS*>  m_Free;
+    size_t   m_InUse   = 0;
+    size_t   m_Created = 0;
+    uint64_t m_Reuses  = 0;
+};
+
+// Non-leaked Meyers singleton. Safe: the app joins both threads and resets
+// LatestWorldSnapshot before teardown, so no recycling deleter fires during
+// static destruction.
+SnapshotPool& GetSnapshotPool() {
+    static SnapshotPool pool;
+    return pool;
+}
+
+} // namespace
+
 std::shared_ptr<const ECS> ECS::CreateSnapshot() {
-    auto snap = std::make_shared<ECS>();
-    snap->m_EntityStore = m_EntityStore;                     // value copy
-    snap->m_SingletonEntity = m_SingletonEntity;             // preserve reserved id
-    snap->m_ComponentStore.CopyArraysFrom(m_ComponentStore); // shallow shared_ptr copy
+    ECS* snap = GetSnapshotPool().Acquire();
+    snap->m_EntityStore = m_EntityStore;
+    snap->m_SingletonEntity = m_SingletonEntity;
+    snap->m_ComponentStore.CopyArraysFrom(m_ComponentStore);
     m_ComponentStore.ClearDirty();
-    return snap;
+    return std::shared_ptr<const ECS>(snap, [](const ECS* p) {
+        GetSnapshotPool().Recycle(const_cast<ECS*>(p));
+    });
+}
+
+SnapshotPoolStats GetSnapshotPoolStats() {
+    return GetSnapshotPool().Stats();
 }
 
 void ECS::Clear() {

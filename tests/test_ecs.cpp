@@ -746,6 +746,58 @@ static void TS07_clone_and_assign_independent_across_pages()
     EXPECT_EQ(assigned.Get(5)->Position.x, 5.0f);
 }
 
+static void TP01_snapshot_pool_reuses_object()
+{
+    ECS w;
+    w.AddComponent(w.CreateEntity(), TransformComponent{});
+    auto s1 = w.CreateSnapshot();
+    const ECS* p = s1.get();
+    s1.reset();                       // recycle p
+    auto s2 = w.CreateSnapshot();     // LIFO -> reacquires p
+    EXPECT_EQ(s2.get(), p);
+}
+
+static void TP02_snapshot_isolated_after_recycle()
+{
+    ECS w;
+    EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{{1.0f, 0, 0}, {}, {1, 1, 1}});
+
+    auto s1 = w.CreateSnapshot();
+    s1.reset();                       // recycle the object s2 will reuse
+
+    w.Modify<TransformComponent>(e, [](auto& t){ t.Position.x = 9.0f; });
+    auto s2 = w.CreateSnapshot();     // reuses the recycled object
+
+    const auto* t = s2->GetComponent<TransformComponent>(e);
+    EXPECT(t != nullptr);
+    EXPECT_EQ(t->Position.x, 9.0f);   // current master state, not stale s1 (1.0)
+
+    w.Modify<TransformComponent>(e, [](auto& tt){ tt.Position.x = 5.0f; });
+    EXPECT_EQ(s2->GetComponent<TransformComponent>(e)->Position.x, 9.0f); // COW isolation
+}
+
+static void TP03_snapshot_pool_stats_deltas()
+{
+    const SnapshotPoolStats before = GetSnapshotPoolStats();
+
+    ECS w;
+    w.AddComponent(w.CreateEntity(), TransformComponent{});
+    auto s = w.CreateSnapshot();
+    const SnapshotPoolStats held = GetSnapshotPoolStats();
+    EXPECT_EQ(held.InUse, before.InUse + 1);
+
+    s.reset();
+    const SnapshotPoolStats dropped = GetSnapshotPoolStats();
+    EXPECT_EQ(dropped.InUse, before.InUse);
+    EXPECT(dropped.Free >= 1);
+
+    auto s2 = w.CreateSnapshot();     // served from the free-list
+    const SnapshotPoolStats reused = GetSnapshotPoolStats();
+    EXPECT(reused.Reuses > before.Reuses);
+    s2.reset();
+}
+
 int main()
 {
     T00_smoke();
@@ -790,6 +842,9 @@ int main()
     TS05_componentarray_update_existing();
     TS06_componentarray_clone_independent_after_swap_and_pop();
     TS07_clone_and_assign_independent_across_pages();
+    TP01_snapshot_pool_reuses_object();
+    TP02_snapshot_isolated_after_recycle();
+    TP03_snapshot_pool_stats_deltas();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);
