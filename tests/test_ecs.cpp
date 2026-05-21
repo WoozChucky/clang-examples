@@ -713,6 +713,39 @@ static void TS06_componentarray_clone_independent_after_swap_and_pop()
     EXPECT_EQ(cloned->Get(3)->Position.x, 3.0f);
 }
 
+static void TS07_clone_and_assign_independent_across_pages()
+{
+    // ids 5 (page 0) and 5000 (page ~4) -> outer page vector has nullptr holes.
+    // Exercises the copy ctor's multi-page deep-copy + nullptr-hole preservation,
+    // plus copy-assignment independence (Rule-of-5 coverage).
+    ComponentArray<TransformComponent> arr;
+    arr.Add(5,    TransformComponent{{5.0f, 0, 0}, {}, {1, 1, 1}});
+    arr.Add(5000, TransformComponent{{50.0f, 0, 0}, {}, {1, 1, 1}});
+
+    std::shared_ptr<IComponentArray> clonedBase = arr.Clone();
+    auto* cloned = static_cast<ComponentArray<TransformComponent>*>(clonedBase.get());
+    EXPECT_EQ(cloned->Size(), (size_t)2);
+    EXPECT(cloned->Has(5));
+    EXPECT(cloned->Has(5000));
+    EXPECT_EQ(cloned->Get(5)->Position.x, 5.0f);
+    EXPECT_EQ(cloned->Get(5000)->Position.x, 50.0f);
+
+    // Mutate original across both pages; clone must be unaffected.
+    arr.Get(5)->Position.x = 111.0f;
+    arr.Remove(5000);
+    EXPECT_EQ(cloned->Get(5)->Position.x, 5.0f);
+    EXPECT(cloned->Has(5000));
+    EXPECT_EQ(cloned->Get(5000)->Position.x, 50.0f);
+
+    // Copy-assignment yields an independent array too.
+    ComponentArray<TransformComponent> assigned;
+    assigned = *cloned;
+    EXPECT(assigned.Has(5));
+    EXPECT(assigned.Has(5000));
+    cloned->Get(5)->Position.x = 222.0f;
+    EXPECT_EQ(assigned.Get(5)->Position.x, 5.0f);
+}
+
 int main()
 {
     T00_smoke();
@@ -756,6 +789,7 @@ int main()
     TS04_componentarray_remove_then_readd_same_id();
     TS05_componentarray_update_existing();
     TS06_componentarray_clone_independent_after_swap_and_pop();
+    TS07_clone_and_assign_independent_across_pages();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);
