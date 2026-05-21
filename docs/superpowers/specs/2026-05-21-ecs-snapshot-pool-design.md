@@ -111,11 +111,14 @@ be cleared:
 // new ECS member
 void ECS::ResetForRecycle() {
     m_ComponentStore.Cleanup();    // m_ComponentArrays.clear() — releases array refs, keeps buckets
-    m_ComponentStore.ClearDirty(); // m_DirtyThisTick.clear()
 }
 ```
-(`Cleanup` and `ClearDirty` already exist on `ComponentStore`. `unordered_map::clear`
-keeps `bucket_count`, so capacity is retained.)
+`Cleanup` already exists on `ComponentStore` and is assert-free (`unordered_map::clear`,
+which keeps `bucket_count`, so capacity is retained). **It must NOT call
+`ComponentStore::ClearDirty()`**: `ClearDirty` runs `AssertOwnerThread()` (GameThread-only),
+but the recycling deleter fires on whatever thread drops the last ref (commonly the
+RenderThread) → that assert would fire in debug. The dirty set is irrelevant anyway — a
+snapshot never mutates, so its `m_DirtyThisTick` is always empty.
 
 ### `CreateSnapshot` rewrite (`ecs.cpp`)
 
