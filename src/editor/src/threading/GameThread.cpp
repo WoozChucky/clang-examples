@@ -614,15 +614,12 @@ void GameThread::WorkerThreadFunc()
                     aiString texPath;
                     for (size_t i = 0; i < material->mNumProperties; ++i) {
                         auto prop = material->mProperties[i];
-                        SM_TRACE("Material property: key='%s', semantic=%d, index=%d type=%d length=%u",
-                                 prop->mKey.C_Str(), prop->mSemantic, prop->mIndex,
-                                 static_cast<int>(prop->mType), prop->mDataLength);
+                        // SM_TRACE("Material property: key='%s', semantic=%d, index=%d type=%d length=%u", prop->mKey.C_Str(), prop->mSemantic, prop->mIndex, static_cast<int>(prop->mType), prop->mDataLength);
                     }
                     // The material might be a texture image, or a color
                     auto color = aiColor4D{};
                     if (AI_SUCCESS == material->Get(AI_MATKEY_COLOR_DIFFUSE, color)) {
-                        SM_TRACE("Material diffuse color: r=%.3f g=%.3f b=%.3f a=%.3f",
-                                 color.r, color.g, color.b, color.a);
+                        // SM_TRACE("Material diffuse color: r=%.3f g=%.3f b=%.3f a=%.3f", color.r, color.g, color.b, color.a);
                     }
 
                     if (material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS) {
