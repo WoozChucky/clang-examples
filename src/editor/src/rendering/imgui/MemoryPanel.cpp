@@ -50,7 +50,7 @@ void DrawMemoryPanel(bool* open)
             reg.ForEach([](Engine::IAllocator* a) {
                 const Engine::AllocatorStats& s = a->Stats();
                 ImGui::TableNextRow();
-                ImGui::TableNextColumn(); ImGui::TextUnformatted(a->Name());
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(a->Name() ? a->Name() : "<unnamed>");
                 ImGui::TableNextColumn(); ImGui::TextUnformatted(Engine::ToString(a->Category()));
                 ImGui::TableNextColumn(); ImGui::Text("%zu", s.Used);
                 ImGui::TableNextColumn(); ImGui::Text("%zu", s.Peak);
