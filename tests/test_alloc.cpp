@@ -359,6 +359,18 @@ static void T45_batchruns_maxruns_cap()
     EXPECT_EQ(BuildBatchRuns(e, 3, runs, 2), (uint32_t)2); // stops at maxRuns
 }
 
+static void T46_batchruns_cap_leaves_trailing_unbatched()
+{
+    // Keys: two runs of (1,0) x2 and (2,0) x2. With maxRuns=1, only the first
+    // run is emitted; the second run's entries are left unbatched (not merged).
+    BatchEntry e[4] = { {1,0,10}, {2,0,11}, {1,0,12}, {2,0,13} };
+    BatchRun runs[4];
+    uint32_t n = BuildBatchRuns(e, 4, runs, 1);
+    EXPECT_EQ(n, (uint32_t)1);
+    EXPECT_EQ(runs[0].begin, (uint32_t)0);
+    EXPECT_EQ(runs[0].count, (uint32_t)2); // the (1,0) run only, NOT all 4
+}
+
 int main()
 {
     T00_smoke();
@@ -384,6 +396,7 @@ int main()
     T43_batchruns_all_distinct();
     T44_batchruns_mixed_unsorted();
     T45_batchruns_maxruns_cap();
+    T46_batchruns_cap_leaves_trailing_unbatched();
 
     if (g_Failures == 0) {
         std::printf("All allocator tests passed.\n");
