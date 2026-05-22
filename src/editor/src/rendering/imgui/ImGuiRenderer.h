@@ -61,6 +61,8 @@ private:
     float    m_ViewportImageMinX = 0.0f;    // Viewport panel image screen top-left (ImGuizmo rect)
     float    m_ViewportImageMinY = 0.0f;
     ImDrawList* m_ViewportDrawList = nullptr; // Viewport window draw list (ImGuizmo target; null when hidden)
+    bool m_ViewportHovered = false;  // Viewport panel hovered this frame (mouse routing)
+    bool m_ViewportFocused = false;  // Viewport panel focused this frame (keyboard routing)
 
     MainMenuBar m_MenuBar;
     StatsPanel m_StatsPanel;
