@@ -31,4 +31,5 @@ private:
     std::shared_ptr<ApplicationContext> m_AppContext;
     GLFWwindow* m_Window;
     std::atomic<bool> m_Running;
+    bool m_CursorLocked = false; // GLFW_CURSOR_DISABLED (play/FPS mode) -> game owns all input
 };
