@@ -20,6 +20,7 @@ add_library(Engine SHARED
     # Rendering
     src/rendering/Renderer.cpp
     src/rendering/RendererBackend.cpp
+    src/rendering/StagingBufferPool.cpp
 
     # Rendering Systems
     src/rendering/MeshSystem.cpp
