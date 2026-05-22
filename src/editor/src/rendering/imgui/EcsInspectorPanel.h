@@ -10,6 +10,7 @@ class EcsInspectorPanel {
 public:
     void Draw(const EditorContext& ctx);
     void SetSelectedEntity(EntityId e) { selectedEntity = e; }
+    EntityId GetSelectedEntity() const { return selectedEntity; }
 private:
     // Persistent selection — formerly the function-local `static EntityId selectedEntity`.
     EntityId selectedEntity = INVALID_ENTITY;
