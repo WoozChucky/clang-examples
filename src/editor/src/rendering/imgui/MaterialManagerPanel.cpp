@@ -11,7 +11,6 @@
 
 #include "MaterialSystem.h"
 #include "MaterialLoader.h"
-#include "ApplicationContext.h"
 
 void MaterialManagerPanel::Draw(const EditorContext& ctx)
 {
@@ -26,8 +25,6 @@ void MaterialManagerPanel::Draw(const EditorContext& ctx)
         ImGui::Text("Loaded Materials: %u", materialCount);
 
         ImGui::Spacing();
-
-        // Track selected material
 
         // Display list of loaded materials with selection
         if (materialCount > 0) {
@@ -66,8 +63,6 @@ void MaterialManagerPanel::Draw(const EditorContext& ctx)
 
             ImGui::Separator();
         }
-
-        // Load material from file button
 
         if (ImGui::Button("Load Material from File", ImVec2(200, 0))) {
             char filePath[512] = "";
