@@ -6,6 +6,7 @@
 #include "RenderStats.h"
 #include <nvrhi/utils.h>
 #include "lib.h"
+#include "TransformMath.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 
@@ -281,16 +282,6 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     return true;
 }
 
-static glm::mat4 BuildWorldMatrix(const TransformComponent& t)
-{
-    glm::mat4 T  = glm::translate(glm::mat4(1.0f), t.Position);
-    glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), t.Rotation.x, glm::vec3(1.f, 0.f, 0.f));
-    glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), t.Rotation.y, glm::vec3(0.f, 1.f, 0.f));
-    glm::mat4 Rz = glm::rotate(glm::mat4(1.0f), t.Rotation.z, glm::vec3(0.f, 0.f, 1.f));
-    glm::mat4 S  = glm::scale(glm::mat4(1.0f), t.Scale);
-    return T * Rz * Ry * Rx * S;
-}
-
 void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                             nvrhi::IFramebuffer* frameBuffer,
                             SimulationSnapshot& snapshot,
@@ -406,7 +397,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                     if (bounds.valid) // unloaded bounds -> never cull
                     {
                         glm::vec3 wMin, wMax;
-                        TransformAABB(BuildWorldMatrix(transform), bounds.min, bounds.max, wMin, wMax);
+                        TransformAABB(ModelMatrix(transform), bounds.min, bounds.max, wMin, wMax);
                         if (!IsAABBVisible(cullFrustum, wMin, wMax))
                         {
                             ++culledCount;
@@ -484,7 +475,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                     continue;
 
                 // Build world transform (shared with the cull test so they cannot diverge)
-                glm::mat4 M = BuildWorldMatrix(*transform);
+                glm::mat4 M = ModelMatrix(*transform);
 
                 glm::mat3 M3(M);
                 glm::mat3 N3 = glm::transpose(glm::inverse(M3));

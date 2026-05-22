@@ -18,6 +18,7 @@
 #include "MaterialManagerPanel.h"
 #include "MeshManagerPanel.h"
 #include "EcsInspectorPanel.h"
+#include "ViewportPicker.h"
 #include "MainMenuBar.h"
 
 #include "ApplicationContext.h"
@@ -334,6 +335,13 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         ctx.ViewportMinY = m_ViewportImageMinY;
         ctx.ViewportW = m_LastViewportW;
         ctx.ViewportH = m_LastViewportH;
+
+        // Viewport pick: left-click selects the entity under the cursor (edit mode). Skip when
+        // over/using a gizmo (that click manipulates the gizmo). Empty space -> deselect.
+        if (m_ViewportHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+            && !ImGuizmo::IsOver() && !ImGuizmo::IsUsing()) {
+            m_EcsInspector.SetSelectedEntity(PickEntity(ctx, io.MousePos.x, io.MousePos.y));
+        }
 
         // Publish the panel size for the GameThread (camera aspect + UI ortho).
         if (m_AppContext)

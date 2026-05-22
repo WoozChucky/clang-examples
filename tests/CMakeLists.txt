@@ -80,3 +80,26 @@ set_target_properties(test_input PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_picking
+    test_picking.cpp
+)
+
+target_link_libraries(test_picking PRIVATE
+    glm::glm
+)
+
+target_include_directories(test_picking PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+target_compile_definitions(test_picking PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_picking PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)

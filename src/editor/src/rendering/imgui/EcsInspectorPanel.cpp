@@ -15,6 +15,7 @@
 #include "MeshSystem.h"
 #include "MaterialSystem.h"
 #include "lib.h"
+#include "TransformMath.h"
 
 void EcsInspectorPanel::Draw(const EditorContext& ctx)
 {
@@ -279,12 +280,7 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                             m_Gizmo.DrawControls();
 
                             // Build model matrix from current editable transform
-                            glm::mat4 T = glm::translate(glm::mat4(1.0f), editTransform.Position);
-                            glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), editTransform.Rotation.x, glm::vec3(1.f, 0.f, 0.f));
-                            glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), editTransform.Rotation.y, glm::vec3(0.f, 1.f, 0.f));
-                            glm::mat4 Rz = glm::rotate(glm::mat4(1.0f), editTransform.Rotation.z, glm::vec3(0.f, 0.f, 1.f));
-                            glm::mat4 S  = glm::scale(glm::mat4(1.0f), editTransform.Scale);
-                            glm::mat4 M  = T * Rz * Ry * Rx * S;
+                            glm::mat4 M = ModelMatrix(editTransform);
 
                             // Manipulate matrix within this inspector window
                             m_Gizmo.EditTransform(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection), glm::value_ptr(M), ctx);

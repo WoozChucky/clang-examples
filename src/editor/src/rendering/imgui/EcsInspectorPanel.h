@@ -9,6 +9,7 @@ struct EditorContext;
 class EcsInspectorPanel {
 public:
     void Draw(const EditorContext& ctx);
+    void SetSelectedEntity(EntityId e) { selectedEntity = e; }
 private:
     // Persistent selection — formerly the function-local `static EntityId selectedEntity`.
     EntityId selectedEntity = INVALID_ENTITY;
