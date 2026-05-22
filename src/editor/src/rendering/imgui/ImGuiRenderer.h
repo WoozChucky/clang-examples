@@ -10,6 +10,7 @@
 #include "StatsPanel.h"
 #include "MaterialManagerPanel.h"
 #include "MeshManagerPanel.h"
+#include "GizmoController.h"
 #include "lib.h"
 
 class MeshSystem;
@@ -45,11 +46,6 @@ private:
     std::shared_ptr<RegisteredFont> CreateFontFromFile(const char* fontFile, float fontSize);
     void ProcessInputEvents();
 
-    // ImGuizmo helpers as member functions (no external self parameter required)
-    void TransformStart(float* cameraView, float* cameraProjection, float* matrix);
-    void TransformEnd();
-    void EditTransform(float* cameraView, float* cameraProjection, float* matrix);
-
 private:
     std::vector<std::shared_ptr<RegisteredFont>> m_fonts;
     std::unique_ptr<ImGui_NVRHI> m_ImGuiNvrhi;
@@ -75,4 +71,5 @@ private:
     StatsPanel m_StatsPanel;
     MaterialManagerPanel m_MaterialManager;
     MeshManagerPanel m_MeshManager;
+    GizmoController m_Gizmo;
 };

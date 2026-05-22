@@ -15,6 +15,7 @@ add_executable(editor
     src/rendering/imgui/StatsPanel.cpp
     src/rendering/imgui/MaterialManagerPanel.cpp
     src/rendering/imgui/MeshManagerPanel.cpp
+    src/rendering/imgui/GizmoController.cpp
     src/rendering/imgui/ImGuiOverlay.cpp
 )
 
