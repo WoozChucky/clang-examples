@@ -90,19 +90,19 @@ bool Renderer::Init(const RendererAPI api) {
     }
     AddRenderPass(std::move(primitivePass));
 
-    auto outlinePass = std::make_unique<OutlineRenderPass>();
-    if (!outlinePass->Initialize(m_Device, this)) {
-        SM_ERROR("Failed to initialize OutlineRenderPass");
-        return false;
-    }
-    AddRenderPass(std::move(outlinePass));
-
     auto meshPass = std::make_unique<MeshRenderPass>();
     if (!meshPass->Initialize(m_Device, this)) {
         SM_ERROR("Failed to initialize MeshRenderPass");
         return false;
     }
     AddRenderPass(std::move(meshPass));
+
+    auto outlinePass = std::make_unique<OutlineRenderPass>();
+    if (!outlinePass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize OutlineRenderPass");
+        return false;
+    }
+    AddRenderPass(std::move(outlinePass));
 
     auto uiPass = std::make_unique<UiRenderPass>();
     if (!uiPass->Initialize(m_Device, this)) {
@@ -425,13 +425,13 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     if (!primitivePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: PrimitivePass failed"); return false; }
     AddRenderPass(std::move(primitivePass));
 
-    auto outlinePass = std::make_unique<OutlineRenderPass>();
-    if (!outlinePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: OutlinePass failed"); return false; }
-    AddRenderPass(std::move(outlinePass));
-
     auto meshPass = std::make_unique<MeshRenderPass>();
     if (!meshPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: MeshPass failed"); return false; }
     AddRenderPass(std::move(meshPass));
+
+    auto outlinePass = std::make_unique<OutlineRenderPass>();
+    if (!outlinePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: OutlinePass failed"); return false; }
+    AddRenderPass(std::move(outlinePass));
 
     auto uiPass = std::make_unique<UiRenderPass>();
     if (!uiPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: UiPass failed"); return false; }

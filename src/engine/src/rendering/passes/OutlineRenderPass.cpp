@@ -125,7 +125,7 @@ void OutlineRenderPass::Render(nvrhi::ICommandList* commandList,
         pso.bindingLayouts = { m_BindingLayout };
         pso.primType = nvrhi::PrimitiveType::TriangleList;
         pso.renderState.depthStencilState.depthTestEnable = true;
-        pso.renderState.depthStencilState.depthWriteEnable = true;
+        pso.renderState.depthStencilState.depthWriteEnable = false; // overlay rim; don't pollute depth (outline runs after the mesh)
         pso.renderState.rasterState.cullMode = nvrhi::RasterCullMode::Front;
         pso.renderState.rasterState.setFrontCounterClockwise(true);
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
