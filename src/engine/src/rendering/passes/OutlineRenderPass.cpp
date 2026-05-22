@@ -104,6 +104,8 @@ void OutlineRenderPass::Render(nvrhi::ICommandList* commandList,
     if (!mc || !tc || !mc->Visible)
         return;
 
+    if (!m_Renderer->GetMeshSystem()->IsValidMeshId(mc->MeshId))
+        return;
     auto res = m_Renderer->GetMeshSystem()->GetMeshResources(mc->MeshId);
     if (!res.valid)
         return;
