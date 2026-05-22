@@ -19,6 +19,7 @@ add_executable(editor
     src/rendering/imgui/EcsInspectorPanel.cpp
     src/rendering/imgui/MainMenuBar.cpp
     src/rendering/imgui/ImGuiOverlay.cpp
+    src/rendering/imgui/ViewportPicker.cpp
 )
 
 # Editor include paths. Engine headers (Renderer.h, IOverlay.h, MeshSystem.h,
