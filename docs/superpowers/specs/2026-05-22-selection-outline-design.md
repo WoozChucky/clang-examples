@@ -12,8 +12,12 @@ click can differ from the mesh selected) and (b) see the selection at a glance. 
 runtime draws no outline.
 
 Technique: **inverted hull** (no stencil). A new render pass draws the selected mesh enlarged
-along its vertex normals in a flat outline color **before** the normal mesh pass; the normal mesh
-then draws on top, covering the hull's center and leaving a colored rim.
+along its vertex normals in a flat outline color **after** the normal mesh pass, depth-tested
+(cull FRONT, depth test on, **depth write off**): the hull's back faces are occluded by the mesh
+in the interior but pass the depth test in the rim (where only background is behind), leaving a
+colored rim with correct occlusion by closer objects. (It must run *after* MeshRenderPass because
+MeshRenderPass clears the scene depth at the start of its own Render — the outline depth-tests
+against the finished scene.)
 
 ## Background (verified)
 
@@ -24,8 +28,10 @@ then draws on top, covering the hull's center and leaving a colored rim.
   offscreen RT and the runtime swapchain). → inverted hull instead.
 - **Pass registration + order:** `Renderer::Init()` (`Renderer.cpp:85-104`) adds passes via
   `AddRenderPass` (push_back) in source order: Primitive → Mesh → Ui. Passes run in that order
-  (`Renderer.cpp:195-200`). Registering the outline pass **between Primitive and Mesh** makes it
-  draw before the mesh. (Same in the `InitForSwap` path if present — register in both.)
+  (`Renderer.cpp:195-200`). Register the outline pass **after Mesh, before Ui** (order becomes
+  Primitive → Mesh → **Outline** → Ui) — also in the `InitForSwap` hot-swap path. **MeshRenderPass
+  clears the scene depth at the start of its Render** (`MeshRenderPass.cpp:329`), so the outline
+  must run after it to depth-test against the finished scene.
 - **MeshRenderPass to mirror** (`MeshRenderPass.{h,cpp}`): `Initialize(device, renderer)`; shaders
   created via `m_Renderer->CreateShader(type, <inline HLSL>, 0, "main_vs"/"main_ps", "vs_6_1"/"ps_6_1")`;
   input layout POSITION(RGB32F)+NORMAL(RGB32F)+TEXCOORD(RG32F) over `MeshVertex` (`px,py,pz,nx,ny,nz,u,v`,
@@ -52,13 +58,11 @@ then draws on top, covering the hull's center and leaving a colored rim.
 
 **In scope:** `ApplicationContext::SelectedEntity` atomic; `EcsInspectorPanel::GetSelectedEntity`;
 the overlay publishing it; a new `OutlineRenderPass` (+ inline outline shaders); its registration
-in `Renderer` (before MeshRenderPass) + engine CMake.
+in `Renderer` (after MeshRenderPass) + engine CMake.
 
 **Out of scope / non-goals:** constant screen-space outline width (this uses world/local
 normal-extrusion → width grows when closer; a post-process edge-detect is the future upgrade);
-hard-edge gap-free silhouettes (inverted hull splits at sharp normals); perfect occlusion (drawn
-before other meshes — outline may show through/under later geometry, usually fine for editor
-selection); multi-select; outline for non-mesh entities (lights/text have no mesh → nothing to
+hard-edge gap-free silhouettes (inverted hull splits at sharp normals); multi-select; outline for non-mesh entities (lights/text have no mesh → nothing to
 hull); editor-configurable color/width (hardcode sensible constants now). No `GAME_API_VERSION`
 bump (no GameState/ECS-layout change).
 
@@ -83,9 +87,10 @@ An `IRenderPass` mirroring MeshRenderPass's setup but simpler (draws one entity,
   PS returns `OutlineColor`. Input layout: reuse POSITION+NORMAL+TEXCOORD (TEXCOORD unused but keeps
   one layout). Created via `m_Renderer->CreateShader(...)`.
 - **Pipeline (lazy, like MeshRenderPass):** `primType = TriangleList`; depthTestEnable=true,
-  depthWriteEnable=true; **`rasterState.cullMode = Front`** (renders the back of the enlarged hull
-  → the silhouette rim), `setFrontCounterClockwise(true)` (match the mesh winding); blend disabled
-  (solid color); single binding layout with one constant buffer (visibility All).
+  **depthWriteEnable=false** (overlay rim, drawn after the mesh — don't pollute depth);
+  **`rasterState.cullMode = Front`** (renders the back of the enlarged hull → the silhouette rim),
+  `setFrontCounterClockwise(true)` (match the mesh winding); blend disabled (solid color); single
+  binding layout with one constant buffer (visibility All).
 - **Constant buffer + binding set:** a CB matching the struct above; bound to the pipeline. Updated
   per-draw with `commandList->writeBuffer`.
 - **`Render`:** read `EntityId sel = m_Renderer->GetAppContext()->SelectedEntity.load(std::memory_order_relaxed);`.
@@ -103,18 +108,19 @@ An `IRenderPass` mirroring MeshRenderPass's setup but simpler (draws one entity,
   MeshRenderPass.
 
 ### 3. Register the pass
-`Renderer::Init` (and `InitForSwap` if it also builds the pass list): construct + `Initialize` an
-`OutlineRenderPass` and `AddRenderPass` it **between** the Primitive and Mesh registrations, so the
-order is Primitive → **Outline** → Mesh → Ui. Add `src/rendering/passes/OutlineRenderPass.cpp` to
+`Renderer::Init` (and `InitForSwap`, which also builds the pass list): construct + `Initialize` an
+`OutlineRenderPass` and `AddRenderPass` it **after Mesh, before Ui**, so the order is
+Primitive → Mesh → **Outline** → Ui. Add `src/rendering/passes/OutlineRenderPass.cpp` to
 `src/engine/CMakeLists.txt`.
 
 ## Data flow (per frame, editor, RenderThread)
 
-1. `OutlineRenderPass::Render` (before MeshRenderPass) reads `ApplicationContext::SelectedEntity`
-   (set last frame by the overlay). If valid + mesh + transform, draws the normal-extruded hull in
-   the outline color (cull FRONT, depth test+write).
-2. `MeshRenderPass::Render` draws all meshes normally on top → covers the hull's center, leaving
-   the colored rim around the selected mesh.
+1. `MeshRenderPass::Render` clears the scene depth and draws all meshes normally.
+2. `OutlineRenderPass::Render` (after MeshRenderPass) reads `ApplicationContext::SelectedEntity`
+   (set last frame by the overlay). If valid + mesh + transform, draws the normal-extruded hull
+   (cull FRONT, depth test on, depth write off) against the finished scene depth → the hull is
+   occluded by the mesh in the interior and passes only in the rim, leaving the colored silhouette
+   with correct occlusion by closer geometry.
 3. The overlay (`ImGuiRenderer`) draws the panels and republishes `SelectedEntity` from the
    inspector for next frame.
 
