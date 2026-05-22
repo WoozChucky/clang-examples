@@ -2,9 +2,6 @@
 
 #include <fstream>
 #include <cstdio>
-#include <windows.h>
-#include <commdlg.h>
-#include <shobjidl.h>
 #include <vector>
 #include <string>
 
