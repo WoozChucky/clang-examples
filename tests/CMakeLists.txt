@@ -60,3 +60,23 @@ set_target_properties(test_frustum PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_input
+    test_input.cpp
+)
+
+target_link_libraries(test_input PRIVATE
+    CommonHeaders
+    glm::glm
+)
+
+target_compile_definitions(test_input PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_input PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
