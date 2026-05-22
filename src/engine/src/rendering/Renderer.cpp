@@ -9,6 +9,7 @@
 #include "backends/RendererBackendVulkan.h"
 
 #include "passes/PrimitiveRenderPass.h"
+#include "passes/OutlineRenderPass.h"
 #include "passes/MeshRenderPass.h"
 
 #include <tracy/Tracy.hpp>
@@ -88,6 +89,13 @@ bool Renderer::Init(const RendererAPI api) {
         return false;
     }
     AddRenderPass(std::move(primitivePass));
+
+    auto outlinePass = std::make_unique<OutlineRenderPass>();
+    if (!outlinePass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize OutlineRenderPass");
+        return false;
+    }
+    AddRenderPass(std::move(outlinePass));
 
     auto meshPass = std::make_unique<MeshRenderPass>();
     if (!meshPass->Initialize(m_Device, this)) {
@@ -416,6 +424,10 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     auto primitivePass = std::make_unique<PrimitiveRenderPass>();
     if (!primitivePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: PrimitivePass failed"); return false; }
     AddRenderPass(std::move(primitivePass));
+
+    auto outlinePass = std::make_unique<OutlineRenderPass>();
+    if (!outlinePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: OutlinePass failed"); return false; }
+    AddRenderPass(std::move(outlinePass));
 
     auto meshPass = std::make_unique<MeshRenderPass>();
     if (!meshPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: MeshPass failed"); return false; }
