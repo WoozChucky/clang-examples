@@ -16,9 +16,10 @@ nvrhi::IFramebuffer* SceneViewport::EnsureTargets(uint32_t w, uint32_t h,
 
     m_W = w; m_H = h; m_ColorFormat = colorFormat; m_Samples = sampleCount;
 
-    // Color: render target + shader resource (so ImGui can sample it). Unlike MeshPreviewRenderer
-    // (which pins keepInitialState), we let NVRHI auto-track the RenderTarget -> ShaderResource
-    // transition between the scene command list and the ImGui command list.
+    // Color: render target + shader resource (so ImGui can sample it). keepInitialState lets
+    // NVRHI know the texture's permanent state (ShaderResource) and auto-transition it to
+    // RenderTarget during the scene pass and back for ImGui sampling, across command lists.
+    // Without it NVRHI errors "Unknown prior state of texture" (same as MeshPreviewRenderer).
     nvrhi::TextureDesc colorDesc;
     colorDesc.width = m_W;
     colorDesc.height = m_H;
@@ -29,6 +30,7 @@ nvrhi::IFramebuffer* SceneViewport::EnsureTargets(uint32_t w, uint32_t h,
     colorDesc.isShaderResource = true;
     colorDesc.debugName = "SceneViewportColor";
     colorDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+    colorDesc.keepInitialState = true;
     m_Color = m_Device->createTexture(colorDesc);
 
     nvrhi::TextureDesc depthDesc;
@@ -40,6 +42,7 @@ nvrhi::IFramebuffer* SceneViewport::EnsureTargets(uint32_t w, uint32_t h,
     depthDesc.isRenderTarget = true;
     depthDesc.debugName = "SceneViewportDepth";
     depthDesc.initialState = nvrhi::ResourceStates::DepthWrite;
+    depthDesc.keepInitialState = true;
     m_Depth = m_Device->createTexture(depthDesc);
 
     m_Fb = m_Device->createFramebuffer(
