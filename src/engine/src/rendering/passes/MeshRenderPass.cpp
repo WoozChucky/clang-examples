@@ -2,6 +2,8 @@
 
 #include "Renderer.h"
 #include "MeshBatching.h"
+#include "Frustum.h"
+#include "RenderStats.h"
 #include <nvrhi/utils.h>
 #include "lib.h"
 #include <glm/gtc/matrix_transform.hpp>
@@ -279,6 +281,16 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     return true;
 }
 
+static glm::mat4 BuildWorldMatrix(const TransformComponent& t)
+{
+    glm::mat4 T  = glm::translate(glm::mat4(1.0f), t.Position);
+    glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), t.Rotation.x, glm::vec3(1.f, 0.f, 0.f));
+    glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), t.Rotation.y, glm::vec3(0.f, 1.f, 0.f));
+    glm::mat4 Rz = glm::rotate(glm::mat4(1.0f), t.Rotation.z, glm::vec3(0.f, 0.f, 1.f));
+    glm::mat4 S  = glm::scale(glm::mat4(1.0f), t.Scale);
+    return T * Rz * Ry * Rx * S;
+}
+
 void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                             nvrhi::IFramebuffer* frameBuffer,
                             SimulationSnapshot& snapshot,
@@ -360,6 +372,10 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         }
         perFrame.P  = P;
         perFrame.VP = P * V;
+        const Frustum cullFrustum = ExtractFrustum(perFrame.VP);
+        const bool cullEnabled = GetCullingSettings().Enabled;
+        MeshSystem* meshSystem = m_Renderer->GetMeshSystem();
+        uint32_t culledCount = 0;
         perFrame.DirectionalLight.Direction = lightningDirection;
         perFrame.DirectionalLight.Color = lightningColor;
         perFrame.PointLightCount = pointLightCount;
@@ -379,10 +395,25 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         if (entries)
         {
             world->Each<TransformComponent, MeshComponent>(
-                [&](EntityId e, const TransformComponent&, const MeshComponent& meshComp)
+                [&](EntityId e, const TransformComponent& transform, const MeshComponent& meshComp)
             {
                 if (!meshComp.Visible)
                     return;
+
+                if (cullEnabled && meshSystem && meshSystem->IsValidMeshId(meshComp.MeshId))
+                {
+                    const auto bounds = meshSystem->GetMeshBounds(meshComp.MeshId);
+                    if (bounds.valid) // unloaded bounds -> never cull
+                    {
+                        glm::vec3 wMin, wMax;
+                        TransformAABB(BuildWorldMatrix(transform), bounds.min, bounds.max, wMin, wMax);
+                        if (!IsAABBVisible(cullFrustum, wMin, wMax))
+                        {
+                            ++culledCount;
+                            return;
+                        }
+                    }
+                }
 
                 const auto* materialComp = world->GetComponent<MaterialComponent>(e);
                 uint32_t materialId = materialComp ? materialComp->MaterialId : MaterialSystem::MissingMaterial;
@@ -409,6 +440,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         state.pipeline = m_Pipeline;
         state.framebuffer = frameBuffer;
         state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
+
+        uint32_t instancesDrawn = 0;
 
         for (uint32_t r = 0; r < runCount; ++r)
         {
@@ -450,13 +483,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                 if (!transform)
                     continue;
 
-                // Build world transform: T * Rz * Ry * Rx * S
-                glm::mat4 T = glm::translate(glm::mat4(1.0f), transform->Position);
-                glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), transform->Rotation.x, glm::vec3(1.f, 0.f, 0.f));
-                glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), transform->Rotation.y, glm::vec3(0.f, 1.f, 0.f));
-                glm::mat4 Rz = glm::rotate(glm::mat4(1.0f), transform->Rotation.z, glm::vec3(0.f, 0.f, 1.f));
-                glm::mat4 S = glm::scale(glm::mat4(1.0f), transform->Scale);
-                glm::mat4 M = T * Rz * Ry * Rx * S;
+                // Build world transform (shared with the cull test so they cannot diverge)
+                glm::mat4 M = BuildWorldMatrix(*transform);
 
                 glm::mat3 M3(M);
                 glm::mat3 N3 = glm::transpose(glm::inverse(M3));
@@ -479,6 +507,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                 frameAllocator->RewindTo(instanceMark);
                 continue;
             }
+
+            instancesDrawn += instanceOut;
 
             // Upload instance data
             commandList->writeBuffer(m_InstanceBuffer, instances, instanceOut * sizeof(MeshInstanceCPU));
@@ -560,6 +590,13 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
             // This run's instances have been uploaded + drawn; reclaim the arena space.
             frameAllocator->RewindTo(instanceMark);
         }
+
+        RenderStats& rs = GetRenderStats();
+        rs.MeshEntitiesDrawn  = entryCount;
+        rs.MeshEntitiesCulled = culledCount;
+        rs.MeshEntitiesTotal  = entryCount + culledCount;
+        rs.InstancesDrawn     = instancesDrawn;
+        rs.BatchesDrawn       = runCount;
     }
 
     commandList->endMarker();
