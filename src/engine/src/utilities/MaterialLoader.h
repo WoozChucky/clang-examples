@@ -4,6 +4,8 @@
 #include <string>
 #include <cstdint>
 
+#include "Engine.h"
+
 // MaterialLoader utility for loading image files into RGBA8 pixel data
 // Uses stb_image library to support PNG, JPG, BMP, TGA, and other common formats
 namespace MaterialLoader
@@ -15,7 +17,7 @@ namespace MaterialLoader
     //   - width: image width in pixels
     //   - height: image height in pixels
     //   - error: error message if loading fails
-    bool LoadMaterialFromFile(
+    ENGINE_API bool LoadMaterialFromFile(
         const char* filePath,
         std::vector<uint32_t>& pixels,
         uint32_t& width,

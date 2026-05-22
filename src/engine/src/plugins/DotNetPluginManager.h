@@ -1,8 +1,9 @@
 #pragma once
 
+#include "Engine.h"
 #include "DotNetPluginHost.h"
 
-class DotNetPluginManager {
+class ENGINE_API DotNetPluginManager {
 private:
     struct PluginInstance {
         std::string Name;

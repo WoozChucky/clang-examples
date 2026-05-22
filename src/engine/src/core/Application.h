@@ -1,18 +1,19 @@
 #pragma once
 #include <optional>
 
+#include "Engine.h"
 #include "PlatformThread.h"
 #include "GameThread.h"
 #include "RenderThread.h"
 
-class Application {
+class ENGINE_API Application {
 public:
     Application() = default;
     ~Application() = default;
 
     // backendOverride: if set, replaces the persisted Settings.Backend
     // for this run only (no disk write).
-    bool Init(std::optional<RendererAPI> backendOverride = std::nullopt);
+    bool Init(std::optional<RendererAPI> backendOverride = std::nullopt, OverlayFactory overlayFactory = {});
 
     void Run();
 

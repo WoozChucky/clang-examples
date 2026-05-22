@@ -5,13 +5,14 @@
 
 #include <Game.h>  // GameState + GameUpdateFunc/GameResizeFunc/GameExitFunc/GameGetVersionFunc + GAME_API_VERSION
 #include "Systems.h"  // SystemScheduler + GameRegisterSystemsFunc
+#include "Engine.h"
 
 /**
  * @brief RAII wrapper around a dynamically-loaded Game.dll. Owns HMODULE,
  *        resolved symbol pointers, and the timestamped-copy filename actually
  *        loaded. Single-thread (GameThread) owner.
  */
-class GameLibrary {
+class ENGINE_API GameLibrary {
 public:
     GameLibrary() = default;
     ~GameLibrary();

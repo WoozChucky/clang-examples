@@ -5,6 +5,8 @@
 #include <mutex>
 #include <vector>
 
+#include "Engine.h"
+
 struct StagingPoolStats {
     size_t   Free;            // blocks currently on the free-list
     size_t   InUse;           // blocks handed out and not yet returned
@@ -88,15 +90,10 @@ private:
     size_t   m_FreeBytes     = 0;
 };
 
-// Single editor-wide instance. Non-leaked Meyers singleton: the app joins both threads
-// before static destruction, so no Acquire/Return races the destructor. Header-only inline
-// → one instance shared across the editor's translation units. Tests instantiate their own
-// local StagingBufferPool instead.
-inline StagingBufferPool& GetStagingPool() {
-    static StagingBufferPool pool;
-    return pool;
-}
-
-inline StagingPoolStats GetStagingPoolStats() {
-    return GetStagingPool().Stats();
-}
+// Process-wide staging pool. DEFINED in StagingBufferPool.cpp and exported from Engine.dll
+// so there is exactly ONE instance across the Engine.dll / editor.exe boundary. An inline
+// header definition gives each module its OWN function-local static, which left the editor's
+// Memory panel (editor.exe) reading an always-empty copy while the upload code (Engine.dll)
+// filled a different one. Tests instantiate their own local StagingBufferPool instead.
+ENGINE_API StagingBufferPool& GetStagingPool();
+ENGINE_API StagingPoolStats GetStagingPoolStats();

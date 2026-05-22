@@ -29,8 +29,8 @@ target_link_libraries(test_alloc PRIVATE
 )
 
 target_include_directories(test_alloc PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering/passes
-    ${CMAKE_SOURCE_DIR}/src/editor/src/threading
+    ${CMAKE_SOURCE_DIR}/src/engine/src/rendering/passes
+    ${CMAKE_SOURCE_DIR}/src/engine/src/rendering
 )
 
 set_target_properties(test_alloc PROPERTIES

@@ -3,7 +3,7 @@
 #include "lib.h"
 #include "utilities/SettingsManager.h"
 
-bool Application::Init(std::optional<RendererAPI> backendOverride) {
+bool Application::Init(std::optional<RendererAPI> backendOverride, OverlayFactory overlayFactory) {
     m_AppContext = std::make_shared<ApplicationContext>();
 
     // Load persisted settings (file may not exist; defaults stay in place).
@@ -34,7 +34,8 @@ bool Application::Init(std::optional<RendererAPI> backendOverride) {
     m_RenderThread = std::make_unique<RenderThread>(
         m_AppContext,
         m_PlatformThread->GetWindow(),
-        m_AppContext->Settings.Backend);
+        m_AppContext->Settings.Backend,
+        std::move(overlayFactory));
     return true;
 }
 

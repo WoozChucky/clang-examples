@@ -4,9 +4,10 @@
 #include <memory>
 #include <GLFW/glfw3.h>
 
+#include "Engine.h"
 #include "ApplicationContext.h"
 
-class PlatformThread {
+class ENGINE_API PlatformThread {
 public:
     explicit PlatformThread(const std::shared_ptr<ApplicationContext> &appContext);
     ~PlatformThread();

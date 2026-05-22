@@ -13,8 +13,8 @@
 
 #include <tracy/Tracy.hpp>
 
-RenderThread::RenderThread(const std::shared_ptr<ApplicationContext> &appContext, GLFWwindow* window, RendererAPI api)
-    : m_AppContext(appContext), m_Window(window), m_Running(true), m_API(api)
+RenderThread::RenderThread(const std::shared_ptr<ApplicationContext> &appContext, GLFWwindow* window, RendererAPI api, OverlayFactory overlayFactory)
+    : m_AppContext(appContext), m_Window(window), m_Running(true), m_API(api), m_OverlayFactory(std::move(overlayFactory))
 {
 }
 
@@ -218,6 +218,9 @@ void RenderThread::Stop()
 bool RenderThread::Initialize()
 {
     m_Renderer = std::make_unique<Renderer>(m_Window, m_AppContext.get());
+    if (m_OverlayFactory) {
+        m_Renderer->SetOverlay(m_OverlayFactory());
+    }
     if (!m_Renderer->Init(m_API)) {
         SM_ERROR("RenderThread: Initialize failed");
         return false;

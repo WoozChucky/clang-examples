@@ -74,9 +74,8 @@ bool Renderer::Init(const RendererAPI api) {
         m_MaterialSystem.Initialize(m_Device, missingMaterialTexture, defaultSampler);
     }
 
-    m_ImGuiRenderer = std::make_unique<ImGuiRenderer>();
-    if (!m_ImGuiRenderer->Init(m_Device, m_AppContext, &m_MeshSystem, &m_MaterialSystem, this)) {
-        SM_ERROR("Failed to initialize ImGuiRenderer");
+    if (m_Overlay && !m_Overlay->Init(m_Device, m_AppContext, &m_MeshSystem, &m_MaterialSystem, this)) {
+        SM_ERROR("Failed to initialize renderer overlay");
         return false;
     }
 
@@ -112,9 +111,13 @@ bool Renderer::Init(const RendererAPI api) {
 void Renderer::Shutdown(const uint32_t timeoutMs) {
     Engine::Registry().Unregister(&m_FrameAllocator);
 
-    if (m_ImGuiRenderer) {
-        m_ImGuiRenderer.reset();
-        m_ImGuiRenderer = nullptr;
+    if (m_Overlay) {
+        // reset() destroys the overlay, whose destructor performs teardown (e.g.
+        // ~ImGuiRenderer calls Shutdown()). Do NOT also call Shutdown() explicitly:
+        // ImGuiRenderer::Shutdown() unconditionally DestroyContext()s, so a double
+        // call null-derefs GImGui. RAII via reset() = single teardown, matching the
+        // pre-refactor behavior.
+        m_Overlay.reset();
     }
 
     m_GpuTimer.Cleanup();
@@ -199,7 +202,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 m_GpuTimer.Advance();
             }
 
-            m_ImGuiRenderer->Render(frameBuffer, deltaTime, snapshot, world, secs);
+            if (m_Overlay) m_Overlay->Render(frameBuffer, deltaTime, snapshot, world, secs);
 
             {
                 ZoneScopedN("Present");
@@ -327,8 +330,8 @@ void Renderer::TeardownForSwap()
 {
     // ImGui: drop only the NVRHI backend + device-bound preview resources;
     // keep the ImGui context (dock layout, fonts loaded from disk).
-    if (m_ImGuiRenderer) {
-        m_ImGuiRenderer->ShutdownNvrhiOnly();
+    if (m_Overlay) {
+        m_Overlay->OnDeviceLost();
     }
 
     m_GpuTimer.Cleanup();
@@ -396,8 +399,8 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     m_MaterialSystem.RecreateGpuResources(missingTex, defaultSampler);
 
     // ImGui NVRHI backend against the new device.
-    if (!m_ImGuiRenderer || !m_ImGuiRenderer->InitNvrhiForDevice(m_Device)) {
-        SM_ERROR("InitForSwap: ImGui re-init failed");
+    if (m_Overlay && !m_Overlay->OnDeviceReset(m_Device)) {
+        SM_ERROR("InitForSwap: overlay device reset failed");
         return false;
     }
 

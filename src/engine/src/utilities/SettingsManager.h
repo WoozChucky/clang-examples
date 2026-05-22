@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 
+#include "Engine.h"
 #include "ApplicationContext.h"
 
 namespace SettingsManager {
@@ -17,16 +18,16 @@ namespace SettingsManager {
     // - Parse error / malformed JSON → returns false, logs WARN, leaves `*out` untouched.
     // - Unknown `renderer.backend` value → WARN logged, `out->Backend` not changed.
     // - Unknown JSON keys → silently ignored.
-    bool Load(const std::string& filepath, ApplicationSettings* out);
+    ENGINE_API bool Load(const std::string& filepath, ApplicationSettings* out);
 
     // Serializes `settings` and writes JSON to `filepath`.
     // Returns false on any I/O failure (ofstream open / write error).
-    bool Save(const std::string& filepath, const ApplicationSettings& settings);
+    ENGINE_API bool Save(const std::string& filepath, const ApplicationSettings& settings);
 
     // Parse "vulkan"/"vk", "directx12"/"dx12", "directx11"/"dx11".
     // Case-insensitive. Returns RendererAPI::Invalid on unknown input.
-    RendererAPI ParseBackend(std::string_view name);
+    ENGINE_API RendererAPI ParseBackend(std::string_view name);
 
     // Returns canonical name: "vulkan", "directx12", "directx11", or "invalid".
-    const char* BackendToString(RendererAPI api);
+    ENGINE_API const char* BackendToString(RendererAPI api);
 }
