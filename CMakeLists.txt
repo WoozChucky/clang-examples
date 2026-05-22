@@ -31,9 +31,9 @@ add_subdirectory(src/engine)
 # game library
 add_subdirectory(src/game)
 
-# main application (does not link game or imgui_overlay)
+# runtime player application (does not link game; loads Game.dll at runtime)
 add_subdirectory(src/runtime)
-# editor application (does not link game or imgui_overlay)
+# editor application (does not link game; loads Game.dll at runtime)
 add_subdirectory(src/editor)
 
 # Tests
