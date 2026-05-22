@@ -9,6 +9,7 @@
 #include "SceneViewport.h"
 #include "StatsPanel.h"
 #include "MaterialManagerPanel.h"
+#include "MeshManagerPanel.h"
 #include "lib.h"
 
 class MeshSystem;
@@ -65,17 +66,6 @@ private:
     float    m_ViewportImageMinY = 0.0f;
     ImDrawList* m_ViewportDrawList = nullptr; // Viewport window draw list (ImGuizmo target; null when hidden)
 
-    // Mesh preview camera state
-    struct MeshPreviewState {
-        float cameraDistance = 3.0f;
-        float cameraYaw = 0.0f;
-        float cameraPitch = 0.3f;
-        bool isDragging = false;
-        float lastMouseX = 0.0f;
-        float lastMouseY = 0.0f;
-    };
-    MeshPreviewState m_MeshPreviewState;
-
     // Settings menu state — pending backend selection until user clicks Apply.
     // Initialized lazily on first menu open from m_AppContext->Settings.Backend.
     RendererAPI m_PendingBackend = RendererAPI::Invalid;
@@ -84,4 +74,5 @@ private:
 
     StatsPanel m_StatsPanel;
     MaterialManagerPanel m_MaterialManager;
+    MeshManagerPanel m_MeshManager;
 };
