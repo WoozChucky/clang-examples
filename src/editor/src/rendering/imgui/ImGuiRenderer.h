@@ -47,10 +47,6 @@ private:
     void TransformEnd();
     void EditTransform(float* cameraView, float* cameraProjection, float* matrix);
 
-    // File dialog helper (Windows native)
-    // Returns true if file was selected, false if cancelled
-    bool OpenFileDialog(char* outPath, size_t outPathSize, const char* filter);
-
 private:
     std::vector<std::shared_ptr<RegisteredFont>> m_fonts;
     std::unique_ptr<ImGui_NVRHI> m_ImGuiNvrhi;

@@ -21,6 +21,8 @@
 #include "MeshPreviewRenderer.h"
 #include "MemoryPanel.h"
 #include "RenderStatsPanel.h"
+#include "EditorContext.h"
+#include "EditorFileDialog.h"
 
 #include "ApplicationContext.h"
 #include "registered_font.h"
@@ -391,6 +393,17 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         // Load the ECS world snapshot atomically from ApplicationContext
         std::shared_ptr<const ECS> worldSnapshot = std::atomic_load(&m_AppContext->LatestWorldSnapshot);
+
+        EditorContext ctx;
+        ctx.App = m_AppContext;
+        ctx.MeshSys = m_MeshSystem;
+        ctx.MatSys = m_MaterialSystem;
+        ctx.Preview = m_MeshPreviewRenderer.get();
+        ctx.World = world;
+        ctx.WorldSnapshot = worldSnapshot;
+        ctx.Snapshot = &snapshot;
+        ctx.GpuFrameTimeMs = gpuFrameTimeMs;
+        (void)ctx; // consumed by panels in later tasks
 
         ImGui::PushFont(m_fonts[0]->GetScaledFont(), 14.f);
 
@@ -1466,7 +1479,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                                      "GLTF Files (*.gltf;*.glb)\0*.gltf;*.glb\0"
                                      "All Files (*.*)\0*.*\0\0";
 
-                if (OpenFileDialog(filePath, sizeof(filePath), filter)) {
+                if (EditorFileDialog::Open(filePath, sizeof(filePath), filter)) {
                     // File selected, load it using MeshLoader
                     std::vector<MeshVertex> vertices;
                     std::vector<uint32_t> indices;
@@ -1589,7 +1602,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                                      "HDR Files (*.hdr)\0*.hdr\0"
                                      "All Files (*.*)\0*.*\0\0";
 
-                if (OpenFileDialog(filePath, sizeof(filePath), filter)) {
+                if (EditorFileDialog::Open(filePath, sizeof(filePath), filter)) {
                     // File selected, load it using MaterialLoader
                     std::vector<uint32_t> pixels;
                     uint32_t width = 0;
@@ -1817,97 +1830,4 @@ void ImGuiRenderer::ProcessInputEvents() {
             }
         }
     }
-}
-
-bool ImGuiRenderer::OpenFileDialog(char* outPath, size_t outPathSize, const char* filter)
-{
-    if (!outPath || outPathSize == 0)
-        return false;
-
-    // Initialize COM (handle RPC_E_CHANGED_MODE specially so we don't uninit incorrectly)
-    bool needUninit = false;
-    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-    if (SUCCEEDED(hr)) {
-        needUninit = true;
-    } else if (hr == RPC_E_CHANGED_MODE) {
-        // COM already initialized with different threading model; proceed but don't call CoUninitialize
-        needUninit = false;
-    } else {
-        return false;
-    }
-
-    IFileOpenDialog* pDlg = nullptr;
-    hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDlg));
-    if (FAILED(hr) || !pDlg) {
-        if (needUninit) CoUninitialize();
-        return false;
-    }
-
-    // Parse the filter string: pairs of display\0pattern\0 ... terminated by extra \0
-    std::vector<std::wstring> holdWide; // keep wide strings alive
-    std::vector<COMDLG_FILTERSPEC> specs;
-    if (filter && filter[0]) {
-        const char* p = filter;
-        while (*p) {
-            std::string name(p);
-            p += name.size() + 1;
-            if (!*p) break;
-            std::string pattern(p);
-            p += pattern.size() + 1;
-
-            // Convert to wide (assume UTF-8 source)
-            int n = MultiByteToWideChar(CP_UTF8, 0, name.c_str(), -1, NULL, 0);
-            std::wstring wname(n, L'\0');
-            MultiByteToWideChar(CP_UTF8, 0, name.c_str(), -1, &wname[0], n);
-
-            n = MultiByteToWideChar(CP_UTF8, 0, pattern.c_str(), -1, NULL, 0);
-            std::wstring wpattern(n, L'\0');
-            MultiByteToWideChar(CP_UTF8, 0, pattern.c_str(), -1, &wpattern[0], n);
-
-            holdWide.push_back(std::move(wname));
-            holdWide.push_back(std::move(wpattern));
-            COMDLG_FILTERSPEC spec;
-            spec.pszName = holdWide[holdWide.size() - 2].c_str();
-            spec.pszSpec = holdWide[holdWide.size() - 1].c_str();
-            specs.push_back(spec);
-        }
-    }
-
-    if (!specs.empty()) {
-        pDlg->SetFileTypes(static_cast<UINT>(specs.size()), specs.data());
-        pDlg->SetFileTypeIndex(1);
-    }
-
-    // Options: require existing file / path and avoid changing current dir (similar to OFN flags used before)
-    DWORD options = 0;
-    if (SUCCEEDED(pDlg->GetOptions(&options))) {
-        options |= FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST | FOS_NOCHANGEDIR;
-        pDlg->SetOptions(options);
-    }
-
-    // Show dialog
-    hr = pDlg->Show(NULL);
-    bool result = false;
-    if (SUCCEEDED(hr)) {
-        IShellItem* pItem = nullptr;
-        hr = pDlg->GetResult(&pItem);
-        if (SUCCEEDED(hr) && pItem) {
-            PWSTR pszFilePath = nullptr;
-            hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
-            if (SUCCEEDED(hr) && pszFilePath) {
-                // Convert wide path to UTF-8 into outPath
-                int needed = WideCharToMultiByte(CP_UTF8, 0, pszFilePath, -1, NULL, 0, NULL, NULL);
-                if (needed > 0 && static_cast<size_t>(needed) <= outPathSize) {
-                    WideCharToMultiByte(CP_UTF8, 0, pszFilePath, -1, outPath, (int)outPathSize, NULL, NULL);
-                    result = true;
-                }
-                CoTaskMemFree(pszFilePath);
-            }
-            pItem->Release();
-        }
-    }
-
-    pDlg->Release();
-    if (needUninit) CoUninitialize();
-    return result;
 }
