@@ -31,9 +31,6 @@ add_subdirectory(src/engine)
 # game library
 add_subdirectory(src/game)
 
-# imgui custom overlay library
-add_subdirectory(src/overlay)
-
 # main application (does not link game or imgui_overlay)
 add_subdirectory(src/runtime)
 # editor application (does not link game or imgui_overlay)
