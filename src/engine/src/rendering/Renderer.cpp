@@ -176,18 +176,26 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 m_GpuTimer.Begin(m_CommandList);
             }
 
+            // Editor renders the scene into an overlay-provided offscreen target; runtime (no
+            // overlay, or overlay returns null) renders straight into the swapchain backbuffer.
+            nvrhi::IFramebuffer* sceneBuffer = m_Overlay ? m_Overlay->GetSceneFramebuffer(frameBuffer) : nullptr;
+            if (!sceneBuffer) sceneBuffer = frameBuffer;
+
             {
                 ZoneScopedN("RenderPasses");
-                static glm::vec4 ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-                const auto clearColor = nvrhi::Color(red, green, blue, ClearColor.a);
+                const auto sceneClear = nvrhi::Color(red, green, blue, 1.0f);
+                nvrhi::utils::ClearColorAttachment(m_CommandList, sceneBuffer, 0, sceneClear);
+                if (sceneBuffer != frameBuffer) {
+                    // Offscreen scene: clear the swapchain (dark) so the present surface is clean
+                    // behind the ImGui dockspace. Depth of sceneBuffer is cleared inside MeshRenderPass.
+                    nvrhi::utils::ClearColorAttachment(m_CommandList, frameBuffer, 0, nvrhi::Color(0.1f, 0.1f, 0.1f, 1.0f));
+                }
 
-                nvrhi::utils::ClearColorAttachment(m_CommandList, frameBuffer, 0, clearColor);
-
-                // Render all passes
+                // Render all passes into the scene buffer
                 for (auto& pass : m_RenderPasses) {
                     ZoneScopedN("RenderPass Rec N");
                     if (pass) {
-                        pass->Render(m_CommandList, frameBuffer, snapshot, world, deltaTime, &m_FrameAllocator);
+                        pass->Render(m_CommandList, sceneBuffer, snapshot, world, deltaTime, &m_FrameAllocator);
                     }
                 }
             }

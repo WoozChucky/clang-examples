@@ -141,6 +141,31 @@ static ImGuiKey GlfwKeyToImGuiKey(int key) {
     }
 }
 
+namespace {
+void BuildDefaultDockLayout(ImGuiID dockId)
+{
+    ImGui::DockBuilderRemoveNode(dockId);
+    ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockId, ImGui::GetMainViewport()->WorkSize);
+
+    ImGuiID center = dockId;
+    ImGuiID left   = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left,  0.20f, nullptr, &center);
+    ImGuiID right  = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f, nullptr, &center);
+    ImGuiID leftBottom  = ImGui::DockBuilderSplitNode(left,  ImGuiDir_Down, 0.5f, nullptr, &left);
+    ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.5f, nullptr, &right);
+
+    ImGui::DockBuilderDockWindow("Mesh Manager",           left);
+    ImGui::DockBuilderDockWindow("Material Manager",       left);
+    ImGui::DockBuilderDockWindow("Hello, world!",          leftBottom);
+    ImGui::DockBuilderDockWindow("ECS Inspector & Editor", right);
+    ImGui::DockBuilderDockWindow("Render Stats",           rightBottom);
+    ImGui::DockBuilderDockWindow("Memory",                 rightBottom);
+    ImGui::DockBuilderDockWindow("Viewport",               center);
+
+    ImGui::DockBuilderFinish(dockId);
+}
+} // namespace
+
 bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem, Renderer* renderer) {
     m_AppContext = appContext;
     m_MeshSystem = meshSystem;
@@ -197,6 +222,8 @@ bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext,
         SM_ERROR("ImGuiRenderer::Init: Failed to initialize MeshPreviewRenderer");
         m_MeshPreviewRenderer.reset();
     }
+
+    m_SceneViewport.Init(device);
 
     CreateFontFromFile("assets/LiberationSans-Regular.ttf", 14.f);
 
@@ -314,17 +341,15 @@ void ImGuiRenderer::TransformEnd()
 
 void ImGuiRenderer::EditTransform(float* cameraView, float* cameraProjection, float* matrix)
 {
-    ImGuiIO& io = ImGui::GetIO();
-    const auto windowWidth = ImGui::GetWindowWidth();
-    const auto windowHeight = ImGui::GetWindowHeight();
-    if (!m_GizmoUseWindow)
-    {
-        ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-    }
-    else
-    {
-        ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
-    }
+    // The scene is rendered into the dockable "Viewport" panel, so the gizmo must map to that
+    // panel's screen rect (captured during the Viewport draw earlier this frame) and draw on the
+    // foreground draw list so it appears on top of the scene image — not the inspector window the
+    // call originates from. Skip when the Viewport is collapsed/zero-sized.
+    if (!m_ViewportDrawList || m_LastViewportW < 1 || m_LastViewportH < 1)
+        return;
+    ImGuizmo::SetDrawlist(m_ViewportDrawList);
+    ImGuizmo::SetRect(m_ViewportImageMinX, m_ViewportImageMinY,
+                      static_cast<float>(m_LastViewportW), static_cast<float>(m_LastViewportH));
     ImGuizmo::Manipulate(cameraView, cameraProjection, m_GizmoOperation, m_GizmoMode, matrix, nullptr, m_GizmoUseSnap ? &m_GizmoSnap[0] : nullptr);
 }
 
@@ -368,6 +393,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         std::shared_ptr<const ECS> worldSnapshot = std::atomic_load(&m_AppContext->LatestWorldSnapshot);
 
         ImGui::PushFont(m_fonts[0]->GetScaledFont(), 14.f);
+
+        static bool s_LayoutInitialized = false;
+        static bool s_ResetLayout = false;
 
         // Main Menu Bar (File / Edit / About) with placeholder items
         if (ImGui::BeginMainMenuBar())
@@ -473,17 +501,63 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("View"))
+            {
+                if (ImGui::MenuItem("Reset Layout")) { s_ResetLayout = true; }
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMainMenuBar();
         }
 
         // Dockspace covering the full work area (no banner offset in Phase B).
-        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+        const ImGuiID dockId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+        if (s_ResetLayout || !s_LayoutInitialized)
+        {
+            ImGuiDockNode* node = ImGui::DockBuilderGetNode(dockId);
+            // Build when explicitly reset, or on first run when there is no saved split layout
+            // (fresh install / no imgui.ini). An existing user layout is otherwise preserved.
+            if (s_ResetLayout || node == nullptr || !node->IsSplitNode())
+                BuildDefaultDockLayout(dockId);
+            s_LayoutInitialized = true;
+            s_ResetLayout = false;
+        }
 
         static bool s_ShowMemoryPanel = true;
         DrawMemoryPanel(&s_ShowMemoryPanel, world);
 
         static bool s_ShowRenderStatsPanel = true;
         DrawRenderStatsPanel(&s_ShowRenderStatsPanel);
+
+        // Scene viewport: shows the offscreen scene RT. Zero padding so the image fills the panel.
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        // NoMove so a click on the image body doesn't start a window-move (which sets an active
+        // id and blocks ImGuizmo::CanActivate -> the gizmo wouldn't be draggable). The tab can
+        // still be dragged to redock.
+        m_ViewportDrawList = nullptr;
+        if (ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoMove))
+        {
+            const ImVec2 avail = ImGui::GetContentRegionAvail();
+            const ImVec2 imgPos = ImGui::GetCursorScreenPos(); // image top-left in screen space (zero padding)
+            m_ViewportImageMinX = imgPos.x;
+            m_ViewportImageMinY = imgPos.y;
+            m_LastViewportW = static_cast<uint32_t>(avail.x > 1.0f ? avail.x : 1.0f);
+            m_LastViewportH = static_cast<uint32_t>(avail.y > 1.0f ? avail.y : 1.0f);
+            // ImGuizmo hover-tests via the draw list's owner window (FindWindowByName), so it must
+            // target THIS "Viewport" window's draw list — the foreground draw list has no owner
+            // window and would make ImGuizmo think the mouse is never over the gizmo.
+            m_ViewportDrawList = ImGui::GetWindowDrawList();
+            if (nvrhi::ITexture* sceneTex = m_SceneViewport.ColorTexture())
+                ImGui::Image(reinterpret_cast<ImTextureID>(sceneTex), avail);
+        }
+        ImGui::End();
+        ImGui::PopStyleVar();
+
+        // Publish the panel size for the GameThread (camera aspect + UI ortho).
+        if (m_AppContext)
+            m_AppContext->SceneViewportSize.store(
+                (static_cast<uint64_t>(m_LastViewportW) << 32) | static_cast<uint64_t>(m_LastViewportH),
+                std::memory_order_relaxed);
 
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
@@ -1588,6 +1662,22 @@ ImGuiRenderer::~ImGuiRenderer() {
     Shutdown();
 }
 
+nvrhi::IFramebuffer* ImGuiRenderer::GetSceneFramebuffer(nvrhi::IFramebuffer* swapChainFb)
+{
+    if (!swapChainFb)
+        return nullptr;
+
+    const auto& info = swapChainFb->getFramebufferInfo();
+    const nvrhi::Format colorFormat = info.colorFormats[0];
+    const uint32_t      sampleCount = info.sampleCount;
+
+    // Frame 1 (before the Viewport panel has reported a size): default to the swapchain size.
+    const uint32_t w = m_LastViewportW ? m_LastViewportW : info.width;
+    const uint32_t h = m_LastViewportH ? m_LastViewportH : info.height;
+
+    return m_SceneViewport.EnsureTargets(w, h, colorFormat, sampleCount);
+}
+
 void ImGuiRenderer::Shutdown() {
     m_ImGuiNvrhi.reset();
     m_ImGuiNvrhi = nullptr;
@@ -1597,6 +1687,8 @@ void ImGuiRenderer::Shutdown() {
         m_MeshPreviewRenderer->Shutdown();
         m_MeshPreviewRenderer.reset();
     }
+
+    m_SceneViewport.Release();
 
     m_MeshSystem = nullptr;
     m_MaterialSystem = nullptr;
@@ -1608,6 +1700,7 @@ void ImGuiRenderer::ShutdownNvrhiOnly() {
     if (m_MeshPreviewRenderer) {
         m_MeshPreviewRenderer.reset();
     }
+    m_SceneViewport.Release();
     if (m_ImGuiNvrhi) {
         m_ImGuiNvrhi.reset();
     }
@@ -1631,6 +1724,8 @@ bool ImGuiRenderer::InitNvrhiForDevice(nvrhi::IDevice* device) {
         m_MeshPreviewRenderer.reset();
         // Non-fatal: preview just won't render. Continue.
     }
+
+    m_SceneViewport.Init(device);
 
     // Re-upload the font atlas against the new device.
     m_ImGuiNvrhi->updateFontTexture();

@@ -10,6 +10,7 @@ add_executable(editor
     src/rendering/imgui/MeshPreviewRenderer.cpp
     src/rendering/imgui/MemoryPanel.cpp
     src/rendering/imgui/RenderStatsPanel.cpp
+    src/rendering/imgui/SceneViewport.cpp
     src/rendering/imgui/ImGuiOverlay.cpp
 )
 
