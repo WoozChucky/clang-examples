@@ -7,6 +7,7 @@
 
 #include "imgui_nvrhi.h"
 #include "SceneViewport.h"
+#include "StatsPanel.h"
 #include "lib.h"
 
 class MeshSystem;
@@ -79,4 +80,6 @@ private:
     RendererAPI m_PendingBackend = RendererAPI::Invalid;
     bool        m_PendingBackendInitialized = false;
     std::string m_SettingsSaveError;          // empty when no error
+
+    StatsPanel m_StatsPanel;
 };
