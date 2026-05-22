@@ -24,6 +24,12 @@ public:
     virtual void Shutdown() = 0;
     virtual void OnDeviceLost() = 0;                        // hot-swap: drop device-bound state
     virtual bool OnDeviceReset(nvrhi::IDevice* device) = 0; // hot-swap: rebuild against new device
+
+    // Optional: the framebuffer the gameplay passes should render into (e.g. an editor's
+    // offscreen viewport target). Return null to render directly to the swapchain — the default,
+    // used by the stripped runtime. `swapChainFb` is supplied so an implementation can match its
+    // offscreen color format + sample count to the swapchain (keeping pass pipelines compatible).
+    virtual nvrhi::IFramebuffer* GetSceneFramebuffer(nvrhi::IFramebuffer* swapChainFb) { return nullptr; }
 };
 
 // Factory the host supplies so the renderer can create its overlay on the RenderThread.
