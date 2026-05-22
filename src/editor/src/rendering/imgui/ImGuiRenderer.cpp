@@ -1,25 +1,19 @@
 ﻿#include "ImGuiRenderer.h"
 
 #include <fstream>
-#include <cstdio>
 #include <vector>
-#include <string>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <ImGuizmo.h>
-#include <glm/gtc/type_ptr.hpp>
 
 #include "MeshSystem.h"
 #include "MaterialSystem.h"
-#include "MeshLoader.h"
-#include "MaterialLoader.h"
 #include "MeshPreviewRenderer.h"
 #include "MemoryPanel.h"
 #include "RenderStatsPanel.h"
 #include "EditorContext.h"
-#include "EditorFileDialog.h"
 #include "StatsPanel.h"
 #include "MaterialManagerPanel.h"
 #include "MeshManagerPanel.h"
@@ -28,8 +22,6 @@
 
 #include "ApplicationContext.h"
 #include "registered_font.h"
-#include "WorldManager.h"
-#include "SettingsManager.h"
 #include "tracy/Tracy.hpp"
 
 

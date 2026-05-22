@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <string>
 #include <nvrhi/nvrhi.h>
 #include <GLFW/glfw3.h>
 
