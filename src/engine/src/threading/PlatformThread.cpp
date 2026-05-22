@@ -6,6 +6,7 @@
 
 #include "lib.h"
 #include "Timing.h"
+#include "InputRouting.h"
 
 #include <tracy/Tracy.hpp>
 
@@ -91,16 +92,26 @@ void PlatformThread::Stop() {
     m_Running.store(false, std::memory_order_relaxed);
 }
 
+// Push to game thread (gated: editor routes scene input only when the Viewport wants it;
+// cursor-lock/play mode routes everything; ImGui always gets the event regardless).
+bool PlatformThread::ShouldRouteToGame(InputEventType type) const
+{
+    return RouteInputToGame(type, m_CursorLocked,
+                            m_AppContext->GameAcceptsMouse.load(std::memory_order_relaxed),
+                            m_AppContext->GameAcceptsKeyboard.load(std::memory_order_relaxed));
+}
+
 void PlatformThread::OnCursorPositionCallback(double x, double y) {
     InputEvent ev{};
     ev.Type = InputEventType::MouseMove;
     ev.Time = TimeNowSec();
     ev.MouseMoveEvent.X = x; ev.MouseMoveEvent.Y = y;
 
-    // Push to game thread
-    if (!m_AppContext->InputRing.Push(ev)) {
-        // drop if full (in real engine you'd grow ring or backpressure)
-        SM_WARN("InputRing full, dropping evt");
+    // Push to game thread (gated)
+    if (ShouldRouteToGame(ev.Type)) {
+        if (!m_AppContext->InputRing.Push(ev)) {
+            SM_WARN("InputRing full, dropping evt");
+        }
     }
 
     // Push to ImGui (renderer thread)
@@ -116,9 +127,11 @@ void PlatformThread::OnMouseButtonCallback(int button, int action, int mods) {
     ev.MouseButtonEvent.Button = static_cast<Button>(button);
     ev.MouseButtonEvent.Action = static_cast<InputAction>(action);
 
-    // Push to game thread
-    if (!m_AppContext->InputRing.Push(ev)) {
-        SM_WARN("InputRing full, dropping evt");
+    // Push to game thread (gated)
+    if (ShouldRouteToGame(ev.Type)) {
+        if (!m_AppContext->InputRing.Push(ev)) {
+            SM_WARN("InputRing full, dropping evt");
+        }
     }
 
     // Push to ImGui (renderer thread)
@@ -134,9 +147,11 @@ void PlatformThread::OnMouseWheelCallback(double offsetX, double offsetY) {
     ev.MouseScrollEvent.OffsetX = offsetX;
     ev.MouseScrollEvent.OffsetY = offsetY;
 
-    // Push to game thread
-    if (!m_AppContext->InputRing.Push(ev)) {
-        SM_WARN("InputRing full, dropping evt");
+    // Push to game thread (gated)
+    if (ShouldRouteToGame(ev.Type)) {
+        if (!m_AppContext->InputRing.Push(ev)) {
+            SM_WARN("InputRing full, dropping evt");
+        }
     }
 
     // Push to ImGui (renderer thread)
@@ -153,9 +168,11 @@ void PlatformThread::OnKeyCallback(int key, int scancode, int action, int mods) 
     ev.KeyEvent.Action = static_cast<InputAction>(action);
     ev.KeyEvent.Modifier = static_cast<KeyModifier>(mods);
 
-    // Push to game thread
-    if (!m_AppContext->InputRing.Push(ev)) {
-        SM_WARN("InputRing full, dropping evt");
+    // Push to game thread (gated)
+    if (ShouldRouteToGame(ev.Type)) {
+        if (!m_AppContext->InputRing.Push(ev)) {
+            SM_WARN("InputRing full, dropping evt");
+        }
     }
 
     // Push to ImGui (renderer thread)
@@ -164,15 +181,11 @@ void PlatformThread::OnKeyCallback(int key, int scancode, int action, int mods) 
     }
 
     if (key == GLFW_KEY_T && action == GLFW_PRESS) {
-        // Example: toggle cursor mode on T key
-        const int mode = glfwGetInputMode(m_Window, GLFW_CURSOR);
-        if (mode == GLFW_CURSOR_NORMAL) {
-            glfwSetInputMode(m_Window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            SM_TRACE("Cursor disabled");
-        } else {
-            glfwSetInputMode(m_Window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-            SM_TRACE("Cursor normal");
-        }
+        // Toggle cursor lock: DISABLED = play/FPS mode (game owns all input), NORMAL = editor.
+        m_CursorLocked = !m_CursorLocked;
+        glfwSetInputMode(m_Window, GLFW_CURSOR,
+                         m_CursorLocked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+        SM_TRACE(m_CursorLocked ? "Cursor disabled" : "Cursor normal");
     }
 
     if (key == GLFW_KEY_F5 && action == GLFW_PRESS) {
@@ -190,9 +203,11 @@ void PlatformThread::OnTextInputCallback(unsigned int code) {
     ev.Time = TimeNowSec();
     ev.TextEvent.Key = code;
 
-    // Push to game thread
-    if (!m_AppContext->InputRing.Push(ev)) {
-        SM_WARN("InputRing full, dropping evt");
+    // Push to game thread (gated)
+    if (ShouldRouteToGame(ev.Type)) {
+        if (!m_AppContext->InputRing.Push(ev)) {
+            SM_WARN("InputRing full, dropping evt");
+        }
     }
 
     // Push to ImGui (renderer thread)

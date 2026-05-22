@@ -144,6 +144,12 @@ struct ApplicationContext {
     // camera aspect + UI ortho. The runtime never writes it, so it keeps the full-window aspect.
     std::atomic<uint64_t> SceneViewportSize{0};
 
+    // Editor input routing (RenderThread writes, PlatformThread reads). Default true so the
+    // runtime and the editor's first frame route all input to the game; the editor overlay
+    // overwrites these every frame from the Viewport panel's hover/focus + ImGui capture state.
+    std::atomic<bool> GameAcceptsMouse{true};
+    std::atomic<bool> GameAcceptsKeyboard{true};
+
     // Input: Platform -> Game
     static constexpr int InputRingSize = 256;
     SpscRing<InputEvent, InputRingSize> InputRing{};

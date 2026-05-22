@@ -307,6 +307,8 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         // id and blocks ImGuizmo::CanActivate -> the gizmo wouldn't be draggable). The tab can
         // still be dragged to redock.
         m_ViewportDrawList = nullptr;
+        m_ViewportHovered = false;
+        m_ViewportFocused = false;
         if (ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoMove))
         {
             const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -319,6 +321,8 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
             // target THIS "Viewport" window's draw list — the foreground draw list has no owner
             // window and would make ImGuizmo think the mouse is never over the gizmo.
             m_ViewportDrawList = ImGui::GetWindowDrawList();
+            m_ViewportHovered = ImGui::IsWindowHovered();
+            m_ViewportFocused = ImGui::IsWindowFocused();
             if (nvrhi::ITexture* sceneTex = m_SceneViewport.ColorTexture())
                 ImGui::Image(reinterpret_cast<ImTextureID>(sceneTex), avail);
         }
@@ -347,6 +351,16 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         m_MeshManager.Draw(ctx);
 
         m_MaterialManager.Draw(ctx);
+
+        // Publish input-routing flags for the PlatformThread: the game gets mouse only when the
+        // Viewport is hovered (and no gizmo drag), keyboard only when it's focused (and no text
+        // field is active). Computed after the panels so ImGui's WantTextInput is up to date.
+        if (m_AppContext) {
+            m_AppContext->GameAcceptsMouse.store(m_ViewportHovered && !ImGuizmo::IsUsing(),
+                                                 std::memory_order_relaxed);
+            m_AppContext->GameAcceptsKeyboard.store(m_ViewportFocused && !io.WantTextInput,
+                                                    std::memory_order_relaxed);
+        }
 
         ImGui::PopFont();
     }
