@@ -139,6 +139,11 @@ struct ApplicationContext {
     std::atomic<bool> SwapInProgress{false};
     std::atomic<bool> GameThreadPaused{false};
 
+    // Editor scene-viewport size, packed (width<<32 | height). 0 => use the OS window size.
+    // Written by the editor overlay (RenderThread) each frame; read by the GameThread for the
+    // camera aspect + UI ortho. The runtime never writes it, so it keeps the full-window aspect.
+    std::atomic<uint64_t> SceneViewportSize{0};
+
     // Input: Platform -> Game
     static constexpr int InputRingSize = 256;
     SpscRing<InputEvent, InputRingSize> InputRing{};

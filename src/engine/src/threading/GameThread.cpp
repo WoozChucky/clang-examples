@@ -375,8 +375,9 @@ void GameThread::RunLoop() {
 
 			// Keep Viewport + UI camera synced to the window each tick (cheap;
 			// removes the need for a separate resize signal).
-			const uint32_t vw = m_AppContext->Settings.windowWidth;
-			const uint32_t vh = m_AppContext->Settings.windowHeight;
+			const uint64_t sv = m_AppContext->SceneViewportSize.load(std::memory_order_relaxed);
+			const uint32_t vw = sv ? uint32_t(sv >> 32) : m_AppContext->Settings.windowWidth;
+			const uint32_t vh = sv ? uint32_t(sv & 0xffffffffu) : m_AppContext->Settings.windowHeight;
 			gameState.World.ModifySingleton<ViewportComponent>([&](ViewportComponent& v){ v.Width = vw; v.Height = vh; });
 			gameState.World.ModifySingleton<UICameraComponent>([&](UICameraComponent& ui){
 				ui.Projection = glm::orthoRH_ZO(0.0f, float(vw), float(vh), 0.0f, -1.0f, 1.0f);
