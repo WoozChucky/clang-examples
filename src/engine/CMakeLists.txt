@@ -1,19 +1,104 @@
+set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE_EXPERIMENTAL;")
+
 add_library(Engine SHARED
+    # Allocator toolkit (original Engine sources)
     src/MemoryCategory.cpp
     src/AllocatorRegistry.cpp
+
+    # Core
+    src/core/Application.cpp
+
+    # Threading
+    src/threading/PlatformThread.cpp
+    src/threading/GameThread.cpp
+    src/threading/RenderThread.cpp
+    src/threading/GameLibrary.cpp
+
+    # Rendering
+    src/rendering/Renderer.cpp
+    src/rendering/RendererBackend.cpp
+
+    # Rendering Systems
+    src/rendering/MeshSystem.cpp
+    src/rendering/MaterialSystem.cpp
+
+    # Rendering Backends
+    src/rendering/backends/RendererBackendDX12.cpp
+    src/rendering/backends/RendererBackendVulkan.cpp
+
+    # Rendering Passes
+    src/rendering/passes/PrimitiveRenderPass.cpp
+    src/rendering/passes/MeshRenderPass.cpp
+    src/rendering/passes/UiRenderPass.cpp
+
+    # Shader Compilation
+    src/rendering/shader/ShaderCompiler.cpp
+
+    # Plugins
+    src/plugins/DotNetPluginManager.cpp
+    src/plugins/DotNetPluginHost.cpp
+
+    # Utilities
+    src/utilities/MeshLoader.cpp
+    src/utilities/MaterialLoader.cpp
+    src/utilities/WorldManager.cpp
+    src/utilities/SettingsManager.cpp
+
+    # Third-party
+    src/tiny_obj_loader.cpp
 )
 
-target_include_directories(Engine PUBLIC include)
+target_include_directories(Engine PUBLIC
+    include
+    src
+    src/core
+    src/threading
+    src/rendering
+    src/rendering/backends
+    src/rendering/passes
+    src/rendering/shader
+    src/plugins
+    src/utilities
+    ${CMAKE_SOURCE_DIR}/third_party/dotnet/include
+)
 
-target_link_libraries(Engine PUBLIC
-    CommonHeaders
+target_compile_definitions(Engine PUBLIC
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+    GLFW_INCLUDE_VULKAN
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
 )
 
 target_compile_definitions(Engine PRIVATE
     ENGINE_EXPORTS
-    NOMINMAX
-    WIN32_LEAN_AND_MEAN
 )
+
+target_link_libraries(Engine PUBLIC
+    CommonHeaders
+    GameHeaders
+    ecs
+    glm::glm
+    glfw
+    freetype
+    Tracy::TracyClient
+    nvrhi
+    nvrhi_d3d12
+    nvrhi_d3d11
+    nvrhi_vk
+    d3dcompiler
+    dxgi
+    dxcompiler
+    assimp::assimp
+    nlohmann_json::nlohmann_json
+    ${CMAKE_SOURCE_DIR}/third_party/dotnet/lib/nethost.lib
+)
+if (TARGET Vulkan-Headers)
+    target_link_libraries(Engine PUBLIC Vulkan-Headers)
+elseif (TARGET Vulkan::Headers)
+    target_link_libraries(Engine PUBLIC Vulkan::Headers)
+endif()
 
 set_target_properties(Engine PROPERTIES
     OUTPUT_NAME Engine
@@ -28,3 +113,26 @@ if(MSVC)
     set_property(TARGET Engine PROPERTY MSVC_DEBUG_INFORMATION_FORMAT
                  $<$<CONFIG:Debug>:Embedded>)
 endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(Engine PRIVATE -Wno-switch -Wno-writable-strings -Wno-sign-compare -Wno-deprecated-declarations -Wno-format-security -Wmissing-braces)
+endif()
+
+# Game.dll is loaded dynamically at runtime via GameLibrary; Engine must NOT
+# link it. Build-order dependency only so Game.dll exists before Engine runs.
+add_dependencies(Engine game)
+
+# Copy runtime DLLs into the shared output dir so any executable that loads
+# Engine.dll (editor or future runtime) finds them.
+add_custom_command(TARGET Engine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/nethost.dll
+    ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/hostfxr.dll
+    $<TARGET_FILE_DIR:Engine>
+)
+
+add_custom_command(TARGET Engine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_SOURCE_DIR}/third_party/dxc-prebuilt/bin/x64/dxcompiler.dll"
+    $<TARGET_FILE_DIR:Engine>
+)

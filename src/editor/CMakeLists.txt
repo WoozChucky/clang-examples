@@ -1,71 +1,25 @@
+set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE_EXPERIMENTAL;")
+
 add_executable(editor
     src/main.cpp
-    src/tiny_obj_loader.cpp
 
-    # Core
-    src/core/Application.cpp
-    
-    # Threading
-    src/threading/PlatformThread.cpp
-    src/threading/GameThread.cpp
-    src/threading/RenderThread.cpp
-    src/threading/GameLibrary.cpp
-    
-    # Rendering
-    src/rendering/Renderer.cpp
-    src/rendering/RendererBackend.cpp
-        
-    #ImGui
+    # ImGui editor layer (editor-only; never compiled into Engine)
     src/rendering/imgui/ImGuiRenderer.cpp
     src/rendering/imgui/imgui_nvrhi.cpp
     src/rendering/imgui/registered_font.cpp
     src/rendering/imgui/MeshPreviewRenderer.cpp
     src/rendering/imgui/MemoryPanel.cpp
     src/rendering/imgui/ImGuiOverlay.cpp
-
-    # Shader Compilation
-    src/rendering/shader/ShaderCompiler.cpp
-        
-    # Rendering Systems
-    src/rendering/MeshSystem.cpp
-    src/rendering/MaterialSystem.cpp
-
-    # Rendering Backends
-    src/rendering/backends/RendererBackendDX12.cpp
-    src/rendering/backends/RendererBackendVulkan.cpp
-
-    # Rendering Passes
-    src/rendering/passes/UiRenderPass.cpp
-    src/rendering/passes/PrimitiveRenderPass.cpp
-    src/rendering/passes/MeshRenderPass.cpp
-
-    # Plugins
-    src/plugins/DotNetPluginHost.cpp
-    src/plugins/DotNetPluginManager.cpp
-    
-    # Utilities
-    src/utilities/MeshLoader.cpp
-    src/utilities/MaterialLoader.cpp
-    src/utilities/WorldManager.cpp
-    src/utilities/SettingsManager.cpp
-    
-    # Third-party (keep Tracy here for now)
-    ../../third_party/tracy/public/TracyClient.cpp
 )
 
-# Add all subdirectories to include paths for cleaner includes
-target_include_directories(editor PRIVATE 
+# Editor include paths. Engine headers (Renderer.h, IOverlay.h, MeshSystem.h,
+# etc.) are inherited transitively via Engine's PUBLIC include dirs.
+target_include_directories(editor PRIVATE
     src
-    src/core
-    src/threading
     src/rendering
-    src/plugins
-    src/utilities
 )
 
-set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE_EXPERIMENTAL;")
-
-target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES} GLFW_INCLUDE_VULKAN) 
+target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES} GLFW_INCLUDE_VULKAN)
 # TRACY_ENABLE TRACY_ON_DEMAND
 
 # Allocation tracker flag: ENABLE_ALLOC_TRACKER can be ON, OFF or AUTO (default)
@@ -78,7 +32,25 @@ elseif(ENABLE_ALLOC_TRACKER STREQUAL "AUTO")
     # target_compile_definitions(editor PRIVATE $<$<CONFIG:Debug>:ALLOC_TRACKER_ENABLED>)
 endif()
 
-target_link_libraries(editor PRIVATE CommonHeaders GameHeaders ecs Engine freetype Tracy::TracyClient glm::glm glfw nvrhi nvrhi_d3d12 nvrhi_d3d11 d3dcompiler dxgi dxcompiler nvrhi_vk imgui ImGuizmo assimp::assimp nlohmann_json::nlohmann_json)
+target_link_libraries(editor PRIVATE
+    Engine
+    ecs
+    CommonHeaders
+    GameHeaders
+    glm::glm
+    glfw
+    nvrhi
+    nvrhi_d3d12
+    nvrhi_d3d11
+    nvrhi_vk
+    d3dcompiler
+    dxgi
+    dxcompiler
+    imgui
+    ImGuizmo
+    freetype
+    Tracy::TracyClient
+)
 if (TARGET Vulkan-Headers)
     target_link_libraries(editor PRIVATE Vulkan-Headers)
 elseif (TARGET Vulkan::Headers)
@@ -95,30 +67,6 @@ set_target_properties(editor PROPERTIES
 add_custom_command(TARGET editor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/assets ${RUNTIME_DIR}/assets
-)
-
-# Add .NET hosting include directory
-target_include_directories(editor PRIVATE
-    ${CMAKE_SOURCE_DIR}/third_party/dotnet/include
-)
-
-# Link against nethost
-target_link_libraries(editor PRIVATE
-    ${CMAKE_SOURCE_DIR}/third_party/dotnet/lib/nethost.lib
-)
-
-# Copy runtime DLLs to output directory
-add_custom_command(TARGET editor POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/nethost.dll
-    ${CMAKE_SOURCE_DIR}/third_party/dotnet/bin/hostfxr.dll
-    $<TARGET_FILE_DIR:editor>
-)
-
-add_custom_command(TARGET editor POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${CMAKE_SOURCE_DIR}/third_party/dxc-prebuilt/bin/x64/dxcompiler.dll"
-    $<TARGET_FILE_DIR:editor>
 )
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
