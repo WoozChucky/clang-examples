@@ -1,27 +1,10 @@
-# The legacy src/runtime/src/* sources (deleted in task B2) still sit on disk
-# next to main.cpp. One of them, renderer.h, includes the legacy render.h, which
-# redefines camera structs already provided by the engine's Camera.h. MSVC's
-# quoted #include search looks in the directory of the translation unit's source
-# BEFORE the -I list, so Engine's RenderThread.h -> #include "Renderer.h" would
-# resolve to src/runtime/src/renderer.h (case-insensitive match) instead of the
-# engine's Renderer.h, dragging in render.h and breaking the build.
-#
-# To keep the legacy files untouched (per task B1) while building a clean TU, we
-# compile a copy of main.cpp placed in the build tree, whose directory contains
-# no shadowing headers. configure_file re-copies whenever main.cpp changes.
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
-    "${CMAKE_CURRENT_BINARY_DIR}/main.cpp"
-    COPYONLY
-)
-
 add_executable(runtime
-    "${CMAKE_CURRENT_BINARY_DIR}/main.cpp"
+    src/main.cpp
 )
 
-# src/runtime/src is intentionally NOT on the include path either. main.cpp only
-# needs Engine/common/game headers (inherited transitively via the linked
-# targets below).
+target_include_directories(runtime PRIVATE
+    src
+)
 
 target_compile_definitions(runtime PRIVATE
     NOMINMAX
@@ -62,6 +45,7 @@ set_target_properties(runtime PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${RUNTIME_DIR}"
 )
 
+# Clang front-end only: these are gcc/clang-style warning suppressions; MSVC cl rejects them.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(runtime PRIVATE -Wno-switch -Wno-writable-strings -Wno-sign-compare -Wno-deprecated-declarations -Wno-format-security -Wmissing-braces)
 endif()
