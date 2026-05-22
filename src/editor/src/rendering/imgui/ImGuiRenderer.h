@@ -11,6 +11,7 @@
 #include "MaterialManagerPanel.h"
 #include "MeshManagerPanel.h"
 #include "EcsInspectorPanel.h"
+#include "MainMenuBar.h"
 #include "lib.h"
 
 class MeshSystem;
@@ -62,12 +63,7 @@ private:
     float    m_ViewportImageMinY = 0.0f;
     ImDrawList* m_ViewportDrawList = nullptr; // Viewport window draw list (ImGuizmo target; null when hidden)
 
-    // Settings menu state — pending backend selection until user clicks Apply.
-    // Initialized lazily on first menu open from m_AppContext->Settings.Backend.
-    RendererAPI m_PendingBackend = RendererAPI::Invalid;
-    bool        m_PendingBackendInitialized = false;
-    std::string m_SettingsSaveError;          // empty when no error
-
+    MainMenuBar m_MenuBar;
     StatsPanel m_StatsPanel;
     MaterialManagerPanel m_MaterialManager;
     MeshManagerPanel m_MeshManager;

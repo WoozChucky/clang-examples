@@ -24,6 +24,7 @@
 #include "MaterialManagerPanel.h"
 #include "MeshManagerPanel.h"
 #include "EcsInspectorPanel.h"
+#include "MainMenuBar.h"
 
 #include "ApplicationContext.h"
 #include "registered_font.h"
@@ -287,118 +288,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         static bool s_LayoutInitialized = false;
         static bool s_ResetLayout = false;
 
-        // Main Menu Bar (File / Edit / About) with placeholder items
-        if (ImGui::BeginMainMenuBar())
-        {
-            if (ImGui::BeginMenu("File"))
-            {
-                if (ImGui::MenuItem("New", "Ctrl+N")) { /* no-op */ }
-                if (ImGui::MenuItem("Open...", "Ctrl+O")) { /* no-op */ }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Save", "Ctrl+S") && worldSnapshot) {
-                    WorldManager::SaveWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, worldSnapshot.get());
-                }
-                if (ImGui::MenuItem("Save As...")) { /* no-op */ }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Exit")) { /* no-op */ }
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Edit"))
-            {
-                if (ImGui::MenuItem("Undo", "Ctrl+Z")) { /* no-op */ }
-                if (ImGui::MenuItem("Redo", "Ctrl+Y")) { /* no-op */ }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Cut", "Ctrl+X")) { /* no-op */ }
-                if (ImGui::MenuItem("Copy", "Ctrl+C")) { /* no-op */ }
-                if (ImGui::MenuItem("Paste", "Ctrl+V")) { /* no-op */ }
-                if (ImGui::MenuItem("Delete", "Del")) { /* no-op */ }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Select All", "Ctrl+A")) { /* no-op */ }
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("About"))
-            {
-                if (ImGui::MenuItem("About This App...")) { /* no-op */ }
-                if (ImGui::MenuItem("Check for Updates")) { /* no-op */ }
-                if (ImGui::MenuItem("Credits")) { /* no-op */ }
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Settings"))
-            {
-                ImGui::TextDisabled("Renderer");
-                ImGui::Separator();
-
-                // Lazy-initialize pending choice from the current persisted setting.
-                if (!m_PendingBackendInitialized) {
-                    m_PendingBackend = m_AppContext->Settings.Backend;
-                    m_PendingBackendInitialized = true;
-                }
-
-                const char* current = SettingsManager::BackendToString(m_PendingBackend);
-                if (ImGui::BeginCombo("Backend", current))
-                {
-                    if (ImGui::Selectable("directx12", m_PendingBackend == RendererAPI::DirectX12)) {
-                        m_PendingBackend = RendererAPI::DirectX12;
-                    }
-                    if (ImGui::Selectable("vulkan", m_PendingBackend == RendererAPI::Vulkan)) {
-                        m_PendingBackend = RendererAPI::Vulkan;
-                    }
-
-                    // DirectX 11 — disabled; backend not implemented.
-                    ImGui::BeginDisabled(true);
-                    ImGui::Selectable("directx11 (not implemented)", false);
-                    ImGui::EndDisabled();
-                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                        ImGui::SetTooltip("DirectX 11 backend not implemented yet.");
-                    }
-
-                    ImGui::EndCombo();
-                }
-
-                const bool dirty = (m_PendingBackend != m_AppContext->Settings.Backend);
-                ImGui::BeginDisabled(!dirty);
-                if (ImGui::Button("Apply##SettingsBackendApply"))
-                {
-                    const RendererAPI previous = m_AppContext->Settings.Backend;
-                    m_AppContext->Settings.Backend = m_PendingBackend;
-                    if (SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH,
-                                              m_AppContext->Settings))
-                    {
-                        m_SettingsSaveError.clear();
-                        RendererCommand swapCmd{};
-                        swapCmd.Type = RendererCommandType::SwapBackend;
-                        swapCmd.SwapBackend.TargetApi = m_PendingBackend;
-                        if (!m_AppContext->PRCommandRing.Push(swapCmd)) {
-                            m_SettingsSaveError = "Renderer busy; could not start swap. Restart to apply.";
-                        }
-                    }
-                    else
-                    {
-                        m_AppContext->Settings.Backend = previous;
-                        m_SettingsSaveError = "Failed to save editor_settings.json";
-                    }
-                }
-                ImGui::EndDisabled();
-
-                if (!m_SettingsSaveError.empty()) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                                       "%s", m_SettingsSaveError.c_str());
-                }
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("View"))
-            {
-                if (ImGui::MenuItem("Reset Layout")) { s_ResetLayout = true; }
-                ImGui::EndMenu();
-            }
-
-            ImGui::EndMainMenuBar();
-        }
+        if (m_MenuBar.Draw(ctx)) s_ResetLayout = true;
 
         // Dockspace covering the full work area (no banner offset in Phase B).
         const ImGuiID dockId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
