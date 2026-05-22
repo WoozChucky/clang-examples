@@ -136,7 +136,7 @@ void OutlineRenderPass::Render(nvrhi::ICommandList* commandList,
     OutlineCB cb{};
     cb.VP = P * V;
     cb.Model = ModelMatrix(*tc);
-    cb.OutlineWidth = 0.03f;
+    cb.OutlineWidth = 0.06f;
     cb.OutlineColor = glm::vec4(1.0f, 0.6f, 0.1f, 1.0f);
     commandList->writeBuffer(m_CB, &cb, sizeof(cb));
 
