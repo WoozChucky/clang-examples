@@ -13,6 +13,7 @@ add_executable(editor
     src/rendering/imgui/SceneViewport.cpp
     src/rendering/imgui/EditorFileDialog.cpp
     src/rendering/imgui/StatsPanel.cpp
+    src/rendering/imgui/MaterialManagerPanel.cpp
     src/rendering/imgui/ImGuiOverlay.cpp
 )
 

@@ -8,6 +8,7 @@
 #include "imgui_nvrhi.h"
 #include "SceneViewport.h"
 #include "StatsPanel.h"
+#include "MaterialManagerPanel.h"
 #include "lib.h"
 
 class MeshSystem;
@@ -82,4 +83,5 @@ private:
     std::string m_SettingsSaveError;          // empty when no error
 
     StatsPanel m_StatsPanel;
+    MaterialManagerPanel m_MaterialManager;
 };
