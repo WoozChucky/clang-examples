@@ -1,11 +1,11 @@
 # clang-examples
 
-A tiny, hot-reloadable game/runtime sandbox for Windows featuring:
+A small, hot-reloadable game engine sandbox for Windows featuring:
 
-- A host runtime executable (DX11/DX12 via NVRHI) that loads a "game" DLL and an optional ImGui overlay DLL at runtime.
-- A minimal platform layer (window/input/audio/file-watching) with a simple bump-allocator memory model.
-- An immediate-mode UI kit that records draw commands into a renderer-agnostic command buffer.
-- A renderer that consumes those commands and draws 3D and UI using NVRHI.
+- A reusable runtime core (`Engine.dll`) with a three-thread model (platform/game/render), an NVRHI renderer (DX12/Vulkan), an ECS, a .NET plugin host, and an allocator toolkit.
+- Two thin executables layered on that core: `editor.exe` (the core plus an ImGui tooling layer) and `runtime.exe` (the stripped player build, no ImGui).
+- A hot-reloadable game library (`Game.dll`) loaded at runtime via `GameLibrary` + file watching.
+- Lock-free thread communication (`SpscRing` rings, `Seqlock` snapshots) and `shared_ptr<const ECS>` snapshots.
 - Tracy CPU instrumentation and GPU timers.
 
 This document is a code tour, an architecture overview, and a quick developer guide.
@@ -26,247 +26,224 @@ Optional
 Build and run (CMake Presets)
 
 ```
-cmake --preset debug
-cmake --build --preset debug
+rem Configure + build (msvc-win64-vs2026-community is the working preset;
+rem clang-win64-vs2026-* variants also exist). Out-of-source under out/build/<preset>/.
+cmake --preset msvc-win64-vs2026-community
+cmake --build --preset msvc-win64-vs2026-community
 
-rem Run the app (binary is placed under build/<config>/bin/<Config>)
-.\nbuild\debug\bin\Debug\main.exe
+rem Run the editor (binaries land under out/build/<preset>/bin/<Config>/)
+.\out\build\msvc-win64-vs2026-community\bin\Debug\editor.exe
+
+rem Or run the stripped player build (no ImGui)
+.\out\build\msvc-win64-vs2026-community\bin\Debug\runtime.exe
 ```
 
 Notes
-- First run copies the `assets/` folder to the runtime output dir via a CMake post-build step.
-- Press F5 in the app to toggle VSync.
-- The game and overlay are DLLs that can be hot-reloaded while the runtime keeps running.
+- A CMake post-build step copies the `assets/` folder next to the executable.
+- `Game.dll` is built by CMake (target `game`) and can be hot-reloaded while the host keeps running.
+- Pass `--backend=vulkan` or `--backend=directx12` to override the persisted renderer backend for one run; `--help` prints usage.
 
-One-command fast rebuild of just the game DLL (for hot reload)
+Fast iteration on game code (hot reload)
 
 ```
-rem From repo root (uses clang if available)
-build.bat
+rem Rebuild just the game library; the running editor/runtime reloads it within ~1s.
+cmake --build --preset msvc-win64-vs2026-community --target game
 ```
 
-This compiles `src/game/src/game.cpp` into `build\debug-clang\bin\Debug\game.dll` with a unique PDB name to avoid lock contention.
+This rebuilds `Game.dll` (target `game`). The host's `GameLibrary` file-watch copies it to a timestamped filename, validates the API version, and swaps it in between ticks. There is no `build.bat`.
 
 ---
 
 ## Repository layout
 
 Top-level
-- `CMakeLists.txt` – root CMake; adds third_party, src/game, src/overlay, src/runtime
-- `CMakePresets.json` – build presets (Debug/RelWithDebInfo, clang toolset, etc.)
-- `build.bat` – convenience batch to rebuild only the game DLL using clang
-- `assets/` – fonts, sounds, shaders, textures used by sample scenes and UI
+- `CMakeLists.txt` – root CMake; adds third_party, src/common, src/ecs, src/engine, src/game, src/runtime, src/editor, tests
+- `CMakePresets.json` – build presets (`msvc-win64-vs2026-*`, `clang-win64-vs2026-*`)
+- `assets/` – fonts, sounds, shaders, textures, plugins copied next to the executable at build time
 
 Source
-- `src/common/include/` – cross-layer headers and simple facilities
+- `src/common/include/` – cross-layer headers and lock-free primitives
   - `lib.h` – logging, asserts, math helpers, array, macros, and allocation sizes
-  - `render.h` – renderer-agnostic interfaces and immediate-mode UI draw command buffer
+  - `ApplicationContext.h` – shared context + ring/snapshot wiring + `ECSCommandProcessor`
+  - `SpscRing.h` / `Seqlock.h` – lock-free SPSC ring and seqlock snapshot primitives
+  - `ECS.h` / `ECSCommands.h` – ECS types and the editor→game command pattern
   - `input.h` – input model (keys, mouse, event helpers)
-  - `sound.h` – sound types and ring buffer for the platform audio backend
-  - `ui.h` – a small immediate-mode UI kit that writes into `RenderData`
-- `src/runtime/` – the host executable and platform + renderer backends
-  - `src/main.cpp` – process bootstrap, hot-reload loop, frame timing, VSync toggle
-  - `src/windows_platform.cpp` – Win32 window/input, XAudio2 audio, file watching
-  - `src/renderer*.{h,cpp}` – renderer front-end and backends (DX11, DX12; Vulkan stub)
-  - `src/font.cpp` – FreeType font loading into a simple atlas consumed by the UI pass
-  - `src/image.cpp` – texture loading helpers
-- `src/game/` – the hot-reloaded game DLL
-  - `src/game.cpp` – game entry points (update/resize/version/assert handler), scenes
-  - `src/game_*` – state-specific update functions (main menu, in-level, editor)
-- `src/overlay/` – optional ImGui-based debug overlay as a separately hot-reloadable DLL
+  - `sound.h` – sound types/ring kept as a future-audio reference (not part of any build)
+- `src/engine/` – the reusable runtime core (`Engine.dll`); ImGui-free
+  - `src/core/Application.cpp` – owns `ApplicationContext`, spawns the three threads, takes an optional overlay factory
+  - `src/threading/` – `PlatformThread`, `GameThread`, `RenderThread`, and `GameLibrary` (Game.dll hot-reload)
+  - `src/rendering/` – `Renderer`, `RendererBackend` (DX12/Vulkan), passes (`Primitive`/`Mesh`/`Ui`), `MeshSystem`/`MaterialSystem`, `ShaderCompiler`
+  - `src/plugins/` – `DotNetPluginManager` / `DotNetPluginHost` (.NET plugin host)
+  - `src/memory/` (+ `AllocatorRegistry.cpp`) – Arena/Pool allocator toolkit and registry
+  - `include/IOverlay.h` – the interface a tooling overlay implements to hook into the renderer
+- `src/editor/` – the dev executable: `Engine` core plus the ImGui tooling layer
+  - `src/main.cpp` – thin `main`; injects an `ImGuiOverlay` factory into `Application::Init`
+  - `src/rendering/imgui/` – `ImGuiOverlay`, `ImGuiRenderer` (panels/inspector/gizmos), `MemoryPanel`, `MeshPreviewRenderer`, `imgui_nvrhi`
+  - `src/alloc.h` – allocation-tracker hooks (editor-only)
+- `src/runtime/` – the stripped player executable (`runtime.exe`)
+  - `src/main.cpp` – thin `main` mirroring the editor's, but boots `Application` with no overlay → no ImGui
+- `src/ecs/` – the ECS shared library (`ecs.dll`)
+- `src/game/` – the hot-reloaded game library (`Game.dll`)
+  - `src/Game.cpp` – exports `GameUpdate(GameState*)` and `GAME_API_VERSION`
+- `tests/` – `test_ecs` and `test_alloc` unit-test targets
 
 Third-party (vendored)
-- `third_party/NVRHI` – Rendering Hardware Interface used for DX11/DX12/Vulkan
-- `third_party/imgui` – Dear ImGui backends and core
+- `third_party/NVRHI` – Rendering Hardware Interface used for DX12/DX11/Vulkan
+- `third_party/imgui` + `ImGuizmo` – Dear ImGui core/backends and gizmos (editor layer only)
 - `third_party/glm` – math
 - `third_party/freetype` – font rasterizer
+- `third_party/assimp` – model importer
+- `third_party/dotnet` – nethost/hostfxr for the .NET plugin runtime
+- `third_party/dxc-prebuilt` – DXC shader compiler (`dxcompiler.dll`)
 - `third_party/tracy` – Tracy profiler client
 
 ---
 
 ## High-level architecture
 
-Layers (top to bottom)
+The reusable runtime core lives in **`Engine.dll`**. Both executables are thin `main.cpp`s that construct an `Application` and call `Run()`; the only difference is whether they inject an ImGui overlay:
 
-1) Game DLL (`src/game`)
-- Exports a strict API consumed by the runtime: `game_update`, `game_resize`, `game_get_api_version` and an optional `game_set_platform_debug_break` to receive the host’s assert handler.
-- Reads input and writes to `RenderData` and `SoundState` using the helpers defined in `render.h` and `sound.h`.
-- Uses `ui.h` immediate-mode helpers to push UI commands (rects, text, etc.).
+- `editor.exe` = `Engine` core + the ImGui tooling layer (passes an `ImGuiOverlay` factory to `Application::Init`).
+- `runtime.exe` = `Engine` core with no overlay → no ImGui (a ship/play build).
 
-2) Runtime EXE (`src/runtime`)
-- Owns the process, window, device, and the main loop.
-- Maintains `PlatformContext` with pointers to the live `Input`, `RenderData`, and `SoundState` blocks that are passed to the game DLL.
-- Watches for game/overlay DLL file changes; hot-reloads them behind timestamped filenames to avoid lock issues.
-- Calls the renderer to consume the current frame’s `RenderData`.
+Both link `ecs.dll` and load `Game.dll` at runtime.
 
-3) Renderer (`src/runtime/src/renderer*.cpp`)
-- Front-end (`renderer.h/.cpp`) builds simple pipelines and dispatches to a backend.
-- Backend is selected at compile time (current default: DX12 via `#define RENDER_API directx12`).
-- Uses NVRHI to set up:
-  - A simple 3D pass (textured cube using `assets/block_atlas.png`)
-  - A procedural primitives pass (e.g., grid on Y=0 plane)
-  - A UI pass using instanced quads and a structured buffer for per-instance data
-- Loads fonts with FreeType and builds an atlas; UI text rendering samples that R8 atlas.
-- Measures GPU time using NVRHI timer queries; exposes ms to the game.
+Threads (coordinated by `ApplicationContext`, all inside `Engine`)
 
-4) Platform (`windows_platform.cpp`)
-- Win32 message pump, key/mouse mapping, dragging/moving window behavior.
-- Audio with XAudio2 (simple source-voice pool); per-frame `platform_update_audio` consumes `SoundState` commands.
-- File watchers using Win32 change notifications for DLL hot-reload.
-- Focus/minimized flags and per-frame `FrameStats` book-keeping.
+1) PlatformThread (main thread)
+- Owns the GLFW window and pumps OS input. All GLFW calls stay here.
+- Pushes `InputEvent`s into `InputRing` (SPSC) for the game thread.
 
-Data flow
-- Runtime owns memory arenas (`BumpAllocator` persistent + transient) and allocates `Input`, `RenderData`, `SoundState`, `GameState`, `UIState` once at startup.
-- Each frame:
-  1. Platform processes window messages and updates `Input` and `FrameStats`.
-  2. Runtime triggers hot-reload if DLLs changed (debounced).
-  3. Runtime calls `game_update(...)` from the currently loaded game DLL.
-  4. Game writes draw commands into `RenderData` (UI + 3D primitives) and sound commands into `SoundState`.
-  5. Renderer consumes `RenderData` and presents the frame.
-  6. Audio backend plays/updates sounds.
-  7. Transient allocator is reset.
+2) GameThread
+- Fixed-step simulation (default 60 Hz). Each tick: drains `ECSCommandRing` (editor edits), calls `game::GameUpdate` from the currently loaded `Game.dll`, then publishes a deep-copy ECS snapshot via `Seqlock<SimulationSnapshot>` + `std::atomic_store` on `shared_ptr<const ECS>`.
+- Runs a worker thread for assimp/obj model loads and hosts the .NET plugins.
+
+3) RenderThread
+- Owns `Renderer` and the NVRHI backend (DX12 or Vulkan, chosen by `RendererAPI`).
+- Each frame loads the ECS `shared_ptr` then the `SimulationSnapshot`, drains `RendererCommandRing` to upload meshes/materials, runs the gameplay passes, and (editor only) the injected ImGui overlay.
+
+Game library (`src/game`)
+- Exports `GameUpdate(GameState*)` and `GAME_API_VERSION`.
+- Reads input from `g_GameState->PlatformInput` (the SPSC input ring), mutates `GameState` (including a `WorldManager` ECS façade), and posts `RendererCommand`s for new meshes/materials.
+- `GameState` is owned by the host (`Engine`); the DLL holds only a pointer to it, so state survives hot reloads.
+
+Renderer (`src/engine/src/rendering`)
+- Front-end (`Renderer.{h,cpp}`) owns an NVRHI device through a `RendererBackend` and runs pluggable `IRenderPass`es:
+  - A primitives pass (e.g., a ground grid on the Y=0 plane)
+  - A mesh pass (GPU meshes/materials addressed by `MeshHandle` / `MaterialHandle`)
+  - A UI text pass using the FreeType-baked R8 glyph atlas
+- ImGui is not a built-in pass; tooling UI is layered in via an injected `IOverlay`.
+- Shaders are compiled via DXC (`ShaderCompiler`).
 
 ---
 
 ## The hot-reload mechanism
 
 Files
-- `src/runtime/src/main.cpp` – entry point and reload functions `reload_game_dll` and `reload_ui_dll`.
-- `src/runtime/src/windows_platform.cpp` – `platform_watch_file`, `platform_file_changed`.
+- `src/engine/src/threading/GameLibrary.{h,cpp}` – loads, validates, watches, and swaps `Game.dll`.
+- `src/common/include/FileWatch.h` – `filewatch::FileWatch` used to detect on-disk changes.
 
 How it works
-- The game/overlay DLLs are built as `game.dll` and `imgui_overlay.dll` into the runtime output folder.
-- On change, the runtime creates a timestamped copy (e.g., `runtime/game_load_1700000000000.dll`) to avoid replacing a loaded module and to avoid file locks.
-- The timestamped copy is loaded, symbols are looked up and validated:
-  - `game_get_api_version()` must match `GAME_API_VERSION` defined in headers.
-  - Required entry points (`game_update`/`game_resize`) must exist.
-  - Optional callback `game_set_platform_debug_break` is passed to route asserts through the host.
-- The old module is freed after the new one loads successfully.
+- `Game.dll` is built by CMake (target `game`) into the shared output folder.
+- A `filewatch::FileWatch` on `Game.dll` flags a pending reload when the file changes.
+- Between game-thread ticks, `GameLibrary` copies the DLL to a timestamped filename (to avoid replacing a loaded module / file locks), loads it, and validates symbols:
+  - `GAME_API_VERSION` must match the value the host was built against.
+  - The `GameUpdate` entry point must exist.
+- The old module is freed after the new one loads successfully. Cross-tick state in `GameState` is host-owned, so it survives the swap.
 
-Overlay
-- Works the same way; provides `overlay_setup/overlay_render/overlay_shutdown` and an input hook `overlay_handle_wndproc`.
+There is no separate overlay DLL: the ImGui tooling layer is compiled into `editor.exe` and injected as an `IOverlay`, not hot-reloaded.
 
 ---
 
 ## Renderer overview
 
-Front-end (API in `renderer.h`)
-- `renderer_init(width, height, hwnd, allocator)` – creates backend, device, swapchain, command list; builds pipelines, loads fonts/atlas.
-- `render(dt, renderData, transient, uiOverlay)` – records + submits commands for:
-  - Primitive pass (Y=0 grid),
-  - 3D cube pass (textured, simple packed-vertex format),
-  - UI pass (instanced quads and text). Then calls the overlay render hook, and presents.
-- `renderer_resize(width, height)` – rebuilds swapchain-dependent pipelines.
-- `renderer_toggle_vsync()` – flips a backend flag read during `Present`.
+Front-end (`src/engine/src/rendering/Renderer.{h,cpp}`)
+- Owns an NVRHI device through a `RendererBackend` selected by `RendererAPI` (DX12 or Vulkan), creates the swapchain and command lists, builds pipelines, and loads fonts/atlas.
+- Each frame runs the pluggable `IRenderPass`es and, if one is attached, the `IOverlay` (the editor's ImGui overlay), then presents.
 
-Backends
-- DX12 – `renderer_dx12.*`
-  - Creates graphics/compute/copy queues, DXGI flip-discard swapchain, frame fence per backbuffer, and NVRHI device.
-  - `renderer_present` calls `IDXGISwapChain::Present(syncInterval, flags)` with `syncInterval = vsyncEnabled ? 1 : 0`. If the window is occluded, `Present` can return `DXGI_STATUS_OCCLUDED` immediately.
-- DX11 – `renderer_dx11.*`
-  - Similar structure in a simpler form (single backbuffer, immediate context).
+Render passes (`src/engine/src/rendering/passes/`)
+- `PrimitiveRenderPass` – procedural primitives (e.g., a ground grid on the Y=0 plane).
+- `MeshRenderPass` – GPU meshes/materials owned by `MeshSystem` / `MaterialSystem`, addressed by `MeshHandle` / `MaterialHandle`.
+- `UiRenderPass` – UI text using instanced quads sampling the FreeType R8 glyph atlas with straight alpha blending.
 
-UI pass
-- A structured buffer holds `UIInstance`s (transform, color, UV rect, flags). Quads are instanced; text uses the font atlas (R8) and straight alpha blending.
+Backends (`src/engine/src/rendering/backends/`)
+- `RendererBackendDX12` – DX12 queues, DXGI flip-discard swapchain, per-backbuffer fence, NVRHI device. `Present` can return `DXGI_STATUS_OCCLUDED` when the window is occluded.
+- `RendererBackendVulkan` – Vulkan backend.
 
-Fonts
-- `src/runtime/src/font.cpp` uses FreeType to bake ASCII glyphs into an atlas; `renderer_font_load()` registers additional fonts; UI selects fonts by `fontIndex`.
-
-GPU timings
-- `GpuTimer` wraps NVRHI timer queries. We sample the previous frame’s timer to avoid blocking.
+Shaders
+- Compiled at build/load time via DXC (`ShaderCompiler`, uses `third_party/dxc-prebuilt/bin/x64/dxcompiler.dll`, copied next to the executable by CMake).
 
 ---
 
-## Immediate-mode UI (game-side)
+## ECS and the editor command pattern
 
-Header: `src/common/include/ui.h`
-
-Pattern
-- Call `ui_im_begin_frame(ui, renderData, input)` once per frame.
-- Build UI using widgets (`ui_begin_panel`, `ui_button`, `ui_label`, `ui_input_text`, `ui_progress_bar`, ...).
-- Call `ui_im_end_frame(ui)`; the renderer consumes `renderData->uiRects` + `renderData->uiTexts`.
-
-Layout
-- Panels can be docked (Top/Bottom/Left/Right/Fill) into the parent available rect; padding is supported.
-- A simple vertical layout cursor advances within a panel as widgets are added.
-
-Text
-- The UI uses precomputed ASCII glyph counts and the font atlas to minimize per-frame CPU work.
+- The ECS lives in `ecs.dll` (`src/ecs/`). Component types are registered through the `ECS_FOR_EACH_REGISTERED_COMPONENT` X-macro in `ECS.h`.
+- The editor cannot mutate the ECS directly across threads. ImGui edits push an `ECSCommand` (`src/common/include/ECSCommands.h`) into `ECSCommandRing` (SPSC); the GameThread drains it via `ECSCommandProcessor::ProcessCommands` before running game logic.
+- Adding a new component type also requires registering it in both branches of `ECSCommandProcessor` in `ApplicationContext.h` (`ApplyComponentCommand` and `RemoveComponentByType`). See `docs/ECS_Threading_Architecture.md`.
 
 ---
 
 ## Platform layer (Windows)
 
-File: `src/runtime/src/windows_platform.cpp`
-
-- Win32 window creation and message pump (`platform_create_window`, `platform_update_window`).
-- Focus/minimized states, DPI-aware resize handling.
-- Input mapping from Win32 VKs to engine `KeyCodeID`s.
-- Audio via XAudio2 (source-voice pool, fade-in/out helpers; `platform_update_audio`).
-- File watching implemented with directory change notifications + a debounced worker thread.
-- Assertion handler that shows a MessageBox and breaks into the debugger.
-
-Frame stats
-- `FrameStats` (in `platform.h`) is filled from `main.cpp::get_delta_time()` and used by overlays and diagnostics.
+- `PlatformThread` (`src/engine/src/threading/PlatformThread.cpp`) owns the GLFW window, pumps OS input, and pushes `InputEvent`s into the SPSC `InputRing`. All GLFW calls stay on this thread.
+- Input model and key codes are defined in `src/common/include/input.h`.
+- `SM_ASSERT` routes to a per-module `platform_debug_break` (defined in each exe and in `Engine`) that shows a MessageBox and breaks into the debugger.
+- `sound.h` is kept as a future-audio reference and is not wired into any build (there is no XAudio2 backend at present).
 
 ---
 
 ## Controls and features
 
-- F5 – Toggle VSync
-- 1 / 2 / 3 – Toggle Diagnostics / HUD / Editor panels (handled in the game DLL)
-- TAB – Play a sound (example XAudio2 usage)
+Controls are defined by the loaded `Game.dll`; consult `src/game/src/Game.cpp` for the current bindings.
 
 On-screen
-- A 3D textured cube and a procedural ground grid (primitives pass)
-- Simple UI (buttons, labels, text input) rendered via the UI pass
-- Optional ImGui overlay (if the overlay DLL is present and loaded)
+- A procedural ground grid (primitives pass) and any meshes the game requests (mesh pass).
+- UI text via the UI pass.
+- In `editor.exe`, the ImGui tooling layer (panels, inspector, gizmos, Memory panel). `runtime.exe` renders no ImGui.
 
 ---
 
 ## Development workflow
 
-- Build and run the runtime once from CMake.
-- Rebuild only the game DLL as you iterate (using your IDE or `build.bat`).
-- The runtime watches the DLL, copies it to a timestamped filename, validates API version, and swaps it in.
-- Edit the overlay DLL similarly if you’re working on UI tooling.
+- Build and run `editor.exe` once from CMake.
+- Iterate on game code by rebuilding just `Game.dll` (`--target game`); the host's `GameLibrary` watches the file, copies it to a timestamped filename, validates `GAME_API_VERSION`, and swaps it in between ticks.
+- Changing `Game.h` (struct layout / new export) requires bumping `GAME_API_VERSION` and restarting the editor; changing `ECS.h` requires rebuilding `ecs.dll`, the host, and the game, then restarting. See `CLAUDE.md` for the full rules.
+- For UI tooling work, edit `src/editor/src/rendering/imgui/` and rebuild `editor` (the overlay is compiled into the exe, not hot-reloaded).
 
 Debugging tips
-- `SM_ASSERT` routes to the platform’s `platform_debug_break`, which shows a dialog and breaks in the debugger.
-- Tracy zones are sprinkled through the frame (`ZoneScoped`, `FrameMark`); run the Tracy server to capture.
-- GPU times are sampled and exposed via `render()` return value; the game stores and displays them.
+- `SM_ASSERT` shows a dialog and breaks in the debugger.
+- Tracy zones are present (`ZoneScoped`, `FrameMark`); `TracyClient` is linked but `TRACY_ENABLE` is currently commented out — enable the define to capture.
 
 ---
 
 ## Build system notes
 
-- Binaries are placed under `build/<preset>/bin/<Config>/` by `CMakeLists.txt` (`RUNTIME_DIR`).
-- The runtime executable is named `main.exe` (target `runtime`).
-- The game DLL is named `game.dll` (target `game`).
-- The overlay DLL is named `imgui_overlay.dll` (target `imgui_overlay`).
+- Out-of-source builds live under `out/build/<preset>/`; binaries land in `bin/<Config>/` (`RUNTIME_DIR`).
+- `Engine` is a shared library (`Engine.dll`); `ecs` is `ecs.dll`; `game` is `Game.dll` (loaded at runtime, not linked).
+- Executable targets: `editor` (`editor.exe`) and `runtime` (`runtime.exe`).
+- Unit-test targets: `test_ecs` (`All ECS tests passed.`) and `test_alloc` (`All allocator tests passed.`).
 
 ---
 
 ## Troubleshooting
 
 - Black window or immediate exit
-  - Check the console logs (colored `SM_*` macros). Asset copy step runs after build; ensure `assets/` is present next to `main.exe`.
+  - Check the console logs (colored `SM_*` macros). The asset-copy post-build step must have run; ensure `assets/` is present next to the executable. A renderer init failure shows a dialog suggesting `--backend=vulkan` / `--backend=directx12`.
 - Present returns `DXGI_STATUS_OCCLUDED`
-  - This is expected when minimized or fully occluded. Add a small sleep in that code path to avoid pegging a CPU core (see VSync notes above).
+  - Expected when minimized or fully occluded.
 - Hot reload doesn’t trigger
-  - The file watcher tracks `game.dll` and `imgui_overlay.dll` in the output dir. Ensure your IDE rebuilds to the same location or copy the DLLs there.
+  - The file watcher tracks `Game.dll` in the output dir. Ensure your build writes `Game.dll` to the same location the running host loaded from.
 - D3D12 device creation fails
-  - The example currently asserts for missing DX12 Ultimate features in `ValidateDX12UltimateCapabilities`. Relax or guard those checks if you’re targeting broader hardware.
+  - Try `--backend=vulkan`, or relax the DX12 capability checks if you’re targeting broader hardware.
 
 ---
 
 ## Next steps and ideas
 
-- Add DXGI waitable swapchain for consistent frame pacing and background throttling.
-- Expose a simple renderer plugin API for adding new passes from the game DLL.
-- Expand the UI kit (sliders, checkboxes, lists) and add input text selection/caret/clipboard.
-- Implement Vulkan backend (files are stubbed).
-- Add unit tests for hot-reload path and the UI layout helpers.
+- Add a DXGI waitable swapchain for consistent frame pacing and background throttling.
+- Expose a renderer plugin API for adding new passes from the game side.
+- Flesh out the Vulkan backend.
+- Wire up an audio backend (see `sound.h`).
 
 ---
 
