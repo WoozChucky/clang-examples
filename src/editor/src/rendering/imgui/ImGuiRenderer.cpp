@@ -141,6 +141,31 @@ static ImGuiKey GlfwKeyToImGuiKey(int key) {
     }
 }
 
+namespace {
+void BuildDefaultDockLayout(ImGuiID dockId)
+{
+    ImGui::DockBuilderRemoveNode(dockId);
+    ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockId, ImGui::GetMainViewport()->WorkSize);
+
+    ImGuiID center = dockId;
+    ImGuiID left   = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left,  0.20f, nullptr, &center);
+    ImGuiID right  = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f, nullptr, &center);
+    ImGuiID leftBottom  = ImGui::DockBuilderSplitNode(left,  ImGuiDir_Down, 0.5f, nullptr, &left);
+    ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.5f, nullptr, &right);
+
+    ImGui::DockBuilderDockWindow("Mesh Manager",           left);
+    ImGui::DockBuilderDockWindow("Material Manager",       left);
+    ImGui::DockBuilderDockWindow("Hello, world!",          leftBottom);
+    ImGui::DockBuilderDockWindow("ECS Inspector & Editor", right);
+    ImGui::DockBuilderDockWindow("Render Stats",           rightBottom);
+    ImGui::DockBuilderDockWindow("Memory",                 rightBottom);
+    ImGui::DockBuilderDockWindow("Viewport",               center);
+
+    ImGui::DockBuilderFinish(dockId);
+}
+} // namespace
+
 bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext, MeshSystem* meshSystem, MaterialSystem* materialSystem, Renderer* renderer) {
     m_AppContext = appContext;
     m_MeshSystem = meshSystem;
@@ -371,6 +396,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         ImGui::PushFont(m_fonts[0]->GetScaledFont(), 14.f);
 
+        static bool s_LayoutInitialized = false;
+        static bool s_ResetLayout = false;
+
         // Main Menu Bar (File / Edit / About) with placeholder items
         if (ImGui::BeginMainMenuBar())
         {
@@ -475,11 +503,27 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("View"))
+            {
+                if (ImGui::MenuItem("Reset Layout")) { s_ResetLayout = true; }
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMainMenuBar();
         }
 
         // Dockspace covering the full work area (no banner offset in Phase B).
-        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+        const ImGuiID dockId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+        if (s_ResetLayout || !s_LayoutInitialized)
+        {
+            ImGuiDockNode* node = ImGui::DockBuilderGetNode(dockId);
+            // Build when explicitly reset, or on first run when there is no saved split layout
+            // (fresh install / no imgui.ini). An existing user layout is otherwise preserved.
+            if (s_ResetLayout || node == nullptr || !node->IsSplitNode())
+                BuildDefaultDockLayout(dockId);
+            s_LayoutInitialized = true;
+            s_ResetLayout = false;
+        }
 
         static bool s_ShowMemoryPanel = true;
         DrawMemoryPanel(&s_ShowMemoryPanel, world);
