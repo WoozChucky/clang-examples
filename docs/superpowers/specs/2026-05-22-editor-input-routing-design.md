@@ -21,12 +21,13 @@ End state — two modes:
 
 ## Background (verified)
 
-- **Fan-out (the choke point):** `src/engine/src/threading/PlatformThread.cpp` GLFW callbacks
-  (`OnCursorPositionCallback` :94, `OnMouseButtonCallback` :112, `OnMouseWheelCallback` :130,
-  `OnKeyCallback` :148, `OnTextInputCallback` :187, `OnWindowResizeCallback` :204) each build an
+- **Fan-out (the choke point):** the five input-producing `src/engine/src/threading/PlatformThread.cpp`
+  GLFW callbacks (`OnCursorPositionCallback` :94, `OnMouseButtonCallback` :112,
+  `OnMouseWheelCallback` :130, `OnKeyCallback` :148, `OnTextInputCallback` :187) each build an
   `InputEvent` and push it to **both** `m_AppContext->InputRing` (→ GameThread) **and**
-  `m_AppContext->ImGuiInputRing` (→ ImGui on the render thread), unconditionally. These callbacks
-  run on the platform/main thread during `glfwPollEvents`.
+  `m_AppContext->ImGuiInputRing` (→ ImGui on the render thread), unconditionally. (`OnWindowResizeCallback`
+  :204 is separate — it pushes a `RendererCommand` to `PRCommandRing`, not an `InputEvent`.) These
+  callbacks run on the platform/main thread during `glfwPollEvents`.
 - **Cursor-lock toggle:** `OnKeyCallback` :166-176 toggles `GLFW_CURSOR` between `NORMAL` and
   `DISABLED` on `T` (currently labelled "Example"). This is the play/FPS "game owns input" signal.
 - **Game consumes the game ring directly:** the hot-reloaded `Game.dll` reads input from the
@@ -93,14 +94,14 @@ inline bool RouteInputToGame(InputEventType type, bool cursorLocked,
         case InputEventType::TextInput:
             return acceptsKeyboard;
         default:
-            return true; // WindowResize and any future non-pointer/non-key events
+            return true; // defensive fallback for any future InputEventType
     }
 }
 ```
-(The exact `InputEventType` enumerators are those used in `PlatformThread.cpp`:
-`MouseMove`, `MouseButton`, `MouseWheel`, `Key`, `TextInput`, plus `WindowResize`. The
-implementer confirms the header that declares `InputEventType` — likely `Input.h`/`input.h` — and
-includes it.)
+(`InputEventType` (in `src/common/include/Input.h`) has exactly five values — `MouseMove`,
+`MouseButton`, `MouseWheel`, `Key`, `TextInput` — all covered above. Window resize is NOT an input
+event: `OnWindowResizeCallback` pushes a `RendererCommand` to `PRCommandRing`, so it is unaffected
+by this gate. The `default` branch only guards future enumerators.)
 
 ### 3. `PlatformThread` — track cursor lock + gate the game-ring push
 
@@ -120,8 +121,8 @@ includes it.)
   }
   ```
   The `ImGuiInputRing.Push(ev)` call stays unconditional in every callback (ImGui always gets the
-  event). `OnWindowResizeCallback` is unaffected (resize routes to game regardless;
-  `RouteInputToGame` returns true for it).
+  event). `OnWindowResizeCallback` is not an input-ring callback (it posts a `RendererCommand`), so
+  it is untouched.
 
 ### 4. Editor overlay publishes the flags — `ImGuiRenderer::Render`
 
@@ -163,9 +164,9 @@ render/ECS untouched.
 
 - **Unit test** (`RouteInputToGame` is pure → testable in isolation): add cases — cursorLocked
   routes every type to the game; cursor-normal mouse types follow `acceptsMouse`; key/text types
-  follow `acceptsKeyboard`; `WindowResize` always true. Mirror the repo's `test_frustum` target
-  style (a small `test_input` exe linking only `CommonHeaders`, or fold into an existing test
-  target — implementer's call based on what `InputRouting.h`/`Input.h` need to compile standalone).
+  follow `acceptsKeyboard`. Mirror the repo's `test_frustum` target style (a small `test_input`
+  exe linking `CommonHeaders` — implementer's call based on what `InputRouting.h`/`Input.h` need to
+  compile standalone).
 - `editor` + `runtime` build clean; `test_ecs`/`test_alloc`/`test_frustum` stay green.
 - **GUI smoke (user):** wheel over the Render Stats / Memory / Inspector panels scrolls only the
   panel (scene does NOT zoom); wheel over the Viewport zooms the scene only; click/scroll on a
