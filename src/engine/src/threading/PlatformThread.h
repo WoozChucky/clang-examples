@@ -31,6 +31,8 @@ private:
 
     // Centralizes the game-ring routing decision (cursor-lock + the two GameAccepts* atomics).
     bool ShouldRouteToGame(InputEventType type) const;
+    // Fans an event out to the ImGui ring, but only when an ImGui consumer exists to drain it.
+    void PushToImGui(const InputEvent& ev) const;
 private:
     std::shared_ptr<ApplicationContext> m_AppContext;
     GLFWwindow* m_Window;

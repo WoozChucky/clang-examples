@@ -220,6 +220,8 @@ bool RenderThread::Initialize()
     m_Renderer = std::make_unique<Renderer>(m_Window, m_AppContext.get());
     if (m_OverlayFactory) {
         m_Renderer->SetOverlay(m_OverlayFactory());
+        // Tell PlatformThread an ImGui consumer exists, so it fans input out to the ImGui ring.
+        m_AppContext->HasImGuiConsumer.store(true, std::memory_order_relaxed);
     }
     if (!m_Renderer->Init(m_API)) {
         SM_ERROR("RenderThread: Initialize failed");

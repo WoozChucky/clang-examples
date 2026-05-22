@@ -150,6 +150,11 @@ struct ApplicationContext {
     std::atomic<bool> GameAcceptsMouse{true};
     std::atomic<bool> GameAcceptsKeyboard{true};
 
+    // True once an ImGui overlay exists to drain ImGuiInputRing (editor only; set by RenderThread
+    // when an overlay factory is present). The stripped runtime never sets it, so PlatformThread
+    // skips the ImGui-ring fan-out there instead of filling an undrained ring and log-spamming.
+    std::atomic<bool> HasImGuiConsumer{false};
+
     // Input: Platform -> Game
     static constexpr int InputRingSize = 256;
     SpscRing<InputEvent, InputRingSize> InputRing{};

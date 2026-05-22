@@ -101,6 +101,18 @@ bool PlatformThread::ShouldRouteToGame(InputEventType type) const
                             m_AppContext->GameAcceptsKeyboard.load(std::memory_order_relaxed));
 }
 
+void PlatformThread::PushToImGui(const InputEvent& ev) const
+{
+    // Only fan out to the ImGui ring when an ImGui consumer (the editor overlay) is present to
+    // drain it. The stripped runtime has no overlay, so pushing would just fill the 256-slot ring
+    // and log-spam "ImGuiInputRing full" on every event.
+    if (!m_AppContext->HasImGuiConsumer.load(std::memory_order_relaxed))
+        return;
+    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
+        SM_WARN("ImGuiInputRing full, dropping evt");
+    }
+}
+
 void PlatformThread::OnCursorPositionCallback(double x, double y) {
     InputEvent ev{};
     ev.Type = InputEventType::MouseMove;
@@ -114,10 +126,8 @@ void PlatformThread::OnCursorPositionCallback(double x, double y) {
         }
     }
 
-    // Push to ImGui (renderer thread)
-    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
-        SM_WARN("ImGuiInputRing full, dropping evt");
-    }
+    // Push to ImGui (renderer thread) — only when an ImGui consumer exists to drain the ring
+    PushToImGui(ev);
 }
 
 void PlatformThread::OnMouseButtonCallback(int button, int action, int mods) {
@@ -134,10 +144,8 @@ void PlatformThread::OnMouseButtonCallback(int button, int action, int mods) {
         }
     }
 
-    // Push to ImGui (renderer thread)
-    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
-        SM_WARN("ImGuiInputRing full, dropping evt");
-    }
+    // Push to ImGui (renderer thread) — only when an ImGui consumer exists to drain the ring
+    PushToImGui(ev);
 }
 
 void PlatformThread::OnMouseWheelCallback(double offsetX, double offsetY) {
@@ -154,10 +162,8 @@ void PlatformThread::OnMouseWheelCallback(double offsetX, double offsetY) {
         }
     }
 
-    // Push to ImGui (renderer thread)
-    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
-        SM_WARN("ImGuiInputRing full, dropping evt");
-    }
+    // Push to ImGui (renderer thread) — only when an ImGui consumer exists to drain the ring
+    PushToImGui(ev);
 }
 
 void PlatformThread::OnKeyCallback(int key, int scancode, int action, int mods) {
@@ -175,10 +181,8 @@ void PlatformThread::OnKeyCallback(int key, int scancode, int action, int mods) 
         }
     }
 
-    // Push to ImGui (renderer thread)
-    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
-        SM_WARN("ImGuiInputRing full, dropping evt");
-    }
+    // Push to ImGui (renderer thread) — only when an ImGui consumer exists to drain the ring
+    PushToImGui(ev);
 
     if (key == GLFW_KEY_T && action == GLFW_PRESS) {
         // Toggle cursor lock: DISABLED = play/FPS mode (game owns all input), NORMAL = editor.
@@ -210,10 +214,8 @@ void PlatformThread::OnTextInputCallback(unsigned int code) {
         }
     }
 
-    // Push to ImGui (renderer thread)
-    if (!m_AppContext->ImGuiInputRing.Push(ev)) {
-        SM_WARN("ImGuiInputRing full, dropping evt");
-    }
+    // Push to ImGui (renderer thread) — only when an ImGui consumer exists to drain the ring
+    PushToImGui(ev);
 }
 
 void PlatformThread::OnWindowResizeCallback(int width, int height) {
