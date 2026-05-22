@@ -10,7 +10,7 @@
 #include "StatsPanel.h"
 #include "MaterialManagerPanel.h"
 #include "MeshManagerPanel.h"
-#include "GizmoController.h"
+#include "EcsInspectorPanel.h"
 #include "lib.h"
 
 class MeshSystem;
@@ -71,5 +71,5 @@ private:
     StatsPanel m_StatsPanel;
     MaterialManagerPanel m_MaterialManager;
     MeshManagerPanel m_MeshManager;
-    GizmoController m_Gizmo;
+    EcsInspectorPanel m_EcsInspector;
 };
