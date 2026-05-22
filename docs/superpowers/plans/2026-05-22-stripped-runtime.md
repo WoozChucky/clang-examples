@@ -201,7 +201,7 @@ set_target_properties(runtime PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${RUNTIME_DIR}"
 )
 
-if(MSVC)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(runtime PRIVATE -Wno-switch -Wno-writable-strings -Wno-sign-compare -Wno-deprecated-declarations -Wno-format-security -Wmissing-braces)
 endif()
 
@@ -214,6 +214,23 @@ add_custom_command(TARGET runtime POST_BUILD
     ${CMAKE_SOURCE_DIR}/assets ${RUNTIME_DIR}/assets
 )
 ```
+
+- [ ] **Step 2b: Delete the legacy runtime sources (they shadow the engine headers)**
+
+The legacy `src/runtime/src/*` files (esp. `renderer.h`) must be removed in B1, not B2: MSVC's quoted-`#include` search probes the translation unit's own directory FIRST, so with the new `main.cpp` sitting in `src/runtime/src/`, Engine's `RenderThread.h` → `#include "Renderer.h"` resolves (case-insensitively on Windows) to the legacy `src/runtime/src/renderer.h` instead of the engine's `Renderer.h`, dragging in legacy headers and breaking the build. Deleting them now keeps the runtime CMake clean (no copy/shadow workaround). They are referenced by nothing still in the build (the `runtime` target compiles only `main.cpp`; `imgui_overlay` is dropped from the root in Step 3). `git rm` every file under `src/runtime/src/` EXCEPT the new `main.cpp` — confirm the set with `git ls-files src/runtime/src`, e.g.:
+
+```bash
+git rm src/runtime/src/renderer.h src/runtime/src/renderer.cpp \
+       src/runtime/src/renderer_common.h \
+       src/runtime/src/renderer_dx11.h src/runtime/src/renderer_dx11.cpp \
+       src/runtime/src/renderer_dx12.h src/runtime/src/renderer_dx12.cpp \
+       src/runtime/src/renderer_vulkan.h src/runtime/src/renderer_vulkan.cpp \
+       src/runtime/src/image.h src/runtime/src/image.cpp \
+       src/runtime/src/font.h src/runtime/src/font.cpp \
+       src/runtime/src/VertexPacked.h \
+       src/runtime/src/platform.h src/runtime/src/windows_platform.cpp
+```
+(Adjust to the actual files present. Do NOT delete `src/runtime/src/main.cpp`.)
 
 - [ ] **Step 3: Drop `src/overlay` from the root CMake**
 
@@ -256,16 +273,8 @@ If any live (engine/editor/ecs/`Game.cpp`) includer is found for a file slated f
 # Overlay target (whole dir)
 git rm -r src/overlay
 
-# Legacy runtime sources (everything under src/runtime/src EXCEPT the new main.cpp)
-git rm src/runtime/src/renderer.h src/runtime/src/renderer.cpp \
-       src/runtime/src/renderer_common.h \
-       src/runtime/src/renderer_dx11.h src/runtime/src/renderer_dx11.cpp \
-       src/runtime/src/renderer_dx12.h src/runtime/src/renderer_dx12.cpp \
-       src/runtime/src/renderer_vulkan.h src/runtime/src/renderer_vulkan.cpp \
-       src/runtime/src/image.h src/runtime/src/image.cpp \
-       src/runtime/src/font.h src/runtime/src/font.cpp \
-       src/runtime/src/VertexPacked.h \
-       src/runtime/src/platform.h src/runtime/src/windows_platform.cpp
+# (The legacy src/runtime/src/* sources were already removed in B1 Task 1 Step 2b,
+#  because they shadow the engine headers via MSVC same-dir include search.)
 
 # Orphaned legacy common headers
 # NOTE: sound.h is intentionally KEPT (user decision) as a reference for future audio.
