@@ -157,7 +157,7 @@ struct ECSCommand {
 
 ### Snapshot Publishing
 
-**File**: `src/editor/src/threading/GameThread.cpp`
+**File**: `src/engine/src/threading/GameThread.cpp`
 
 ```cpp
 void GameThread::PublishSnapshot(const GameState& state, const FrameTimeStats& frameStats) {
@@ -195,7 +195,7 @@ void GameThread::PublishSnapshot(const GameState& state, const FrameTimeStats& f
 
 ### Command Processing
 
-**File**: `src/editor/src/threading/GameThread.cpp`
+**File**: `src/engine/src/threading/GameThread.cpp`
 
 ```cpp
 void GameThread::RunLoop() {
@@ -291,7 +291,7 @@ private:
 
 ### Snapshot Consumption
 
-**File**: `src/editor/src/threading/RenderThread.cpp`
+**File**: `src/engine/src/threading/RenderThread.cpp`
 
 ```cpp
 void RenderThread::RunLoop() {
@@ -314,7 +314,7 @@ void RenderThread::RunLoop() {
 
 ### ImGui Editor - Reading ECS
 
-**File**: `src/editor/src/rendering/ImGuiRenderer.cpp`
+**File**: `src/editor/src/rendering/imgui/ImGuiRenderer.cpp`
 
 ```cpp
 void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, 
@@ -359,7 +359,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer,
 
 ### ImGui Editor - Modifying ECS
 
-**File**: `src/editor/src/rendering/ImGuiRenderer.cpp`
+**File**: `src/editor/src/rendering/imgui/ImGuiRenderer.cpp`
 
 ```cpp
 // Edit Transform Component
@@ -518,7 +518,7 @@ std::shared_ptr<const ECS> worldSnapshot = std::atomic_load(&m_AppContext->Lates
 
 | Operation | Latency | Frequency | Cost |
 |-----------|---------|-----------|------|
-| `CreateSnapshot()` | O(N entities + components) | 60 Hz | ~100-500 µs |
+| `CreateSnapshot()` | O(N entities + components) | 60 Hz | ~100-500 ï¿½s |
 | `atomic_store(shared_ptr)` | O(1) | 60 Hz | ~10-50 ns |
 | `Seqlock::store()` | O(1) memcpy | 60 Hz | ~100-200 ns |
 | `Seqlock::load()` | O(1) memcpy | 144 Hz | ~100-200 ns |
