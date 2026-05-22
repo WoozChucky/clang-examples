@@ -400,10 +400,10 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                 if (!meshComp.Visible)
                     return;
 
-                if (cullEnabled && meshSystem)
+                if (cullEnabled && meshSystem && meshSystem->IsValidMeshId(meshComp.MeshId))
                 {
                     const auto bounds = meshSystem->GetMeshBounds(meshComp.MeshId);
-                    if (bounds.valid) // invalid/unloaded bounds -> never cull
+                    if (bounds.valid) // unloaded bounds -> never cull
                     {
                         glm::vec3 wMin, wMax;
                         TransformAABB(BuildWorldMatrix(transform), bounds.min, bounds.max, wMin, wMax);
