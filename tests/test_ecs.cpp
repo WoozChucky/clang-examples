@@ -6,6 +6,7 @@
 #include "lib.h"
 #include "ECS.h"
 #include "Systems.h"
+#include "ECSCommands.h"
 
 // Local platform_debug_break for the test exe: no MessageBox, just print + abort.
 // SM_ASSERT delegates here when an assertion fails.
@@ -992,6 +993,40 @@ static void TCOW04_remove_all_components_path_pools_and_isolates()
     s2.reset();
 }
 
+static void T60_duplicate_entity_copies_editor_components()
+{
+    ECS world;
+    EntityId src = world.CreateEntity();
+    world.AddComponent(src, TransformComponent{{1.0f, 2.0f, 3.0f}, {0.0f, 0.0f, 0.0f}, {2.0f, 2.0f, 2.0f}});
+    world.AddComponent(src, MeshComponent{ 7u, true });
+
+    SpscRing<ECSCommand, 128> ring;
+    EXPECT(ring.Push(ECSCommand::DuplicateEntity(src)));
+    ECSCommandProcessor::ProcessCommands(world, ring);
+
+    // Find the duplicate: the one entity != src that has both copied components.
+    EntityId dup = INVALID_ENTITY;
+    int matches = 0;
+    for (EntityId e : world.GetActiveEntities()) {
+        if (e == src) continue;
+        if (world.HasComponent<TransformComponent>(e) && world.HasComponent<MeshComponent>(e)) {
+            dup = e; ++matches;
+        }
+    }
+    EXPECT_EQ(matches, 1);
+    EXPECT_NE(dup, INVALID_ENTITY);
+    if (dup != INVALID_ENTITY) {
+        const auto* t = world.GetComponent<TransformComponent>(dup);
+        const auto* m = world.GetComponent<MeshComponent>(dup);
+        EXPECT(t != nullptr);
+        EXPECT(m != nullptr);
+        if (t) { EXPECT(t->Position.x == 1.0f); EXPECT(t->Scale.x == 2.0f); }
+        if (m) { EXPECT(m->MeshId == 7u); EXPECT(m->Visible == true); }
+    }
+    EXPECT(world.HasComponent<TransformComponent>(src));
+    EXPECT(world.HasComponent<MeshComponent>(src));
+}
+
 int main()
 {
     T00_smoke();
@@ -1049,6 +1084,7 @@ int main()
     TCOW02_pooled_clone_preserves_isolation_after_recycle();
     TCOW03_array_pool_stats_deltas();
     TCOW04_remove_all_components_path_pools_and_isolates();
+    T60_duplicate_entity_copies_editor_components();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

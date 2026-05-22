@@ -17,6 +17,7 @@ enum class ECSCommandType : uint8_t {
     AddComponent = 2,
     RemoveComponent = 3,
     ModifyComponent = 4,
+    DuplicateEntity = 5,
 };
 
 // Type-erased component storage for commands
@@ -121,6 +122,10 @@ struct ECSCommand {
         return ECSCommand(ECSCommandType::DestroyEntity, entity);
     }
 
+    static ECSCommand DuplicateEntity(EntityId entity) {
+        return ECSCommand(ECSCommandType::DuplicateEntity, entity);
+    }
+
     template<typename T>
     static ECSCommand AddComponent(EntityId entity, const T& component) {
         return ECSCommand(
@@ -194,11 +199,30 @@ public:
                     }
                     break;
                 }
+
+                case ECSCommandType::DuplicateEntity: {
+                    if (cmd.TargetEntity != INVALID_ENTITY && world.IsValidEntity(cmd.TargetEntity)) {
+                        const EntityId dst = world.CreateEntity();
+                        DuplicateEntityComponents(world, cmd.TargetEntity, dst);
+                    }
+                    break;
+                }
             }
         }
     }
 
 private:
+    // Copy the editor-facing per-entity components from src to dst (the same set ApplyComponentCommand
+    // handles). Deliberately excludes singletons (cameras/viewport/input) and hierarchy (Parent/Child).
+    static void DuplicateEntityComponents(ECS& world, EntityId src, EntityId dst) {
+        if (auto* c = world.GetComponent<TransformComponent>(src)) world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<LightningComponent>(src)) world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<MeshComponent>(src))      world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<MaterialComponent>(src))  world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<TextComponent>(src))      world.AddComponent(dst, *c);
+        if (world.HasComponent<SunMarker>(src))                    world.AddComponent(dst, SunMarker{});
+    }
+
     // Apply a component command (add or modify)
     static void ApplyComponentCommand(ECS& world, EntityId entity, const ComponentData& componentData, bool isAdd) {
         // Handle known component types
