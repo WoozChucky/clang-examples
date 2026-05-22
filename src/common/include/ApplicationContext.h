@@ -155,6 +155,11 @@ struct ApplicationContext {
     // skips the ImGui-ring fan-out there instead of filling an undrained ring and log-spamming.
     std::atomic<bool> HasImGuiConsumer{false};
 
+    // Selected entity for the editor outline pass. The editor overlay (RenderThread) writes it;
+    // OutlineRenderPass (also RenderThread, earlier in the frame) reads it -> 1-frame lag.
+    // INVALID_ENTITY (0) = no outline. The runtime never writes it, so it draws no outline.
+    std::atomic<uint64_t> SelectedEntity{INVALID_ENTITY};
+
     // Input: Platform -> Game
     static constexpr int InputRingSize = 256;
     SpscRing<InputEvent, InputRingSize> InputRing{};

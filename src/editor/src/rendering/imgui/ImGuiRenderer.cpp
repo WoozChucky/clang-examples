@@ -356,6 +356,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         m_EcsInspector.Draw(ctx);
 
+        if (m_AppContext)
+            m_AppContext->SelectedEntity.store(m_EcsInspector.GetSelectedEntity(), std::memory_order_relaxed);
+
         m_MeshManager.Draw(ctx);
 
         m_MaterialManager.Draw(ctx);

@@ -110,6 +110,7 @@ public:
     // Access to resource systems
     MeshSystem* GetMeshSystem() { return &m_MeshSystem; }
     MaterialSystem* GetMaterialSystem() { return &m_MaterialSystem; }
+    ApplicationContext* GetAppContext() const { return m_AppContext; }
 
 private:
 
