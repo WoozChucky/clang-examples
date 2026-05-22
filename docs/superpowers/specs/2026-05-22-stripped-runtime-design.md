@@ -137,8 +137,9 @@ Resulting subdir order: `third_party → common → ecs → engine → game → 
   (replaced), `renderer.{h,cpp}`, `renderer_common.h`, `renderer_dx11.{h,cpp}`,
   `renderer_dx12.{h,cpp}`, `renderer_vulkan.{h,cpp}`, `image.{h,cpp}`, `font.{h,cpp}`,
   `VertexPacked.h`, `platform.h`, `windows_platform.cpp`.
-- **Orphaned legacy common headers:** `src/common/include/input_old.h`, `ui.h`, `render.h`,
-  `sound.h`.
+- **Orphaned legacy common headers:** `src/common/include/input_old.h`, `ui.h`, `render.h`.
+  (`sound.h` is intentionally KEPT as a reference for future audio — user decision. It becomes
+  dead/uncompiled once `game_old.h` is gone, no includer; accepted.)
 - **Orphaned legacy game files:** `src/game/include/game_old.h`; `src/game/src/game_old.cpp`,
   `game_in_level_old.cpp`, `game_editor_old.cpp`, `game_main_menu_old.cpp` (none are in the `game`
   build today).
@@ -177,7 +178,7 @@ No `GAME_API_VERSION` bump; `Engine`/`ecs`/`game`/`editor` unchanged. Build pres
 
 - **An orphaned-header deletion is premature** (some live TU still includes it) → compile error,
   caught immediately by the B2 all-targets build; mitigated by the pre-delete grep. The analysis
-  shows `ui.h`/`render.h`/`sound.h`/`input_old.h`/`game_old.h` are legacy-only.
+  shows `ui.h`/`render.h`/`input_old.h`/`game_old.h` are legacy-only (`sound.h` is kept).
 - **Assets missing for a player-only build** → handled by the runtime's own `assets` copy POST_BUILD.
 - **`platform_debug_break` omitted** → link error (unresolved external) in the runtime exe, caught
   at B1 build; mitigated by including the definition in the new `main.cpp`.

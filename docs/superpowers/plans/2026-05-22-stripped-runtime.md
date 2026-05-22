@@ -244,7 +244,7 @@ git commit -m "Repurpose runtime target into stripped runtime.exe (Engine core, 
 
 Before deleting, grep to confirm each orphaned header is referenced ONLY by legacy/now-deleted files (not by `Engine`, `editor`, `ecs`, or `game`'s built sources). Run (Grep tool, or rg):
 - Search `input_old.h` — expect matches only in `src/common/include/ui.h`, `src/common/include/render.h` (both being deleted) and the old legacy main (being replaced). NOT in any `src/engine/**`, `src/editor/**`, `src/ecs/**`, or `src/game/src/Game.cpp`.
-- Search `ui.h` / `render.h` / `sound.h` — expect matches only in `src/game/include/game_old.h` + the legacy `src/runtime/src/*` (all being deleted). NOT in engine/editor/ecs or `Game.cpp`.
+- Search `ui.h` / `render.h` — expect matches only in `src/game/include/game_old.h` + the legacy `src/runtime/src/*` (all being deleted). NOT in engine/editor/ecs or `Game.cpp`. (`sound.h` is KEPT — no need to grep it for deletion; just confirm nothing live newly depends on it, which it won't.)
 - Search `game_old.h` — expect matches only in the legacy `src/runtime/src/*` (being deleted).
 - Search `imgui_overlay` — expect matches only in `src/runtime/src/*` (being deleted), `src/overlay/**` (being deleted), and docs/README. NOT in engine/editor.
 
@@ -268,8 +268,10 @@ git rm src/runtime/src/renderer.h src/runtime/src/renderer.cpp \
        src/runtime/src/platform.h src/runtime/src/windows_platform.cpp
 
 # Orphaned legacy common headers
+# NOTE: sound.h is intentionally KEPT (user decision) as a reference for future audio.
+# It becomes dead/uncompiled once game_old.h is gone (no includer) — that's accepted.
 git rm src/common/include/input_old.h src/common/include/ui.h \
-       src/common/include/render.h src/common/include/sound.h
+       src/common/include/render.h
 
 # Orphaned legacy game files (game builds only src/Game.cpp; these are uncompiled)
 git rm src/game/include/game_old.h \
@@ -312,7 +314,7 @@ git commit -m "Delete legacy single-threaded runtime + imgui_overlay + orphaned 
 - Runtime CMake `OUTPUT_NAME runtime`, links Engine, assets POST_BUILD, no DLL copies, `add_dependencies(runtime game)` → Task 1 Step 2. ✓
 - Drop `add_subdirectory(src/overlay)` from root → Task 1 Step 3. ✓
 - B1 builds `runtime.exe` green with legacy still on disk → Task 1 Step 4. ✓
-- Full legacy deletion set (overlay dir, all legacy `src/runtime/src/*`, orphaned `input_old.h`/`ui.h`/`render.h`/`sound.h`, `game_old.h` + 4 `*_old.cpp`, `build.bat`) → Task 2 Step 2. ✓
+- Full legacy deletion set (overlay dir, all legacy `src/runtime/src/*`, orphaned `input_old.h`/`ui.h`/`render.h`, `game_old.h` + 4 `*_old.cpp`, `build.bat`) → Task 2 Step 2. `sound.h` is KEPT per user decision (reference for future audio). ✓
 - Pre-delete grep safety → Task 2 Step 1. ✓
 - Bare all-targets build green (KEY_* break cleared) + tests → Task 2 Steps 3-4. ✓
 - No GAME_API_VERSION bump; editor/Engine/ecs/game unchanged → global rules (no task touches them). ✓
