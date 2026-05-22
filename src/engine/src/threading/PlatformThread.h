@@ -6,6 +6,7 @@
 
 #include "Engine.h"
 #include "ApplicationContext.h"
+#include "Input.h" // InputEventType
 
 class ENGINE_API PlatformThread {
 public:
@@ -27,6 +28,9 @@ private:
     void OnKeyCallback(int key, int scancode, int action, int mods);
     void OnTextInputCallback(unsigned int code);
     void OnWindowResizeCallback(int width, int height);
+
+    // Centralizes the game-ring routing decision (cursor-lock + the two GameAccepts* atomics).
+    bool ShouldRouteToGame(InputEventType type) const;
 private:
     std::shared_ptr<ApplicationContext> m_AppContext;
     GLFWwindow* m_Window;

@@ -92,17 +92,23 @@ void PlatformThread::Stop() {
     m_Running.store(false, std::memory_order_relaxed);
 }
 
+// Push to game thread (gated: editor routes scene input only when the Viewport wants it;
+// cursor-lock/play mode routes everything; ImGui always gets the event regardless).
+bool PlatformThread::ShouldRouteToGame(InputEventType type) const
+{
+    return RouteInputToGame(type, m_CursorLocked,
+                            m_AppContext->GameAcceptsMouse.load(std::memory_order_relaxed),
+                            m_AppContext->GameAcceptsKeyboard.load(std::memory_order_relaxed));
+}
+
 void PlatformThread::OnCursorPositionCallback(double x, double y) {
     InputEvent ev{};
     ev.Type = InputEventType::MouseMove;
     ev.Time = TimeNowSec();
     ev.MouseMoveEvent.X = x; ev.MouseMoveEvent.Y = y;
 
-    // Push to game thread (gated: editor routes scene input only when the Viewport wants it;
-    // cursor-lock/play mode routes everything; ImGui always gets the event below).
-    if (RouteInputToGame(ev.Type, m_CursorLocked,
-                         m_AppContext->GameAcceptsMouse.load(std::memory_order_relaxed),
-                         m_AppContext->GameAcceptsKeyboard.load(std::memory_order_relaxed))) {
+    // Push to game thread (gated)
+    if (ShouldRouteToGame(ev.Type)) {
         if (!m_AppContext->InputRing.Push(ev)) {
             SM_WARN("InputRing full, dropping evt");
         }
@@ -121,11 +127,8 @@ void PlatformThread::OnMouseButtonCallback(int button, int action, int mods) {
     ev.MouseButtonEvent.Button = static_cast<Button>(button);
     ev.MouseButtonEvent.Action = static_cast<InputAction>(action);
 
-    // Push to game thread (gated: editor routes scene input only when the Viewport wants it;
-    // cursor-lock/play mode routes everything; ImGui always gets the event below).
-    if (RouteInputToGame(ev.Type, m_CursorLocked,
-                         m_AppContext->GameAcceptsMouse.load(std::memory_order_relaxed),
-                         m_AppContext->GameAcceptsKeyboard.load(std::memory_order_relaxed))) {
+    // Push to game thread (gated)
+    if (ShouldRouteToGame(ev.Type)) {
         if (!m_AppContext->InputRing.Push(ev)) {
             SM_WARN("InputRing full, dropping evt");
         }
@@ -144,11 +147,8 @@ void PlatformThread::OnMouseWheelCallback(double offsetX, double offsetY) {
     ev.MouseScrollEvent.OffsetX = offsetX;
     ev.MouseScrollEvent.OffsetY = offsetY;
 
-    // Push to game thread (gated: editor routes scene input only when the Viewport wants it;
-    // cursor-lock/play mode routes everything; ImGui always gets the event below).
-    if (RouteInputToGame(ev.Type, m_CursorLocked,
-                         m_AppContext->GameAcceptsMouse.load(std::memory_order_relaxed),
-                         m_AppContext->GameAcceptsKeyboard.load(std::memory_order_relaxed))) {
+    // Push to game thread (gated)
+    if (ShouldRouteToGame(ev.Type)) {
         if (!m_AppContext->InputRing.Push(ev)) {
             SM_WARN("InputRing full, dropping evt");
         }
@@ -168,11 +168,8 @@ void PlatformThread::OnKeyCallback(int key, int scancode, int action, int mods) 
     ev.KeyEvent.Action = static_cast<InputAction>(action);
     ev.KeyEvent.Modifier = static_cast<KeyModifier>(mods);
 
-    // Push to game thread (gated: editor routes scene input only when the Viewport wants it;
-    // cursor-lock/play mode routes everything; ImGui always gets the event below).
-    if (RouteInputToGame(ev.Type, m_CursorLocked,
-                         m_AppContext->GameAcceptsMouse.load(std::memory_order_relaxed),
-                         m_AppContext->GameAcceptsKeyboard.load(std::memory_order_relaxed))) {
+    // Push to game thread (gated)
+    if (ShouldRouteToGame(ev.Type)) {
         if (!m_AppContext->InputRing.Push(ev)) {
             SM_WARN("InputRing full, dropping evt");
         }
@@ -206,11 +203,8 @@ void PlatformThread::OnTextInputCallback(unsigned int code) {
     ev.Time = TimeNowSec();
     ev.TextEvent.Key = code;
 
-    // Push to game thread (gated: editor routes scene input only when the Viewport wants it;
-    // cursor-lock/play mode routes everything; ImGui always gets the event below).
-    if (RouteInputToGame(ev.Type, m_CursorLocked,
-                         m_AppContext->GameAcceptsMouse.load(std::memory_order_relaxed),
-                         m_AppContext->GameAcceptsKeyboard.load(std::memory_order_relaxed))) {
+    // Push to game thread (gated)
+    if (ShouldRouteToGame(ev.Type)) {
         if (!m_AppContext->InputRing.Push(ev)) {
             SM_WARN("InputRing full, dropping evt");
         }
