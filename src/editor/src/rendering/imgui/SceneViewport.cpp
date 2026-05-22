@@ -1,5 +1,7 @@
 #include "SceneViewport.h"
 
+#include "lib.h"
+
 nvrhi::IFramebuffer* SceneViewport::EnsureTargets(uint32_t w, uint32_t h,
                                                   nvrhi::Format colorFormat, uint32_t sampleCount)
 {
@@ -14,9 +16,9 @@ nvrhi::IFramebuffer* SceneViewport::EnsureTargets(uint32_t w, uint32_t h,
 
     m_W = w; m_H = h; m_ColorFormat = colorFormat; m_Samples = sampleCount;
 
-    // Color: render target + shader resource (so ImGui can sample it). No keepInitialState, so
-    // NVRHI tracks the RenderTarget -> ShaderResource transition between the scene and ImGui
-    // command lists (same as MeshPreviewRenderer).
+    // Color: render target + shader resource (so ImGui can sample it). Unlike MeshPreviewRenderer
+    // (which pins keepInitialState), we let NVRHI auto-track the RenderTarget -> ShaderResource
+    // transition between the scene command list and the ImGui command list.
     nvrhi::TextureDesc colorDesc;
     colorDesc.width = m_W;
     colorDesc.height = m_H;
@@ -44,6 +46,13 @@ nvrhi::IFramebuffer* SceneViewport::EnsureTargets(uint32_t w, uint32_t h,
         nvrhi::FramebufferDesc()
             .addColorAttachment(m_Color)
             .setDepthAttachment(m_Depth));
+
+    if (!m_Color || !m_Depth || !m_Fb) {
+        char warn[128];
+        snprintf(warn, sizeof(warn),
+                 "SceneViewport: failed to create %ux%u render target", m_W, m_H);
+        SM_WARN(warn);
+    }
 
     return m_Fb;
 }
