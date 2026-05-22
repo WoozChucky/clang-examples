@@ -198,6 +198,8 @@ bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext,
         m_MeshPreviewRenderer.reset();
     }
 
+    m_SceneViewport.Init(device);
+
     CreateFontFromFile("assets/LiberationSans-Regular.ttf", 14.f);
 
     return true;
@@ -484,6 +486,25 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         static bool s_ShowRenderStatsPanel = true;
         DrawRenderStatsPanel(&s_ShowRenderStatsPanel);
+
+        // Scene viewport: shows the offscreen scene RT. Zero padding so the image fills the panel.
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        if (ImGui::Begin("Viewport"))
+        {
+            const ImVec2 avail = ImGui::GetContentRegionAvail();
+            m_LastViewportW = static_cast<uint32_t>(avail.x > 1.0f ? avail.x : 1.0f);
+            m_LastViewportH = static_cast<uint32_t>(avail.y > 1.0f ? avail.y : 1.0f);
+            if (nvrhi::ITexture* sceneTex = m_SceneViewport.ColorTexture())
+                ImGui::Image(reinterpret_cast<ImTextureID>(sceneTex), avail);
+        }
+        ImGui::End();
+        ImGui::PopStyleVar();
+
+        // Publish the panel size for the GameThread (camera aspect + UI ortho).
+        if (m_AppContext)
+            m_AppContext->SceneViewportSize.store(
+                (static_cast<uint64_t>(m_LastViewportW) << 32) | static_cast<uint64_t>(m_LastViewportH),
+                std::memory_order_relaxed);
 
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
@@ -1588,6 +1609,22 @@ ImGuiRenderer::~ImGuiRenderer() {
     Shutdown();
 }
 
+nvrhi::IFramebuffer* ImGuiRenderer::GetSceneFramebuffer(nvrhi::IFramebuffer* swapChainFb)
+{
+    if (!swapChainFb)
+        return nullptr;
+
+    const auto& info = swapChainFb->getFramebufferInfo();
+    const nvrhi::Format colorFormat = info.colorFormats[0];
+    const uint32_t      sampleCount = info.sampleCount;
+
+    // Frame 1 (before the Viewport panel has reported a size): default to the swapchain size.
+    const uint32_t w = m_LastViewportW ? m_LastViewportW : info.width;
+    const uint32_t h = m_LastViewportH ? m_LastViewportH : info.height;
+
+    return m_SceneViewport.EnsureTargets(w, h, colorFormat, sampleCount);
+}
+
 void ImGuiRenderer::Shutdown() {
     m_ImGuiNvrhi.reset();
     m_ImGuiNvrhi = nullptr;
@@ -1597,6 +1634,8 @@ void ImGuiRenderer::Shutdown() {
         m_MeshPreviewRenderer->Shutdown();
         m_MeshPreviewRenderer.reset();
     }
+
+    m_SceneViewport.Release();
 
     m_MeshSystem = nullptr;
     m_MaterialSystem = nullptr;
@@ -1608,6 +1647,7 @@ void ImGuiRenderer::ShutdownNvrhiOnly() {
     if (m_MeshPreviewRenderer) {
         m_MeshPreviewRenderer.reset();
     }
+    m_SceneViewport.Release();
     if (m_ImGuiNvrhi) {
         m_ImGuiNvrhi.reset();
     }
@@ -1631,6 +1671,8 @@ bool ImGuiRenderer::InitNvrhiForDevice(nvrhi::IDevice* device) {
         m_MeshPreviewRenderer.reset();
         // Non-fatal: preview just won't render. Continue.
     }
+
+    m_SceneViewport.Init(device);
 
     // Re-upload the font atlas against the new device.
     m_ImGuiNvrhi->updateFontTexture();

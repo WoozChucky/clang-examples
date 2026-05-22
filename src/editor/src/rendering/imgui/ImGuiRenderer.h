@@ -6,6 +6,7 @@
 #include <GLFW/glfw3.h>
 
 #include "imgui_nvrhi.h"
+#include "SceneViewport.h"
 #include "lib.h"
 
 class MeshSystem;
@@ -32,6 +33,10 @@ public:
     // Hot-swap: recreate the NVRHI backend + preview renderer against a new
     // device, and re-upload the font atlas. Returns false on failure.
     bool InitNvrhiForDevice(nvrhi::IDevice* device);
+
+    // Editor scene target: the gameplay passes render into this offscreen FB (sized to the
+    // Viewport panel); the panel samples its color texture. Returns the FB to render into.
+    nvrhi::IFramebuffer* GetSceneFramebuffer(nvrhi::IFramebuffer* swapChainFb);
 private:
     std::shared_ptr<RegisteredFont> CreateFontFromFile(const char* fontFile, float fontSize);
     void ProcessInputEvents();
@@ -53,6 +58,10 @@ private:
     MeshSystem* m_MeshSystem = nullptr;
     MaterialSystem* m_MaterialSystem = nullptr;
     Renderer* m_Renderer = nullptr;  // retained for hot-swap preview re-init
+
+    SceneViewport m_SceneViewport;          // offscreen scene render target
+    uint32_t m_LastViewportW = 0;           // last Viewport panel content size (pixels)
+    uint32_t m_LastViewportH = 0;
 
     // Mesh preview camera state
     struct MeshPreviewState {

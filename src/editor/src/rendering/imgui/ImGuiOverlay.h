@@ -18,6 +18,9 @@ public:
     void Shutdown() override { m_Impl.Shutdown(); }
     void OnDeviceLost() override { m_Impl.ShutdownNvrhiOnly(); }
     bool OnDeviceReset(nvrhi::IDevice* device) override { return m_Impl.InitNvrhiForDevice(device); }
+    nvrhi::IFramebuffer* GetSceneFramebuffer(nvrhi::IFramebuffer* swapChainFb) override {
+        return m_Impl.GetSceneFramebuffer(swapChainFb);
+    }
 private:
     ImGuiRenderer m_Impl;
 };
