@@ -18,6 +18,7 @@ inline Ray ScreenPointToRay(float mouseX, float mouseY,
     const glm::mat4 invVP = glm::inverse(proj * view);
     glm::vec4 nearP = invVP * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
     glm::vec4 farP  = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+    // For a finite RH perspective and a click inside the viewport, nearP.w/farP.w are > 0.
     const glm::vec3 n = glm::vec3(nearP) / nearP.w;
     const glm::vec3 f = glm::vec3(farP)  / farP.w;
     Ray r;

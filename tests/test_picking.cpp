@@ -67,6 +67,21 @@ static void T10_screen_center_ray()
     EXPECT(RayIntersectsAABB(r, {-1,-1,-11}, {1,1,-9}, t) == true);
 }
 
+static void T11_offcenter_ray_direction()
+{
+    const glm::mat4 V = glm::lookAtRH(glm::vec3(0,0,0), glm::vec3(0,0,-1), glm::vec3(0,1,0));
+    const glm::mat4 P = glm::perspectiveRH_ZO(glm::radians(60.0f), 1.0f, 0.1f, 100.0f);
+    // Viewport 1000x1000 at screen origin. ImGui Y is top-down, so a small mouseY = top of screen.
+    // Top-center click -> ray tilts UP (+Y); a Y-flip bug would make this negative.
+    Ray top = ScreenPointToRay(500.0f, 250.0f, 0.0f, 0.0f, 1000.0f, 1000.0f, V, P);
+    EXPECT(top.Dir.y > 0.0f);
+    EXPECT(top.Dir.z < 0.0f);
+    // Right-center click -> ray tilts +X.
+    Ray right = ScreenPointToRay(750.0f, 500.0f, 0.0f, 0.0f, 1000.0f, 1000.0f, V, P);
+    EXPECT(right.Dir.x > 0.0f);
+    EXPECT(right.Dir.z < 0.0f);
+}
+
 int main()
 {
     T00_smoke();
@@ -76,6 +91,7 @@ int main()
     T04_aabb_inside_origin();
     T05_nearest_ordering();
     T10_screen_center_ray();
+    T11_offcenter_ray_direction();
 
     if (g_Failures == 0) { std::printf("All picking tests passed.\n"); return 0; }
     std::printf("%d picking test(s) FAILED.\n", g_Failures);
