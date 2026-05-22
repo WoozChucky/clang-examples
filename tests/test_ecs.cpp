@@ -1027,6 +1027,24 @@ static void T60_duplicate_entity_copies_editor_components()
     EXPECT(world.HasComponent<MeshComponent>(src));
 }
 
+static void T61_duplicate_invalid_src_is_noop()
+{
+    ECS world;
+    EntityId a = world.CreateEntity();
+    world.AddComponent(a, MeshComponent{ 3u, true });
+
+    size_t countBefore = 0;
+    for (EntityId e : world.GetActiveEntities()) { (void)e; ++countBefore; }
+
+    SpscRing<ECSCommand, 128> ring;
+    EXPECT(ring.Push(ECSCommand::DuplicateEntity(INVALID_ENTITY)));
+    ECSCommandProcessor::ProcessCommands(world, ring);
+
+    size_t countAfter = 0;
+    for (EntityId e : world.GetActiveEntities()) { (void)e; ++countAfter; }
+    EXPECT_EQ(countAfter, countBefore);
+}
+
 int main()
 {
     T00_smoke();
@@ -1085,6 +1103,7 @@ int main()
     TCOW03_array_pool_stats_deltas();
     TCOW04_remove_all_components_path_pools_and_isolates();
     T60_duplicate_entity_copies_editor_components();
+    T61_duplicate_invalid_src_is_noop();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);
