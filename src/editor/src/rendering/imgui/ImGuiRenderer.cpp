@@ -20,6 +20,7 @@
 #include "MaterialLoader.h"
 #include "MeshPreviewRenderer.h"
 #include "MemoryPanel.h"
+#include "RenderStatsPanel.h"
 
 #include "ApplicationContext.h"
 #include "registered_font.h"
@@ -480,6 +481,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         static bool s_ShowMemoryPanel = true;
         DrawMemoryPanel(&s_ShowMemoryPanel, world);
+
+        static bool s_ShowRenderStatsPanel = true;
+        DrawRenderStatsPanel(&s_ShowRenderStatsPanel);
 
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
