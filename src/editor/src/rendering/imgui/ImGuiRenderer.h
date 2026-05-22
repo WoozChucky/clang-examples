@@ -15,6 +15,7 @@ class MeshPreviewRenderer;
 class Renderer;
 class RegisteredFont;
 class ECS;
+struct ImDrawList;
 struct ApplicationContext;
 struct SimulationSnapshot;
 
@@ -62,6 +63,9 @@ private:
     SceneViewport m_SceneViewport;          // offscreen scene render target
     uint32_t m_LastViewportW = 0;           // last Viewport panel content size (pixels)
     uint32_t m_LastViewportH = 0;
+    float    m_ViewportImageMinX = 0.0f;    // Viewport panel image screen top-left (ImGuizmo rect)
+    float    m_ViewportImageMinY = 0.0f;
+    ImDrawList* m_ViewportDrawList = nullptr; // Viewport window draw list (ImGuizmo target; null when hidden)
 
     // Mesh preview camera state
     struct MeshPreviewState {

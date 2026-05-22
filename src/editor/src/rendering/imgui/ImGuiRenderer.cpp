@@ -341,17 +341,15 @@ void ImGuiRenderer::TransformEnd()
 
 void ImGuiRenderer::EditTransform(float* cameraView, float* cameraProjection, float* matrix)
 {
-    ImGuiIO& io = ImGui::GetIO();
-    const auto windowWidth = ImGui::GetWindowWidth();
-    const auto windowHeight = ImGui::GetWindowHeight();
-    if (!m_GizmoUseWindow)
-    {
-        ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-    }
-    else
-    {
-        ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
-    }
+    // The scene is rendered into the dockable "Viewport" panel, so the gizmo must map to that
+    // panel's screen rect (captured during the Viewport draw earlier this frame) and draw on the
+    // foreground draw list so it appears on top of the scene image — not the inspector window the
+    // call originates from. Skip when the Viewport is collapsed/zero-sized.
+    if (!m_ViewportDrawList || m_LastViewportW < 1 || m_LastViewportH < 1)
+        return;
+    ImGuizmo::SetDrawlist(m_ViewportDrawList);
+    ImGuizmo::SetRect(m_ViewportImageMinX, m_ViewportImageMinY,
+                      static_cast<float>(m_LastViewportW), static_cast<float>(m_LastViewportH));
     ImGuizmo::Manipulate(cameraView, cameraProjection, m_GizmoOperation, m_GizmoMode, matrix, nullptr, m_GizmoUseSnap ? &m_GizmoSnap[0] : nullptr);
 }
 
@@ -533,11 +531,22 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         // Scene viewport: shows the offscreen scene RT. Zero padding so the image fills the panel.
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        if (ImGui::Begin("Viewport"))
+        // NoMove so a click on the image body doesn't start a window-move (which sets an active
+        // id and blocks ImGuizmo::CanActivate -> the gizmo wouldn't be draggable). The tab can
+        // still be dragged to redock.
+        m_ViewportDrawList = nullptr;
+        if (ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoMove))
         {
             const ImVec2 avail = ImGui::GetContentRegionAvail();
+            const ImVec2 imgPos = ImGui::GetCursorScreenPos(); // image top-left in screen space (zero padding)
+            m_ViewportImageMinX = imgPos.x;
+            m_ViewportImageMinY = imgPos.y;
             m_LastViewportW = static_cast<uint32_t>(avail.x > 1.0f ? avail.x : 1.0f);
             m_LastViewportH = static_cast<uint32_t>(avail.y > 1.0f ? avail.y : 1.0f);
+            // ImGuizmo hover-tests via the draw list's owner window (FindWindowByName), so it must
+            // target THIS "Viewport" window's draw list — the foreground draw list has no owner
+            // window and would make ImGuizmo think the mouse is never over the gizmo.
+            m_ViewportDrawList = ImGui::GetWindowDrawList();
             if (nvrhi::ITexture* sceneTex = m_SceneViewport.ColorTexture())
                 ImGui::Image(reinterpret_cast<ImTextureID>(sceneTex), avail);
         }
