@@ -5,11 +5,12 @@
 #include <cstdint>
 #include <span>
 
+#include "Engine.h"
 #include "ApplicationContext.h"
 
 // MeshSystem manages GPU mesh resources (vertex buffers, index buffers)
 // and provides lookup by MeshHandle/MeshId
-class MeshSystem
+class ENGINE_API MeshSystem
 {
 public:
     MeshSystem() = default;

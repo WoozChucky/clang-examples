@@ -4,6 +4,7 @@
 #include <GLFW/glfw3.h>
 #include <vector>
 
+#include "Engine.h"
 #include "ApplicationContext.h"
 #include "RendererBackend.h"
 #include "IRenderPass.h"
@@ -62,7 +63,7 @@ struct GpuTimer
     }
 };
 
-class Renderer final {
+class ENGINE_API Renderer final {
 public:
     explicit Renderer(GLFWwindow* window, ApplicationContext* appContext) : m_Window(window), m_AppContext(appContext) {
         m_BackendSettings.backBufferWidth = appContext->Settings.windowWidth;

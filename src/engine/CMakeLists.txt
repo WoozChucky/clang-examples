@@ -5,6 +5,9 @@ add_library(Engine SHARED
     src/MemoryCategory.cpp
     src/AllocatorRegistry.cpp
 
+    # Platform debug hook (SM_ASSERT backend for the runtime core)
+    src/PlatformDebug.cpp
+
     # Core
     src/core/Application.cpp
 

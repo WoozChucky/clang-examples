@@ -4,11 +4,12 @@
 #include <vector>
 #include <cstdint>
 
+#include "Engine.h"
 #include "ApplicationContext.h"
 
 // MaterialSystem manages GPU material resources (textures, samplers)
 // and provides lookup by MaterialHandle/MaterialId
-class MaterialSystem
+class ENGINE_API MaterialSystem
 {
 public:
     MaterialSystem() = default;

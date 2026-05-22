@@ -5,7 +5,9 @@
 #include <hostfxr.h>
 #include <coreclr_delegates.h>
 
-class DotNetPluginHost {
+#include "Engine.h"
+
+class ENGINE_API DotNetPluginHost {
 public:
     DotNetPluginHost() = default;
     ~DotNetPluginHost();

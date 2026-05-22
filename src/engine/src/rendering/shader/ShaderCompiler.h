@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "Engine.h"
 #include "lib.h"
 
 struct ShaderBlob {
@@ -14,7 +15,7 @@ struct ShaderBlob {
 // It returns the compiled shader blob on success, or an empty blob on failure,
 // with the error message populated in outErrorMessage.
 
-ShaderBlob CompileShader(
+ENGINE_API ShaderBlob CompileShader(
     RendererAPI api,
     std::string_view sourceCode,
     const char* entryPoint,

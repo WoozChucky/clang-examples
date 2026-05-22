@@ -1,11 +1,12 @@
 #pragma once
 #include <optional>
 
+#include "Engine.h"
 #include "PlatformThread.h"
 #include "GameThread.h"
 #include "RenderThread.h"
 
-class Application {
+class ENGINE_API Application {
 public:
     Application() = default;
     ~Application() = default;
