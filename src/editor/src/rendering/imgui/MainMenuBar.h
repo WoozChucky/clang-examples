@@ -7,7 +7,7 @@ struct EditorContext;
 // was clicked this frame, so the host rebuilds the dock layout.
 class MainMenuBar {
 public:
-    bool Draw(const EditorContext& ctx);
+    bool Draw(const EditorContext& ctx, bool& editMode);
 private:
     // Settings menu state — pending backend selection until user clicks Apply.
     // Initialized lazily on first menu open from ctx.App->Settings.Backend.

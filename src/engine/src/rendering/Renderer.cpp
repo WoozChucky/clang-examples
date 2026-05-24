@@ -199,6 +199,19 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                     nvrhi::utils::ClearColorAttachment(m_CommandList, frameBuffer, 0, nvrhi::Color(0.1f, 0.1f, 0.1f, 1.0f));
                 }
 
+                // Resolve the camera the world passes use this frame. Editor override (set by the
+                // ImGui overlay last frame) wins when active; otherwise the game's WorldCameraComponent
+                // from the snapshot. Runtime never sets EditorCameraActive -> always the game camera.
+                {
+                    CameraView active{}; // identity V/P, zero pos: matches the passes' old null fallback
+                    if (m_AppContext && m_AppContext->EditorCameraActive.load(std::memory_order_relaxed)) {
+                        active = m_AppContext->EditorCamera.load();
+                    } else if (world) {
+                        if (const auto* cam = world->GetSingleton<WorldCameraComponent>())
+                            active = { cam->View, cam->Projection, cam->Position };
+                    }
+                    m_ActiveCamera = active;
+                }
                 // Render all passes into the scene buffer
                 for (auto& pass : m_RenderPasses) {
                     ZoneScopedN("RenderPass Rec N");

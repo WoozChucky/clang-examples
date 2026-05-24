@@ -112,6 +112,10 @@ public:
     MaterialSystem* GetMaterialSystem() { return &m_MaterialSystem; }
     ApplicationContext* GetAppContext() const { return m_AppContext; }
 
+    // The camera the world passes render with this frame: editor override when active, else the
+    // game's WorldCameraComponent. Resolved once at the top of Render(), before the pass loop.
+    const CameraView& GetActiveCamera() const { return m_ActiveCamera; }
+
 private:
 
     void TeardownForSwap();
@@ -133,6 +137,8 @@ private:
 
     GLFWwindow*                 m_Window;
     ApplicationContext*         m_AppContext;
+
+    CameraView m_ActiveCamera{};
 
     RendererBackend*            m_Backend = nullptr;
     RendererBackendSettings     m_BackendSettings{};

@@ -6,7 +6,7 @@
 #include "WorldManager.h"
 #include "SettingsManager.h"
 
-bool MainMenuBar::Draw(const EditorContext& ctx)
+bool MainMenuBar::Draw(const EditorContext& ctx, bool& editMode)
 {
     bool resetLayoutRequested = false;
 
@@ -118,6 +118,16 @@ bool MainMenuBar::Draw(const EditorContext& ctx)
         {
             if (ImGui::MenuItem("Reset Layout")) { resetLayoutRequested = true; }
             ImGui::EndMenu();
+        }
+
+        // Edit/Play mode toggle (also bound to F6 in ImGuiRenderer). Edit = free editor camera;
+        // Play = the game's camera drives the viewport.
+        {
+            const char* label = editMode ? "Mode: Edit" : "Mode: Play";
+            const float bw = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            ImGui::SameLine(ImGui::GetWindowWidth() - bw - 12.0f);
+            if (ImGui::Button(label))
+                editMode = !editMode;
         }
 
         ImGui::EndMainMenuBar();

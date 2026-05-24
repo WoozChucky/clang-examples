@@ -20,6 +20,8 @@
 #include "EcsInspectorPanel.h"
 #include "ViewportPicker.h"
 #include "MainMenuBar.h"
+#include "TransformMath.h"   // ModelMatrix
+#include "Frustum.h"         // TransformAABB
 
 #include "ApplicationContext.h"
 #include "registered_font.h"
@@ -281,7 +283,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         static bool s_LayoutInitialized = false;
         static bool s_ResetLayout = false;
 
-        if (m_MenuBar.Draw(ctx)) s_ResetLayout = true;
+        if (m_MenuBar.Draw(ctx, m_EditMode)) s_ResetLayout = true;
+        if (ImGui::IsKeyPressed(ImGuiKey_F6) && !io.WantTextInput)
+            m_EditMode = !m_EditMode;
 
         // Dockspace covering the full work area (no banner offset in Phase B).
         const ImGuiID dockId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
@@ -336,10 +340,64 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         ctx.ViewportW = m_LastViewportW;
         ctx.ViewportH = m_LastViewportH;
 
+        // ---- Editor camera (Edit mode) ----
+        const float vpAspect = m_LastViewportH ? float(m_LastViewportW) / float(m_LastViewportH)
+                                               : 16.0f / 9.0f;
+        if (m_EditMode && (m_ViewportHovered || m_ViewportFocused)) {
+            EditorCameraInput cin{};
+            cin.MouseDX = io.MouseDelta.x;
+            cin.MouseDY = io.MouseDelta.y;
+            cin.Wheel   = io.MouseWheel;
+            cin.Look    = ImGui::IsMouseDown(ImGuiMouseButton_Right);
+            cin.Pan     = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+            cin.Orbit   = io.KeyAlt && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+            cin.W = ImGui::IsKeyDown(ImGuiKey_W); cin.S = ImGui::IsKeyDown(ImGuiKey_S);
+            cin.A = ImGui::IsKeyDown(ImGuiKey_A); cin.D = ImGui::IsKeyDown(ImGuiKey_D);
+            cin.Q = ImGui::IsKeyDown(ImGuiKey_Q); cin.E = ImGui::IsKeyDown(ImGuiKey_E);
+            cin.Frame = ImGui::IsKeyPressed(ImGuiKey_F);
+            cin.DeltaSeconds = io.DeltaTime;
+
+            // Pivot for orbit/frame = the selected entity's world AABB center + radius.
+            const EntityId sel = m_EcsInspector.GetSelectedEntity();
+            if (sel != INVALID_ENTITY && world) {
+                const auto* tc = world->GetComponent<TransformComponent>(sel);
+                const auto* mc = world->GetComponent<MeshComponent>(sel);
+                if (tc) {
+                    if (mc && m_MeshSystem) {
+                        const auto b = m_MeshSystem->GetMeshBounds(mc->MeshId);
+                        if (b.valid) {
+                            glm::vec3 wMin, wMax;
+                            TransformAABB(ModelMatrix(*tc), b.min, b.max, wMin, wMax);
+                            cin.PivotCenter = 0.5f * (wMin + wMax);
+                            cin.PivotRadius = 0.5f * glm::length(wMax - wMin);
+                            cin.HasPivot = true;
+                        }
+                    }
+                    if (!cin.HasPivot) { // no mesh bounds -> pivot on the transform position
+                        cin.PivotCenter = tc->Position;
+                        cin.PivotRadius = 1.0f;
+                        cin.HasPivot = true;
+                    }
+                }
+            }
+            m_EditorCamera.Update(cin);
+        }
+
+        // Publish the override channel for the Renderer (1-frame lag, like SelectedEntity).
+        const CameraView editorCam = m_EditorCamera.ToCameraView(vpAspect);
+        if (m_AppContext) {
+            m_AppContext->EditorCameraActive.store(m_EditMode, std::memory_order_relaxed);
+            m_AppContext->EditorCamera.store(editorCam);
+        }
+        // Hand the editor camera to picking (consumed in Task 5).
+        ctx.EditorCameraActive = m_EditMode;
+        ctx.EditorCamView = editorCam.View;
+        ctx.EditorCamProj = editorCam.Projection;
+
         // Viewport pick: left-click selects the entity under the cursor (edit mode). Skip when
         // over/using a gizmo (that click manipulates the gizmo). Empty space -> deselect.
         if (m_ViewportHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
-            && !ImGuizmo::IsOver() && !ImGuizmo::IsUsing()) {
+            && !ImGuizmo::IsOver() && !ImGuizmo::IsUsing() && !io.KeyAlt) {
             m_EcsInspector.SetSelectedEntity(PickEntity(ctx, io.MousePos.x, io.MousePos.y));
         }
 
@@ -367,10 +425,12 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         // Viewport is hovered (and no gizmo drag), keyboard only when it's focused (and no text
         // field is active). Computed after the panels so ImGui's WantTextInput is up to date.
         if (m_AppContext) {
-            m_AppContext->GameAcceptsMouse.store(m_ViewportHovered && !ImGuizmo::IsUsing(),
-                                                 std::memory_order_relaxed);
-            m_AppContext->GameAcceptsKeyboard.store(m_ViewportFocused && !io.WantTextInput,
-                                                    std::memory_order_relaxed);
+            // In Edit mode the editor camera consumes viewport input, so the game gets none (its
+            // free-look would otherwise fight the editor camera). In Play mode keep the prior rule.
+            const bool toGameMouse    = !m_EditMode && m_ViewportHovered && !ImGuizmo::IsUsing();
+            const bool toGameKeyboard = !m_EditMode && m_ViewportFocused && !io.WantTextInput;
+            m_AppContext->GameAcceptsMouse.store(toGameMouse, std::memory_order_relaxed);
+            m_AppContext->GameAcceptsKeyboard.store(toGameKeyboard, std::memory_order_relaxed);
         }
 
         ImGui::PopFont();
