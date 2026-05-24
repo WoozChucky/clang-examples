@@ -10,8 +10,9 @@ struct MainMenuBarResult {
     bool sceneChanged = false; // New or Reload issued -> host clears the (now stale) selection
 };
 
-// Draws the main menu bar (File/Edit/About/Settings/View). Returns true if "View -> Reset Layout"
-// was clicked this frame, so the host rebuilds the dock layout.
+// Draws the main menu bar (File/Edit/About/Settings/View). Returns a MainMenuBarResult: resetLayout
+// when "View -> Reset Layout" was clicked (host rebuilds the dock layout), and sceneChanged when
+// New/Reload was issued (host clears the now-stale selection).
 class MainMenuBar {
 public:
     MainMenuBarResult Draw(const EditorContext& ctx, bool& editMode);
