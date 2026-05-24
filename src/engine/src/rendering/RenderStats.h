@@ -14,6 +14,13 @@ struct RenderStats {
 
 struct CullingSettings { bool Enabled = true; };
 
+struct DebugDrawSettings {
+    bool ShowLightGizmos   = false;
+    bool ShowCameraFrustum = false;
+    bool ShowSelectedAABB  = false;
+    bool Wireframe         = false;
+};
+
 // Single instances DEFINED in RenderStats.cpp and exported from Engine.dll so the mesh pass
 // (Engine.dll) and the editor panel (editor.exe) share ONE copy each. A header-inline
 // function-local static would give every module its own copy (the staging-pool bug).
@@ -21,3 +28,4 @@ struct CullingSettings { bool Enabled = true; };
 // the ImGui overlay later in the same frame reads stats / writes the toggle) -> no locks.
 ENGINE_API RenderStats&     GetRenderStats();
 ENGINE_API CullingSettings& GetCullingSettings();
+ENGINE_API DebugDrawSettings& GetDebugDrawSettings();

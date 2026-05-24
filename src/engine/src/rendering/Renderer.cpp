@@ -10,6 +10,7 @@
 
 #include "passes/PrimitiveRenderPass.h"
 #include "passes/OutlineRenderPass.h"
+#include "passes/DebugRenderPass.h"
 #include "passes/MeshRenderPass.h"
 
 #include <tracy/Tracy.hpp>
@@ -103,6 +104,13 @@ bool Renderer::Init(const RendererAPI api) {
         return false;
     }
     AddRenderPass(std::move(outlinePass));
+
+    auto debugPass = std::make_unique<DebugRenderPass>();
+    if (!debugPass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize DebugRenderPass");
+        return false;
+    }
+    AddRenderPass(std::move(debugPass));
 
     auto uiPass = std::make_unique<UiRenderPass>();
     if (!uiPass->Initialize(m_Device, this)) {
@@ -445,6 +453,10 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     auto outlinePass = std::make_unique<OutlineRenderPass>();
     if (!outlinePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: OutlinePass failed"); return false; }
     AddRenderPass(std::move(outlinePass));
+
+    auto debugPass = std::make_unique<DebugRenderPass>();
+    if (!debugPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: DebugPass failed"); return false; }
+    AddRenderPass(std::move(debugPass));
 
     auto uiPass = std::make_unique<UiRenderPass>();
     if (!uiPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: UiPass failed"); return false; }

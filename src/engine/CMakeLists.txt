@@ -35,6 +35,7 @@ add_library(Engine SHARED
     src/rendering/passes/PrimitiveRenderPass.cpp
     src/rendering/passes/MeshRenderPass.cpp
     src/rendering/passes/OutlineRenderPass.cpp
+    src/rendering/passes/DebugRenderPass.cpp
     src/rendering/passes/UiRenderPass.cpp
 
     # Shader Compilation

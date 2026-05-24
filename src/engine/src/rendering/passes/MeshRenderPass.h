@@ -63,6 +63,7 @@ private:
     nvrhi::ShaderHandle m_VS;
     nvrhi::ShaderHandle m_PS;
     nvrhi::GraphicsPipelineHandle m_Pipeline;
+    nvrhi::GraphicsPipelineHandle m_WireframePipeline;
     nvrhi::InputLayoutHandle m_InputLayout;
     nvrhi::BindingLayoutHandle m_BindingLayout;
 
