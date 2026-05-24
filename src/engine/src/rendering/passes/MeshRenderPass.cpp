@@ -313,6 +313,9 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
           .setColorWriteMask(nvrhi::ColorMask::All);
         pso.renderState.blendState.setRenderTarget(0, rt);
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
+
+        pso.renderState.rasterState.fillMode = nvrhi::RasterFillMode::Wireframe;
+        m_WireframePipeline = m_Device->createGraphicsPipeline(pso, fbi);
     }
 
     commandList->beginMarker("MeshRenderPass");
@@ -427,7 +430,8 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
 
         // Render each batch (run) with instancing
         nvrhi::GraphicsState state;
-        state.pipeline = m_Pipeline;
+        state.pipeline = (GetDebugDrawSettings().Wireframe && m_WireframePipeline)
+                             ? m_WireframePipeline : m_Pipeline;
         state.framebuffer = frameBuffer;
         state.viewport.addViewportAndScissorRect(frameBuffer->getFramebufferInfo().getViewport());
 
@@ -595,6 +599,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
 void MeshRenderPass::Shutdown()
 {
     m_Pipeline = nullptr;
+    m_WireframePipeline = nullptr;
     m_InputLayout = nullptr;
     m_BindingLayout = nullptr;
 
@@ -612,4 +617,5 @@ void MeshRenderPass::OnResize(uint32_t /*width*/, uint32_t /*height*/)
 {
     // Recreate pipeline on next render with new framebuffer info
     m_Pipeline = nullptr;
+    m_WireframePipeline = nullptr;
 }
