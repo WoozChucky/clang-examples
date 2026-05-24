@@ -188,7 +188,7 @@ uint32_t GameGetVersion() {
 void GameUpdate(GameState* state) {
     if (g_GameState != state) {
         g_GameState = state;
-		SM_TRACE("[GAMEDLL] State Memory Updated")
+		SM_TRACE("[GAMEDLL] State Memory Updated");
 	}
 
     if (!g_GameState) return;
@@ -201,7 +201,7 @@ void GameUpdate(GameState* state) {
     {
 
 	    case GameStateId::Uninitialized: {
-	        SM_TRACE("[GAMEDLL] Initializing game...")
+	        SM_TRACE("[GAMEDLL] Initializing game...");
             g_GameState->StateId = GameStateId::MainMenu;
 
 	        // Seed game-owned singletons (camera control + resolved camera + app
@@ -216,7 +216,7 @@ void GameUpdate(GameState* state) {
 	        // to prevent duplicates. Defaults exist only as a Unity-like fallback
 	        // scene when no world is present.
 	        if (!g_GameState->WorldLoaded) {
-	            SM_TRACE("[GAMEDLL] No world loaded — spawning default scene")
+	            SM_TRACE("[GAMEDLL] No world loaded — spawning default scene");
 
 	            const auto textEntity = g_GameState->World.CreateEntity();
 	            g_GameState->World.AddComponent(textEntity, TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
@@ -254,7 +254,7 @@ void GameUpdate(GameState* state) {
 
 		    break;
 	    default:
-	        SM_ERROR("[GAMEDLL] GameUpdate: Unknown GameStateId %u", static_cast<uint32_t>(g_GameState->StateId))
+	        SM_ERROR("[GAMEDLL] GameUpdate: Unknown GameStateId %u", static_cast<uint32_t>(g_GameState->StateId));
 			break;
     }
 }
@@ -269,7 +269,7 @@ void GameExit(GameState* state) {
     if (state && g_GameState == state) {
         g_GameState = nullptr;
     }
-    SM_TRACE("[GAMEDLL] GameExit")
+    SM_TRACE("[GAMEDLL] GameExit");
 }
 
 inline int EncodeUTF8(unsigned int codepoint, char* out) {

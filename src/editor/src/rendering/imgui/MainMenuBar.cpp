@@ -6,22 +6,37 @@
 #include "WorldManager.h"
 #include "SettingsManager.h"
 
-bool MainMenuBar::Draw(const EditorContext& ctx, bool& editMode)
+MainMenuBarResult MainMenuBar::Draw(const EditorContext& ctx, bool& editMode)
 {
-    bool resetLayoutRequested = false;
+    MainMenuBarResult result;
+    const double now = ImGui::GetTime();
+
+    // Shared action bodies for the File menu items and their Ctrl shortcuts.
+    auto doNew = [&] {
+        ctx.App->RequestSceneNew.store(true, std::memory_order_relaxed);
+        result.sceneChanged = true;
+        m_SceneStatus.Set("New scene", false, now);
+    };
+    auto doReload = [&] {
+        ctx.App->RequestSceneReload.store(true, std::memory_order_relaxed);
+        result.sceneChanged = true;
+        m_SceneStatus.Set("Reloading world.json", false, now);
+    };
+    auto doSave = [&] {
+        const bool ok = ctx.WorldSnapshot &&
+            WorldManager::SaveWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, ctx.WorldSnapshot.get());
+        m_SceneStatus.Set(ok ? "Saved world.json" : "Save failed", !ok, now);
+    };
 
     // Main Menu Bar (File / Edit / About) with placeholder items
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("File"))
         {
-            if (ImGui::MenuItem("New", "Ctrl+N")) { /* no-op */ }
-            if (ImGui::MenuItem("Open...", "Ctrl+O")) { /* no-op */ }
+            if (ImGui::MenuItem("New", "Ctrl+N"))    { doNew(); }
+            if (ImGui::MenuItem("Reload", "Ctrl+R")) { doReload(); }
             ImGui::Separator();
-            if (ImGui::MenuItem("Save", "Ctrl+S") && ctx.WorldSnapshot) {
-                WorldManager::SaveWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, ctx.WorldSnapshot.get());
-            }
-            if (ImGui::MenuItem("Save As...")) { /* no-op */ }
+            if (ImGui::MenuItem("Save", "Ctrl+S"))   { doSave(); }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) { /* no-op */ }
             ImGui::EndMenu();
@@ -116,7 +131,7 @@ bool MainMenuBar::Draw(const EditorContext& ctx, bool& editMode)
 
         if (ImGui::BeginMenu("View"))
         {
-            if (ImGui::MenuItem("Reset Layout")) { resetLayoutRequested = true; }
+            if (ImGui::MenuItem("Reset Layout")) { result.resetLayout = true; }
             ImGui::EndMenu();
         }
 
@@ -133,5 +148,28 @@ bool MainMenuBar::Draw(const EditorContext& ctx, bool& editMode)
         ImGui::EndMainMenuBar();
     }
 
-    return resetLayoutRequested;
+    // Ctrl+N / Ctrl+R / Ctrl+S work without the menu open (gated so they don't fire while typing).
+    if (!ImGui::GetIO().WantTextInput) {
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N)) doNew();
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_R)) doReload();
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) doSave();
+    }
+
+    // Transient feedback toast: borderless, non-interactive, bottom-left of the main viewport.
+    if (m_SceneStatus.Visible(now)) {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + 12.0f, vp->WorkPos.y + vp->WorkSize.y - 36.0f));
+        ImGui::SetNextWindowBgAlpha(0.85f);
+        const ImGuiWindowFlags f = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs
+            | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing
+            | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+        if (ImGui::Begin("##SceneStatusToast", nullptr, f)) {
+            const ImVec4 col = m_SceneStatus.IsError() ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f)
+                                                       : ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
+            ImGui::TextColored(col, "%s", m_SceneStatus.Text().c_str());
+        }
+        ImGui::End();
+    }
+
+    return result;
 }

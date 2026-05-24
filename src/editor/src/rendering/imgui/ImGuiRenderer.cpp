@@ -285,7 +285,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         static bool s_LayoutInitialized = false;
         static bool s_ResetLayout = false;
 
-        if (m_MenuBar.Draw(ctx, m_EditMode)) s_ResetLayout = true;
+        const MainMenuBarResult menuResult = m_MenuBar.Draw(ctx, m_EditMode);
+        if (menuResult.resetLayout) s_ResetLayout = true;
+        if (menuResult.sceneChanged) m_EcsInspector.SetSelectedEntity(INVALID_ENTITY); // ids invalid after New/Reload
         if (ImGui::IsKeyPressed(ImGuiKey_F6) && !io.WantTextInput)
             m_EditMode = !m_EditMode;
 

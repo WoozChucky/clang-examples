@@ -183,45 +183,35 @@ bool WorldManager::LoadWorldSnapshot(const std::string& filepath, ECS* world) {
         return false;
     }
 
-    world->Clear();
+    try {
+        // Parse + validate the top-level shape BEFORE mutating the world, so a corrupt file leaves
+        // the current world intact (no wipe) and never throws out of this function (no crash).
+        json j;
+        ifs >> j;
+        const size_t entityCount = j.at("EntityCount").get<size_t>();
+        (void)entityCount; // currently informational; entities are recreated from the array below
 
-    // Use nlohmann/json for deserialization
-    json j;
-    ifs >> j;
-    size_t entityCount = j["EntityCount"].get<size_t>();
-    for (const auto& jEntity : j["Entities"]) {
-        EntityId entity = jEntity["EntityId"].get<EntityId>();
-        // Re-create entity
-        // Note: In a real ECS, you might want to ensure the same EntityId is used
-        // This example assumes CreateEntity() returns the same ID for simplicity
-        auto createdEntity = world->CreateEntity();
+        world->Clear();
+        for (const auto& jEntity : j.at("Entities")) {
+            const EntityId createdEntity = world->CreateEntity();
 
-        // Deserialize components if they exist
-        if (jEntity.contains("TransformComponent")) {
-            TransformComponent tc = jEntity["TransformComponent"].get<TransformComponent>();
-            world->AddComponent(createdEntity, tc);
+            if (jEntity.contains("TransformComponent"))
+                world->AddComponent(createdEntity, jEntity["TransformComponent"].get<TransformComponent>());
+            if (jEntity.contains("MeshComponent"))
+                world->AddComponent(createdEntity, jEntity["MeshComponent"].get<MeshComponent>());
+            if (jEntity.contains("MaterialComponent"))
+                world->AddComponent(createdEntity, jEntity["MaterialComponent"].get<MaterialComponent>());
+            if (jEntity.contains("LightningComponent"))
+                world->AddComponent(createdEntity, jEntity["LightningComponent"].get<LightningComponent>());
+            if (jEntity.contains("TextComponent"))
+                world->AddComponent(createdEntity, jEntity["TextComponent"].get<TextComponent>());
+            if (jEntity.contains("SunMarker"))
+                world->AddComponent(createdEntity, SunMarker{});
         }
-        if (jEntity.contains("MeshComponent")) {
-            MeshComponent mc = jEntity["MeshComponent"].get<MeshComponent>();
-            world->AddComponent(createdEntity, mc);
-        }
-        if (jEntity.contains("MaterialComponent")) {
-            MaterialComponent matc = jEntity["MaterialComponent"].get<MaterialComponent>();
-            world->AddComponent(createdEntity, matc);
-        }
-        if (jEntity.contains("LightningComponent")) {
-            LightningComponent lc = jEntity["LightningComponent"].get<LightningComponent>();
-            world->AddComponent(createdEntity, lc);
-        }
-        if (jEntity.contains("TextComponent")) {
-            TextComponent textc = jEntity["TextComponent"].get<TextComponent>();
-            world->AddComponent(createdEntity, textc);
-        }
-        if (jEntity.contains("SunMarker")) {
-            world->AddComponent(createdEntity, SunMarker{});
-        }
+    } catch (const std::exception& e) {
+        SM_WARN("Failed to load world snapshot '%s': %s", filepath.c_str(), e.what());
+        return false;
     }
 
     return true;
-
 }

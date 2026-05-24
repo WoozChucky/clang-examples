@@ -161,6 +161,12 @@ struct ApplicationContext {
     // INVALID_ENTITY (0) = no outline. The runtime never writes it, so it draws no outline.
     std::atomic<uint64_t> SelectedEntity{INVALID_ENTITY};
 
+    // Editor scene-file requests (editor RenderThread sets; GameThread consumes via exchange() each
+    // tick). Reload re-reads world.json from disk (replacing the world); New clears to an empty scene.
+    // Runtime never sets these, so it is unaffected.
+    std::atomic<bool> RequestSceneReload{false};
+    std::atomic<bool> RequestSceneNew{false};
+
     // Editor free-look camera override (editor only). The overlay (RenderThread) writes both each
     // frame; Renderer (RenderThread, earlier in the next frame) reads them -> 1-frame lag, like
     // SelectedEntity. Runtime has no overlay, never writes them, so EditorCameraActive stays false
