@@ -41,8 +41,11 @@ static void T02_scene_fits_inside_light_frustum()
     const glm::vec3 center(0, 0, 0);
     const float r = 4.0f;
     const glm::mat4 vp = ComputeLightViewProj(center, r, glm::normalize(glm::vec3(0.3f, -1, 0.2f)));
+    // Cube whose 8 corners lie on the bounding sphere of radius r (half-extent r/sqrt(3)),
+    // i.e. each corner is exactly distance r from center -> must project inside the tight light box.
+    const float h = r / std::sqrt(3.0f);
     for (int i = 0; i < 8; ++i) {
-        glm::vec3 corner(center.x + ((i&1)?r:-r), center.y + ((i&2)?r:-r), center.z + ((i&4)?r:-r));
+        glm::vec3 corner(center.x + ((i&1)?h:-h), center.y + ((i&2)?h:-h), center.z + ((i&4)?h:-h));
         glm::vec3 n = proj_ndc(vp, corner);
         EXPECT(n.x >= -1.001f && n.x <= 1.001f);
         EXPECT(n.y >= -1.001f && n.y <= 1.001f);

@@ -12,16 +12,15 @@ inline bool IsSunUp(const glm::vec3& sunDir, float eps = 0.02f) {
 // Orthographic light view-projection framing the scene bounds (center, radius) along the sun
 // direction. sunDir = the direction the light travels (away from the sun). RH + ZO depth ([0,1]).
 //
-// `radius` is the half-extent of the scene's axis-aligned bounds. To guarantee the whole AABB
-// stays inside the light frustum for ANY light direction, we frame the sphere that encloses that
-// AABB: its radius is radius*sqrt(3) (the AABB's corner distance). Using the plain `radius` would
-// only enclose an inscribed sphere, letting rotated AABB corners spill outside the ortho box.
+// `radius` is the bounding-SPHERE radius of the scene (in real use 0.5*length(aabbMax-aabbMin),
+// the AABB's circumradius, enclosing all 8 corners). A tight [-r, r] ortho box exactly contains
+// the orthographic projection of that sphere (a disc of radius r fits a 2r square) for ANY light
+// direction, giving maximal shadow-map resolution.
 inline glm::mat4 ComputeLightViewProj(const glm::vec3& center, float radius, const glm::vec3& sunDir) {
     const glm::vec3 d = glm::normalize(sunDir);
-    const float halfExtent = (radius > 1e-3f) ? radius : 1.0f;
-    const float r = halfExtent * 1.7320508f;                 // sqrt(3): enclose the AABB corners
+    const float r = (radius > 1e-3f) ? radius : 1.0f;
     const glm::vec3 up = (std::abs(d.y) > 0.99f) ? glm::vec3(0, 0, 1) : glm::vec3(0, 1, 0);
-    const glm::vec3 eye = center - d * (r * 2.0f);           // back off toward the sun
+    const glm::vec3 eye = center - d * (r * 2.0f);
     const glm::mat4 view = glm::lookAtRH(eye, center, up);
     const glm::mat4 proj = glm::orthoRH_ZO(-r, r, -r, r, 0.0f, 4.0f * r);
     return proj * view;
