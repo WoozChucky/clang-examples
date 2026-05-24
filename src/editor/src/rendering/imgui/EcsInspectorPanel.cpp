@@ -83,6 +83,12 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                     }
                 }
 
+                if (ImGui::MenuItem("Duplicate Entity")) {
+                    if (!ctx.App->ECSCommandRing.Push(ECSCommand::DuplicateEntity(entity))) {
+                        SM_WARN("ECS command queue full! Duplicate command dropped.");
+                    }
+                }
+
                 ImGui::Separator();
 
                 // Add component options
@@ -222,6 +228,22 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
             }
 
             ImGui::PopID();
+        }
+
+        // Keyboard ops on the selected entity. Gate on !WantTextInput so pressing Delete while
+        // editing a field's text doesn't destroy the entity. Check Ctrl+D before plain Del.
+        ImGuiIO& io = ImGui::GetIO();
+        if (selectedEntity != INVALID_ENTITY && !io.WantTextInput) {
+            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D)) {
+                if (!ctx.App->ECSCommandRing.Push(ECSCommand::DuplicateEntity(selectedEntity))) {
+                    SM_WARN("ECS command queue full! Duplicate command dropped.");
+                }
+            } else if (ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+                if (!ctx.App->ECSCommandRing.Push(ECSCommand::DestroyEntity(selectedEntity))) {
+                    SM_WARN("ECS command queue full! Delete command dropped.");
+                }
+                selectedEntity = INVALID_ENTITY;
+            }
         }
 
         ImGui::Separator();
