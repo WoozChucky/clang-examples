@@ -28,10 +28,12 @@ bool ShadowDepthPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     if (!m_Device || !m_Renderer || !renderer->GetMeshSystem())
         return false;
 
+    // Volatile CB: written per-mesh inside the command list. NVRHI versions volatile CB writes per
+    // draw (a static CB would clobber -> all meshes drawn with the last Model). maxVersions must
+    // cover (meshes per frame) * (frames in flight); 1024 is generous for the current scene scale.
     m_CB = m_Device->createBuffer(
-        nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(ShadowCB), "ShadowDepthPass CB")
-            .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
-            .setKeepInitialState(true));
+        nvrhi::utils::CreateVolatileConstantBufferDesc(sizeof(ShadowCB), "ShadowDepthPass CB",
+                                                       /*maxVersions=*/1024));
 
     m_VS = m_Renderer->CreateShader(nvrhi::ShaderType::Vertex, SHADOW_VS_HLSL, 0, "main_vs", "vs_6_1");
     if (!m_VS)
@@ -48,7 +50,7 @@ bool ShadowDepthPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
 
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
-    layoutDesc.bindings = { nvrhi::BindingLayoutItem::ConstantBuffer(0) };
+    layoutDesc.bindings = { nvrhi::BindingLayoutItem::VolatileConstantBuffer(0) };
     if (m_Device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
         layoutDesc.setBindingOffsets(nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0));
     m_BindingLayout = m_Device->createBindingLayout(layoutDesc);
