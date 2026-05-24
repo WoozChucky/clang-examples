@@ -165,6 +165,7 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     m_ShadowDepth = nullptr;
     m_ShadowFb = nullptr;
     m_ShadowSampler = nullptr;
+    ReleaseGBuffer();
 
     if (m_CommandList) {
         m_CommandList = nullptr;
@@ -212,6 +213,13 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
             // overlay, or overlay returns null) renders straight into the swapchain backbuffer.
             nvrhi::IFramebuffer* sceneBuffer = m_Overlay ? m_Overlay->GetSceneFramebuffer(frameBuffer) : nullptr;
             if (!sceneBuffer) sceneBuffer = frameBuffer;
+
+            // Keep the G-buffer sized to the scene target + sharing its depth.
+            {
+                const auto& fbinfo = sceneBuffer->getFramebufferInfo();
+                EnsureGBuffer(fbinfo.width, fbinfo.height,
+                              sceneBuffer->getDesc().depthAttachment.texture);
+            }
 
             {
                 ZoneScopedN("RenderPasses");
@@ -431,6 +439,46 @@ void Renderer::CreateShadowResources()
     }
 }
 
+void Renderer::ReleaseGBuffer()
+{
+    m_GBuffer = GBuffer{};
+}
+
+void Renderer::EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* sharedDepth)
+{
+    if (!sharedDepth || width == 0 || height == 0) return;
+    if (m_GBuffer.Fb && m_GBuffer.Width == width && m_GBuffer.Height == height
+        && m_GBuffer.Fb->getDesc().depthAttachment.texture == sharedDepth)
+        return; // already current
+
+    auto makeRT = [&](nvrhi::Format fmt, const char* name) {
+        nvrhi::TextureDesc td;
+        td.width = width; td.height = height;
+        td.format = fmt;
+        td.dimension = nvrhi::TextureDimension::Texture2D;
+        td.isRenderTarget = true;
+        td.isShaderResource = true;
+        td.initialState = nvrhi::ResourceStates::ShaderResource;
+        td.keepInitialState = true;
+        td.debugName = name;
+        td.clearValue = nvrhi::Color(0.f);
+        td.useClearValue = true;
+        return m_Device->createTexture(td);
+    };
+
+    m_GBuffer.Albedo   = makeRT(nvrhi::Format::RGBA8_UNORM,  "GBuffer.Albedo");
+    m_GBuffer.Normal   = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.Normal");
+    m_GBuffer.WorldPos = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.WorldPos");
+
+    m_GBuffer.Fb = m_Device->createFramebuffer(nvrhi::FramebufferDesc()
+        .addColorAttachment(m_GBuffer.Albedo)
+        .addColorAttachment(m_GBuffer.Normal)
+        .addColorAttachment(m_GBuffer.WorldPos)
+        .setDepthAttachment(sharedDepth));
+    m_GBuffer.Width = width;
+    m_GBuffer.Height = height;
+}
+
 void Renderer::TeardownForSwap()
 {
     // ImGui: drop only the NVRHI backend + device-bound preview resources;
@@ -454,6 +502,7 @@ void Renderer::TeardownForSwap()
     m_ShadowDepth = nullptr;
     m_ShadowFb = nullptr;
     m_ShadowSampler = nullptr;
+    ReleaseGBuffer();
 
     // Flush the deferred-release queue now, while the device is still alive,
     // so the editor's released handles don't leak when the device is dropped.
