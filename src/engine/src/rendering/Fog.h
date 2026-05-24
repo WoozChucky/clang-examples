@@ -1,7 +1,6 @@
 #pragma once
 
 #include <glm/vec3.hpp>
-#include <glm/vec4.hpp>
 
 #include "Engine.h"
 
@@ -28,4 +27,4 @@ struct FogFrame {
 
 // Pure: maps the directional sun's elevation to fog color + density.
 // elevation = clamp(-sunDir.y, 0, 1): 1 at noon, 0 at/below the horizon (night).
-FogFrame ComputeFog(const glm::vec3& sunDir, const FogSettings& s);
+ENGINE_API FogFrame ComputeFog(const glm::vec3& sunDir, const FogSettings& s);
