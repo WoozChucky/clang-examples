@@ -103,3 +103,28 @@ set_target_properties(test_picking PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_editorcam
+    test_editorcam.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering/EditorCamera.cpp
+)
+
+target_link_libraries(test_editorcam PRIVATE
+    glm::glm
+)
+
+target_include_directories(test_editorcam PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering
+)
+
+target_compile_definitions(test_editorcam PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_editorcam PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
