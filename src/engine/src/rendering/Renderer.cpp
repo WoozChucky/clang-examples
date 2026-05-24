@@ -12,6 +12,7 @@
 #include "passes/OutlineRenderPass.h"
 #include "passes/DebugRenderPass.h"
 #include "passes/MeshRenderPass.h"
+#include "passes/ShadowDepthPass.h"
 
 #include <tracy/Tracy.hpp>
 
@@ -92,6 +93,13 @@ bool Renderer::Init(const RendererAPI api) {
         return false;
     }
     AddRenderPass(std::move(primitivePass));
+
+    auto shadowPass = std::make_unique<ShadowDepthPass>();
+    if (!shadowPass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize ShadowDepthPass");
+        return false;
+    }
+    AddRenderPass(std::move(shadowPass));
 
     auto meshPass = std::make_unique<MeshRenderPass>();
     if (!meshPass->Initialize(m_Device, this)) {
@@ -493,6 +501,10 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     auto primitivePass = std::make_unique<PrimitiveRenderPass>();
     if (!primitivePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: PrimitivePass failed"); return false; }
     AddRenderPass(std::move(primitivePass));
+
+    auto shadowPass = std::make_unique<ShadowDepthPass>();
+    if (!shadowPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: ShadowPass failed"); return false; }
+    AddRenderPass(std::move(shadowPass));
 
     auto meshPass = std::make_unique<MeshRenderPass>();
     if (!meshPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: MeshPass failed"); return false; }
