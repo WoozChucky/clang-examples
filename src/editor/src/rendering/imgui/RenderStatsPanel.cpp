@@ -19,5 +19,13 @@ void DrawRenderStatsPanel(bool* open)
     ImGui::Text("Instances: %u", s.InstancesDrawn);
     ImGui::Text("Batches:   %u", s.BatchesDrawn);
 
+    ImGui::Separator();
+    ImGui::TextDisabled("Debug Draw");
+    DebugDrawSettings& dd = GetDebugDrawSettings();
+    ImGui::Checkbox("Light gizmos",   &dd.ShowLightGizmos);
+    ImGui::Checkbox("Camera frustum", &dd.ShowCameraFrustum);
+    ImGui::Checkbox("Selected AABB",  &dd.ShowSelectedAABB);
+    ImGui::Checkbox("Wireframe",      &dd.Wireframe);
+
     ImGui::End();
 }
