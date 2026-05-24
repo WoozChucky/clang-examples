@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <glm/glm.hpp>
 
 class ECS;
 class MeshSystem;
@@ -25,4 +26,10 @@ struct EditorContext {
     ImDrawList*                ViewportDrawList = nullptr;
     float                      ViewportMinX = 0.0f, ViewportMinY = 0.0f;
     std::uint32_t              ViewportW = 0, ViewportH = 0;
+
+    // Editor camera (for picking): when active, PickEntity builds the ray from these instead of
+    // the game's WorldCameraComponent, matching what the render passes drew this frame.
+    bool      EditorCameraActive = false;
+    glm::mat4 EditorCamView{1.0f};
+    glm::mat4 EditorCamProj{1.0f};
 };

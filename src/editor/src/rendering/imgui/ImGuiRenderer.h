@@ -11,6 +11,7 @@
 #include "MeshManagerPanel.h"
 #include "EcsInspectorPanel.h"
 #include "MainMenuBar.h"
+#include "EditorCamera.h"
 #include "lib.h"
 
 class MeshSystem;
@@ -69,4 +70,7 @@ private:
     MaterialManagerPanel m_MaterialManager;
     MeshManagerPanel m_MeshManager;
     EcsInspectorPanel m_EcsInspector;
+
+    EditorCamera m_EditorCamera;
+    bool         m_EditMode = true; // default to Edit (free camera) on launch
 };
