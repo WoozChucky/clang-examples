@@ -190,3 +190,26 @@ set_target_properties(test_debugdraw PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_shadowmath
+    test_shadowmath.cpp
+)
+
+target_link_libraries(test_shadowmath PRIVATE
+    glm::glm
+)
+
+target_include_directories(test_shadowmath PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/engine/src/rendering
+)
+
+target_compile_definitions(test_shadowmath PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_shadowmath PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
