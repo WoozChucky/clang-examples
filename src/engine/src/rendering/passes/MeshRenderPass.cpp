@@ -134,7 +134,7 @@ StructuredBuffer<PointLight> gPointLights : register(t4);
 StructuredBuffer<InstanceData> gInstances : register(t5);
 
 Texture2D              uShadowMap  : register(t6);
-SamplerComparisonState uShadowSamp : register(s4);
+SamplerComparisonState uShadowSamp : register(s7);
 
 float ShadowFactor(float3 worldPos, float ndl)
 {
@@ -264,7 +264,7 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4),
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5),
         nvrhi::BindingLayoutItem::Texture_SRV(6),
-        nvrhi::BindingLayoutItem::Sampler(4)
+        nvrhi::BindingLayoutItem::Sampler(7)
     };
     nvrhi::VulkanBindingOffsets& offsets =
         nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
@@ -560,7 +560,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                         nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer),
                         nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer),
                         nvrhi::BindingSetItem::Texture_SRV(6, m_Renderer->GetShadowDepthTexture(), nvrhi::Format::R32_FLOAT),
-                        nvrhi::BindingSetItem::Sampler(4, m_Renderer->GetShadowSampler())
+                        nvrhi::BindingSetItem::Sampler(7, m_Renderer->GetShadowSampler())
                     };
                     nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
@@ -597,7 +597,7 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                     nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer),
                     nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer),
                     nvrhi::BindingSetItem::Texture_SRV(6, m_Renderer->GetShadowDepthTexture(), nvrhi::Format::R32_FLOAT),
-                    nvrhi::BindingSetItem::Sampler(4, m_Renderer->GetShadowSampler())
+                    nvrhi::BindingSetItem::Sampler(7, m_Renderer->GetShadowSampler())
                 };
                 nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
