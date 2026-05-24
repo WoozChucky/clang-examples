@@ -8,6 +8,7 @@
 #include "Input.h"
 #include "SpscRing.h"
 #include "Seqlock.h"
+#include "CameraView.h"
 
 #include "ECS.h"
 #include "ECSCommands.h"
@@ -159,6 +160,13 @@ struct ApplicationContext {
     // OutlineRenderPass (also RenderThread, earlier in the frame) reads it -> 1-frame lag.
     // INVALID_ENTITY (0) = no outline. The runtime never writes it, so it draws no outline.
     std::atomic<uint64_t> SelectedEntity{INVALID_ENTITY};
+
+    // Editor free-look camera override (editor only). The overlay (RenderThread) writes both each
+    // frame; Renderer (RenderThread, earlier in the next frame) reads them -> 1-frame lag, like
+    // SelectedEntity. Runtime has no overlay, never writes them, so EditorCameraActive stays false
+    // and rendering uses the game's WorldCameraComponent unchanged.
+    std::atomic<bool>   EditorCameraActive{false};
+    Seqlock<CameraView> EditorCamera{};
 
     // Input: Platform -> Game
     static constexpr int InputRingSize = 256;
