@@ -154,3 +154,16 @@ set_target_properties(test_transientstatus PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_logformat
+    test_logformat.cpp
+)
+
+target_include_directories(test_logformat PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+set_target_properties(test_logformat PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
