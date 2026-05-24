@@ -133,9 +133,9 @@ void _log(const char* prefix, const char* msg, TextColor textColor, Args... args
   std::println("{}", buffer);
 }
 
-#define SM_TRACE(msg, ...) _log("TRACE:", msg, TEXT_COLOR_GREEN, ##__VA_ARGS__);
-#define SM_WARN(msg, ...) _log("WARN:", msg, TEXT_COLOR_YELLOW, "\033[0m", ##__VA_ARGS__);
-#define SM_ERROR(msg, ...) _log("ERROR:", msg, TEXT_COLOR_RED, "\033[0m", ##__VA_ARGS__);
+#define SM_TRACE(msg, ...) do { _log("TRACE:", msg, TEXT_COLOR_GREEN, ##__VA_ARGS__); } while(0)
+#define SM_WARN(msg, ...)  do { _log("WARN:",  msg, TEXT_COLOR_YELLOW, "\033[0m", ##__VA_ARGS__); } while(0)
+#define SM_ERROR(msg, ...) do { _log("ERROR:", msg, TEXT_COLOR_RED, "\033[0m", ##__VA_ARGS__); } while(0)
 
 // Forward-declare a platform-specific debug break that can show dialogs, etc.
 void platform_debug_break(const char* expr, const char* file, int line, const char* message);
