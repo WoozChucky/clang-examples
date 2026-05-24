@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include "ECS.h" // world->Each, LightningComponent
 
 #include <algorithm>
 #include <iostream>
@@ -214,7 +215,23 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
 
             {
                 ZoneScopedN("RenderPasses");
-                const auto sceneClear = nvrhi::Color(red, green, blue, 1.0f);
+
+                // Resolve sun-driven fog once per frame. The same color drives the
+                // scene clear ("sky") and the geometry fog in MeshRenderPass, so the
+                // horizon has no seam. elevation defaults to night if no sun exists.
+                glm::vec3 sunDir(0.0f, -1.0f, 0.0f);
+                if (world) {
+                    world->Each<TransformComponent, LightningComponent>(
+                        [&](EntityId, const TransformComponent&, const LightningComponent& l) {
+                            if (l.Type == LightningType::Directional) sunDir = glm::vec3(l.Direction);
+                        });
+                }
+                const FogSettings& fogSettings = GetFogSettings();
+                m_FrameFog = ComputeFog(sunDir, fogSettings);
+
+                const auto sceneClear = fogSettings.Enabled
+                    ? nvrhi::Color(m_FrameFog.Color.r, m_FrameFog.Color.g, m_FrameFog.Color.b, 1.0f)
+                    : nvrhi::Color(red, green, blue, 1.0f);
                 nvrhi::utils::ClearColorAttachment(m_CommandList, sceneBuffer, 0, sceneClear);
                 if (sceneBuffer != frameBuffer) {
                     // Offscreen scene: clear the swapchain (dark) so the present surface is clean

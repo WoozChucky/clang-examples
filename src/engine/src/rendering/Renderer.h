@@ -8,6 +8,7 @@
 #include "ApplicationContext.h"
 #include "RendererBackend.h"
 #include "IRenderPass.h"
+#include "Fog.h"
 
 #include "FrameAllocator.h"
 #include "IOverlay.h"
@@ -125,6 +126,7 @@ public:
     nvrhi::ISampler*     GetShadowSampler()      const { return m_ShadowSampler; }
     nvrhi::IFramebuffer* GetShadowFramebuffer()  const { return m_ShadowFb; }
     ShadowView&          GetShadowView()               { return m_ShadowView; }
+    const FogFrame& GetFrameFog() const { return m_FrameFog; }
     static constexpr uint32_t kShadowMapSize = 2048;
 
 private:
@@ -158,6 +160,7 @@ private:
     nvrhi::FramebufferHandle m_ShadowFb;
     nvrhi::SamplerHandle     m_ShadowSampler;
     ShadowView               m_ShadowView{};
+    FogFrame                 m_FrameFog{}; // resolved each frame; drives clear + mesh-pass fog
 
     RendererBackend*            m_Backend = nullptr;
     RendererBackendSettings     m_BackendSettings{};
