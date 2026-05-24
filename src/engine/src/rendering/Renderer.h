@@ -116,6 +116,17 @@ public:
     // game's WorldCameraComponent. Resolved once at the top of Render(), before the pass loop.
     const CameraView& GetActiveCamera() const { return m_ActiveCamera; }
 
+    // Directional-shadow GPU resources + shared view. Created/destroyed with the backend.
+    // The shadow pass (Task 3) renders into m_ShadowFb and publishes LightVP into m_ShadowView;
+    // the mesh pass (Task 4) samples m_ShadowDepth via m_ShadowSampler.
+    struct ShadowView { glm::mat4 LightVP{1.0f}; int Enabled = 0; };
+
+    nvrhi::ITexture*     GetShadowDepthTexture() const { return m_ShadowDepth; }
+    nvrhi::ISampler*     GetShadowSampler()      const { return m_ShadowSampler; }
+    nvrhi::IFramebuffer* GetShadowFramebuffer()  const { return m_ShadowFb; }
+    ShadowView&          GetShadowView()               { return m_ShadowView; }
+    static constexpr uint32_t kShadowMapSize = 2048;
+
 private:
 
     void TeardownForSwap();
@@ -123,6 +134,8 @@ private:
     // Creates the default magenta missing texture + default sampler.
     void CreateDefaultMaterialResources(nvrhi::TextureHandle& outMissing,
                                         nvrhi::SamplerHandle& outSampler);
+    // Creates the directional-shadow D32 depth map, depth-only framebuffer, and comparison sampler.
+    void CreateShadowResources();
 
     constexpr static uint32_t   SHUTDOWN_TIMEOUT = 5000;
 
@@ -139,6 +152,12 @@ private:
     ApplicationContext*         m_AppContext;
 
     CameraView m_ActiveCamera{};
+
+    // Directional-shadow resources (created in Init/InitForSwap, released in Shutdown/TeardownForSwap).
+    nvrhi::TextureHandle     m_ShadowDepth;
+    nvrhi::FramebufferHandle m_ShadowFb;
+    nvrhi::SamplerHandle     m_ShadowSampler;
+    ShadowView               m_ShadowView{};
 
     RendererBackend*            m_Backend = nullptr;
     RendererBackendSettings     m_BackendSettings{};

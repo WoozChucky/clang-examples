@@ -76,6 +76,8 @@ bool Renderer::Init(const RendererAPI api) {
         m_MaterialSystem.Initialize(m_Device, missingMaterialTexture, defaultSampler);
     }
 
+    CreateShadowResources();
+
     if (m_Overlay && !m_Overlay->Init(m_Device, m_AppContext, &m_MeshSystem, &m_MaterialSystem, this)) {
         SM_ERROR("Failed to initialize renderer overlay");
         return false;
@@ -149,6 +151,11 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     // Cleanup resource systems
     m_MaterialSystem.Shutdown();
     m_MeshSystem.Shutdown();
+
+    // Release shadow GPU resources (device still alive here).
+    m_ShadowDepth = nullptr;
+    m_ShadowFb = nullptr;
+    m_ShadowSampler = nullptr;
 
     if (m_CommandList) {
         m_CommandList = nullptr;
@@ -363,6 +370,40 @@ void Renderer::CreateDefaultMaterialResources(nvrhi::TextureHandle& outMissing,
     outSampler = m_Device->createSampler(sd);
 }
 
+void Renderer::CreateShadowResources()
+{
+    // D32 depth map: render target (depth) for the shadow pass + shader resource so the mesh
+    // pass can sample it. keepInitialState lets NVRHI auto-transition between DepthWrite (shadow
+    // pass) and ShaderResource (mesh pass) across command lists, like SceneViewport's targets.
+    nvrhi::TextureDesc td;
+    td.width  = kShadowMapSize;
+    td.height = kShadowMapSize;
+    td.format = nvrhi::Format::D32;
+    td.dimension = nvrhi::TextureDimension::Texture2D;
+    td.isRenderTarget = true;
+    td.isShaderResource = true;
+    td.initialState = nvrhi::ResourceStates::ShaderResource;
+    td.keepInitialState = true;
+    td.debugName = "ShadowDepthMap";
+    m_ShadowDepth = m_Device->createTexture(td);
+
+    m_ShadowFb = m_Device->createFramebuffer(
+        nvrhi::FramebufferDesc().setDepthAttachment(m_ShadowDepth));
+
+    // Comparison sampler for hardware PCF: the reduction type drives the comparison; the actual
+    // compare op is supplied in HLSL via SampleCmp (Task 4). NVRHI's SamplerDesc on this version
+    // has no comparisonFunc field, so the func below is documentary intent only.
+    nvrhi::SamplerDesc sd;
+    sd.setAllFilters(true);
+    sd.setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
+    sd.reductionType = nvrhi::SamplerReductionType::Comparison;
+    m_ShadowSampler = m_Device->createSampler(sd);
+
+    if (!m_ShadowDepth || !m_ShadowFb || !m_ShadowSampler) {
+        SM_WARN("Renderer: failed to create shadow GPU resources");
+    }
+}
+
 void Renderer::TeardownForSwap()
 {
     // ImGui: drop only the NVRHI backend + device-bound preview resources;
@@ -381,6 +422,11 @@ void Renderer::TeardownForSwap()
     // Release GPU resources but keep CPU caches + entry slots.
     m_MaterialSystem.DestroyGpuResources();
     m_MeshSystem.DestroyGpuResources();
+
+    // Drop shadow GPU resources; recreated by InitForSwap against the new device.
+    m_ShadowDepth = nullptr;
+    m_ShadowFb = nullptr;
+    m_ShadowSampler = nullptr;
 
     // Flush the deferred-release queue now, while the device is still alive,
     // so the editor's released handles don't leak when the device is dropped.
@@ -434,6 +480,8 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     m_MeshSystem.RecreateGpuResources();          // per-mesh failures are non-fatal
     m_MaterialSystem.SetDevice(m_Device);
     m_MaterialSystem.RecreateGpuResources(missingTex, defaultSampler);
+
+    CreateShadowResources();
 
     // ImGui NVRHI backend against the new device.
     if (m_Overlay && !m_Overlay->OnDeviceReset(m_Device)) {
