@@ -46,6 +46,10 @@ private:
         float    Ambient = 0.0f;
         int      ShadowEnabled = 0;
         float    ShadowBias = 0.0f;
+        glm::vec4 CameraPos{0.0f};    // xyz = camera world pos
+        glm::vec4 Fog{0.0f};          // rgb = fog color, w = density
+        int       FogEnabled = 0;
+        float     _padFog[3]{};       // pad to 16-byte alignment
     };
 
     struct PerDrawCB

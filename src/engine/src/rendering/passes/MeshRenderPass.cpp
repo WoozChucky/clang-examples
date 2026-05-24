@@ -1,6 +1,7 @@
 #include "MeshRenderPass.h"
 
 #include "Renderer.h"
+#include "Fog.h"
 #include "MeshBatching.h"
 #include "Frustum.h"
 #include "RenderStats.h"
@@ -35,6 +36,10 @@ cbuffer PerFrame : register(b0)
     float uAmbient;
     int   uShadowEnabled;
     float uShadowBias;
+    float4 uCameraPos; // xyz = camera world pos
+    float4 uFog;       // rgb = fog color, w = density
+    int    uFogEnabled;
+    float3 _padFog;
 };
 
 cbuffer PerDraw : register(b1)
@@ -117,6 +122,10 @@ cbuffer PerFrame : register(b0)
     float uAmbient;
     int   uShadowEnabled;
     float uShadowBias;
+    float4 uCameraPos; // xyz = camera world pos
+    float4 uFog;       // rgb = fog color, w = density
+    int    uFogEnabled;
+    float3 _padFog;
 };
 
 cbuffer PerDraw : register(b1)
@@ -199,21 +208,27 @@ float4 main_ps(PSIn i) : SV_Target
         }
     }
 
+    float4 finalColor;
     if ((inst.Flags & OPT_UNLIT) != 0u)
     {
-        float4 c = ((inst.Flags & OPT_SAMPLE_TEXTURE) != 0)
+        finalColor = ((inst.Flags & OPT_SAMPLE_TEXTURE) != 0)
             ? uTexture.Sample(uSampler, i.UV)
             : float4(inst.BaseColor.rgb, inst.BaseColor.a);
-        return c; // bypass lighting
+        // unlit: bypass lighting, but still receive atmospheric fog below
     }
-
-    float4 finalColor;
-    if ((inst.Flags & OPT_SAMPLE_TEXTURE) != 0) {
+    else if ((inst.Flags & OPT_SAMPLE_TEXTURE) != 0) {
         finalColor = uTexture.Sample(uSampler, i.UV);
         finalColor.rgb *= lighting;
     } else {
         finalColor.rgb = inst.BaseColor.rgb * lighting;
         finalColor.a = inst.BaseColor.a;
+    }
+
+    if (uFogEnabled != 0)
+    {
+        float dist = length(i.WorldPos - uCameraPos.xyz);
+        float fogF = 1.0 - exp(-uFog.w * dist);
+        finalColor.rgb = lerp(finalColor.rgb, uFog.rgb, fogF);
     }
     return finalColor;
 }
@@ -404,6 +419,10 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         perFrame.LightVP = sv.LightVP;
         perFrame.ShadowEnabled = sv.Enabled;
         perFrame.ShadowBias = GetShadowSettings().Bias;
+        const FogFrame& fog = m_Renderer->GetFrameFog();
+        perFrame.CameraPos  = glm::vec4(camPos, 1.0f);
+        perFrame.Fog        = glm::vec4(fog.Color, fog.Density);
+        perFrame.FogEnabled = GetFogSettings().Enabled ? 1 : 0;
         commandList->writeBuffer(m_PerFrameCB, &perFrame, sizeof(perFrame));
 
         // Upload point lights data (if any)
