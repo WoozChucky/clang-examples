@@ -227,6 +227,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                         });
                 }
                 const FogSettings& fogSettings = GetFogSettings();
+                // Always resolve fog: MeshRenderPass reads m_FrameFog regardless of Enabled.
                 m_FrameFog = ComputeFog(sunDir, fogSettings);
 
                 const auto sceneClear = fogSettings.Enabled

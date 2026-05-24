@@ -126,7 +126,10 @@ public:
     nvrhi::ISampler*     GetShadowSampler()      const { return m_ShadowSampler; }
     nvrhi::IFramebuffer* GetShadowFramebuffer()  const { return m_ShadowFb; }
     ShadowView&          GetShadowView()               { return m_ShadowView; }
-    const FogFrame& GetFrameFog() const { return m_FrameFog; }
+
+    // Per-frame fog resolved at the top of Render() (like GetActiveCamera): drives
+    // both the scene clear color and the mesh pass's distance fog.
+    const FogFrame&      GetFrameFog() const           { return m_FrameFog; }
     static constexpr uint32_t kShadowMapSize = 2048;
 
 private:
