@@ -27,5 +27,11 @@ void DrawRenderStatsPanel(bool* open)
     ImGui::Checkbox("Selected AABB",  &dd.ShowSelectedAABB);
     ImGui::Checkbox("Wireframe",      &dd.Wireframe);
 
+    ImGui::Separator();
+    ImGui::TextDisabled("Shadows");
+    ShadowSettings& sh = GetShadowSettings();
+    ImGui::Checkbox("Shadows", &sh.Enabled);
+    ImGui::SliderFloat("Shadow bias", &sh.Bias, 0.0f, 0.01f, "%.4f");
+
     ImGui::End();
 }

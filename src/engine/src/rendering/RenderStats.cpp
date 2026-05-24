@@ -17,3 +17,9 @@ DebugDrawSettings& GetDebugDrawSettings()
     static DebugDrawSettings s;
     return s;
 }
+
+ShadowSettings& GetShadowSettings()
+{
+    static ShadowSettings s;
+    return s;
+}

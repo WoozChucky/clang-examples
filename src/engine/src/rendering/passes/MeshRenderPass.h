@@ -40,10 +40,12 @@ private:
     {
         glm::mat4 P;   // Projection
         glm::mat4 VP;  // View-Projection
+        glm::mat4 LightVP;            // shadow light view-projection
         DirectionalLight DirectionalLight;
         uint32_t PointLightCount = 0; // number of point lights in the structured buffer
         float    Ambient = 0.0f;
-        uint32_t _pfPad[2]{};         // padding to 16-byte alignment
+        int      ShadowEnabled = 0;
+        float    ShadowBias = 0.0f;
     };
 
     struct PerDrawCB

@@ -21,6 +21,11 @@ struct DebugDrawSettings {
     bool Wireframe         = false;
 };
 
+struct ShadowSettings {
+    bool  Enabled = true;
+    float Bias    = 0.0015f;
+};
+
 // Single instances DEFINED in RenderStats.cpp and exported from Engine.dll so the mesh pass
 // (Engine.dll) and the editor panel (editor.exe) share ONE copy each. A header-inline
 // function-local static would give every module its own copy (the staging-pool bug).
@@ -29,3 +34,4 @@ struct DebugDrawSettings {
 ENGINE_API RenderStats&     GetRenderStats();
 ENGINE_API CullingSettings& GetCullingSettings();
 ENGINE_API DebugDrawSettings& GetDebugDrawSettings();
+ENGINE_API ShadowSettings& GetShadowSettings();
