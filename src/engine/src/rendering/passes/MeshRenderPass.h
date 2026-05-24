@@ -51,6 +51,8 @@ private:
         int       FogEnabled = 0;
         float     _padFog[3]{};       // pad to 16-byte alignment
     };
+    static_assert(sizeof(PerFrameCB) % 16 == 0, "PerFrameCB must be 16-byte aligned");
+    static_assert(sizeof(PerFrameCB) == 288, "PerFrameCB size changed; update BOTH HLSL cbuffer blocks in MeshRenderPass.cpp");
 
     struct PerDrawCB
     {

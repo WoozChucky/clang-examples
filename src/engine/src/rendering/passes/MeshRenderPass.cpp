@@ -226,8 +226,8 @@ float4 main_ps(PSIn i) : SV_Target
 
     if (uFogEnabled != 0)
     {
-        float dist = length(i.WorldPos - uCameraPos.xyz);
-        float fogF = 1.0 - exp(-uFog.w * dist);
+        float fogDist = length(i.WorldPos - uCameraPos.xyz);
+        float fogF = 1.0 - exp(-uFog.w * fogDist);
         finalColor.rgb = lerp(finalColor.rgb, uFog.rgb, fogF);
     }
     return finalColor;
