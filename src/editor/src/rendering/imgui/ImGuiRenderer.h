@@ -6,7 +6,8 @@
 
 #include "imgui_nvrhi.h"
 #include "SceneViewport.h"
-#include "StatsPanel.h"
+#include "PerformancePanel.h"
+#include "SimulationPanel.h"
 #include "MaterialManagerPanel.h"
 #include "MeshManagerPanel.h"
 #include "EcsInspectorPanel.h"
@@ -66,7 +67,8 @@ private:
     bool m_ViewportFocused = false;  // Viewport panel focused this frame (keyboard routing)
 
     MainMenuBar m_MenuBar;
-    StatsPanel m_StatsPanel;
+    PerformancePanel m_Performance;
+    SimulationPanel  m_Simulation;
     MaterialManagerPanel m_MaterialManager;
     MeshManagerPanel m_MeshManager;
     EcsInspectorPanel m_EcsInspector;

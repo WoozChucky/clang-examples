@@ -128,3 +128,16 @@ set_target_properties(test_editorcam PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_metrichistory
+    test_metrichistory.cpp
+)
+
+target_include_directories(test_metrichistory PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering
+)
+
+set_target_properties(test_metrichistory PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
