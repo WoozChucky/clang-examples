@@ -448,6 +448,9 @@ void Renderer::EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* s
 {
     if (!sharedDepth || width == 0 || height == 0) return;
     if (m_GBuffer.Fb && m_GBuffer.Width == width && m_GBuffer.Height == height
+        // Rebuild if the shared depth texture identity changed (SceneViewport recreates
+        // its depth on resize). Relies on the old depth still being alive when the new
+        // one is created, so the pointers differ during a resize.
         && m_GBuffer.Fb->getDesc().depthAttachment.texture == sharedDepth)
         return; // already current
 
@@ -466,6 +469,7 @@ void Renderer::EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* s
         return m_Device->createTexture(td);
     };
 
+    // Assumes a non-MSAA scene target (swapchain is 1x); G-buffer RTs are single-sampled.
     m_GBuffer.Albedo   = makeRT(nvrhi::Format::RGBA8_UNORM,  "GBuffer.Albedo");
     m_GBuffer.Normal   = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.Normal");
     m_GBuffer.WorldPos = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.WorldPos");
