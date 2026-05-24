@@ -141,3 +141,16 @@ set_target_properties(test_metrichistory PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_transientstatus
+    test_transientstatus.cpp
+)
+
+target_include_directories(test_transientstatus PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering
+)
+
+set_target_properties(test_transientstatus PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
