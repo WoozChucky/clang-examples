@@ -14,7 +14,8 @@
 #include "MemoryPanel.h"
 #include "RenderStatsPanel.h"
 #include "EditorContext.h"
-#include "StatsPanel.h"
+#include "PerformancePanel.h"
+#include "SimulationPanel.h"
 #include "MaterialManagerPanel.h"
 #include "MeshManagerPanel.h"
 #include "EcsInspectorPanel.h"
@@ -155,7 +156,8 @@ void BuildDefaultDockLayout(ImGuiID dockId)
 
     ImGui::DockBuilderDockWindow("Mesh Manager",           left);
     ImGui::DockBuilderDockWindow("Material Manager",       left);
-    ImGui::DockBuilderDockWindow("Hello, world!",          leftBottom);
+    ImGui::DockBuilderDockWindow("Performance",            leftBottom);
+    ImGui::DockBuilderDockWindow("Simulation",             leftBottom);
     ImGui::DockBuilderDockWindow("ECS Inspector & Editor", right);
     ImGui::DockBuilderDockWindow("Render Stats",           rightBottom);
     ImGui::DockBuilderDockWindow("Memory",                 rightBottom);
@@ -410,7 +412,8 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();
 
-        m_StatsPanel.Draw(ctx);
+        m_Performance.Draw(ctx);
+        m_Simulation.Draw(ctx);
 
         m_EcsInspector.Draw(ctx);
 
