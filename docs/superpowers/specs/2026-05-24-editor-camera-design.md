@@ -175,8 +175,10 @@ The math is pure (no ImGui/NVRHI) → unit-testable.
 ### 4. Edit/Play toggle + overlay integration (`ImGuiRenderer`)
 
 - State: `bool m_EditMode = true;` (default Edit on launch) and an `EditorCamera m_EditorCamera;`.
-- **Toggle UI:** a button in the main menu bar / toolbar ("Edit"/"Play"), plus hotkey `F5`
-  (`ImGui::IsKeyPressed(ImGuiKey_F5)` gated on `!io.WantTextInput`).
+- **Toggle UI:** a button in the main menu bar / toolbar ("Edit"/"Play"), plus hotkey `F6`
+  (`ImGui::IsKeyPressed(ImGuiKey_F6)` gated on `!io.WantTextInput`). `F6` is free — the editor
+  already binds T=cursor-lock, F1/F2/F3=gizmo translate/rotate/scale, F4=gizmo-snap, F5=vsync,
+  1/2/3/TAB=panels, Del/Ctrl+D=entity ops, and the editor camera reserves F=frame-selection.
 - **Per frame** in `ImGuiRenderer::Render` (after the viewport hover/focus + size are known):
   - `aspect = m_LastViewportW / m_LastViewportH`.
   - If `m_EditMode && m_ViewportHovered/Focused`: build `EditorCameraInput` from ImGui IO
@@ -187,7 +189,7 @@ The math is pure (no ImGui/NVRHI) → unit-testable.
     `App->EditorCamera.store(m_EditorCamera.ToCameraView(aspect))`.
   - **Input routing:** in **Edit** mode the editor consumes viewport input → set
     `GameAcceptsMouse/Keyboard = false` (so the game's free-look doesn't also move); in **Play** mode
-    keep today's behavior (route to game on viewport hover/focus). `F5` is read from ImGui IO on the
+    keep today's behavior (route to game on viewport hover/focus). `F6` is read from ImGui IO on the
     RenderThread regardless of routing, so the toggle always works.
   - Store the editor camera matrices + `m_EditMode` into `EditorContext` for picking (section 5).
 
@@ -250,7 +252,8 @@ engine/editor/runtime (+game). No `GAME_API_VERSION` bump.
     wheel (no RMB) dollies; Alt+LMB orbits the selected entity; `F` frames the selection.
   - Picking + outline + gizmo operate through the editor camera in Edit mode.
   - Toggle to Play (button / `F5`): view snaps to the game camera; viewport input drives the game
-    again; toggle back returns to the editor camera at its last pose.
+    again; toggle back returns to the editor camera at its last pose. Toggle works via both the
+    toolbar button and `F6`.
   - `runtime.exe`: scene renders via the game camera exactly as before (no regression).
 
 ## Risks
