@@ -397,7 +397,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         // Viewport pick: left-click selects the entity under the cursor (edit mode). Skip when
         // over/using a gizmo (that click manipulates the gizmo). Empty space -> deselect.
         if (m_ViewportHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
-            && !ImGuizmo::IsOver() && !ImGuizmo::IsUsing()) {
+            && !ImGuizmo::IsOver() && !ImGuizmo::IsUsing() && !io.KeyAlt) {
             m_EcsInspector.SetSelectedEntity(PickEntity(ctx, io.MousePos.x, io.MousePos.y));
         }
 
