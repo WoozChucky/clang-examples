@@ -29,10 +29,12 @@ cbuffer PerFrame : register(b0)
 {
     float4x4 uP;
     float4x4 uVP;
+    float4x4 uLightVP;
     DirectionalLight uDirLight;
-    uint uPointLightCount;
+    uint  uPointLightCount;
     float uAmbient;
-    float2 _pfPad;
+    int   uShadowEnabled;
+    float uShadowBias;
 };
 
 cbuffer PerDraw : register(b1)
@@ -109,10 +111,12 @@ cbuffer PerFrame : register(b0)
 {
     float4x4 uP;
     float4x4 uVP;
+    float4x4 uLightVP;
     DirectionalLight uDirLight;
-    uint uPointLightCount;
+    uint  uPointLightCount;
     float uAmbient;
-    float2 _pfPad;
+    int   uShadowEnabled;
+    float uShadowBias;
 };
 
 cbuffer PerDraw : register(b1)
@@ -128,6 +132,27 @@ Texture2D uTexture : register(t2);
 SamplerState uSampler : register(s3);
 StructuredBuffer<PointLight> gPointLights : register(t4);
 StructuredBuffer<InstanceData> gInstances : register(t5);
+
+Texture2D              uShadowMap  : register(t6);
+SamplerComparisonState uShadowSamp : register(s4);
+
+float ShadowFactor(float3 worldPos, float ndl)
+{
+    if (uShadowEnabled == 0) return 1.0;
+    float4 lp = mul(uLightVP, float4(worldPos, 1.0));
+    float3 p = lp.xyz / lp.w;
+    float2 uv = p.xy * 0.5 + 0.5;
+    uv.y = 1.0 - uv.y;                                   // clip -> [0,1], D3D top-left
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 1.0;
+    float bias = uShadowBias * (1.0 + (1.0 - ndl) * 2.0);
+    float d = p.z - bias;
+    float sum = 0.0;
+    const float texel = 1.0 / 2048.0;
+    [unroll] for (int y = -1; y <= 1; ++y)
+    [unroll] for (int x = -1; x <= 1; ++x)
+        sum += uShadowMap.SampleCmpLevelZero(uShadowSamp, uv + float2(x, y) * texel, d);
+    return sum / 9.0;
+}
 
 static const uint OPT_SAMPLE_TEXTURE = 1u << 0;
 static const uint OPT_UNLIT          = 1u << 1;
@@ -154,7 +179,7 @@ float4 main_ps(PSIn i) : SV_Target
     float ambient = uAmbient;
     float3 lighting = ambient * uDirLight.Color.rgb; // or just float3(ambient) if you don’t want ambient tinted by sun
     // Apply light color to diffuse and ambient lightning
-    lighting += diffuse * uDirLight.Color.rgb;
+    lighting += diffuse * uDirLight.Color.rgb * ShadowFactor(i.WorldPos, diffuse);
 
     // Add point lights contribution
     [loop]
@@ -237,7 +262,9 @@ bool MeshRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         nvrhi::BindingLayoutItem::Texture_SRV(2),
         nvrhi::BindingLayoutItem::Sampler(3),
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4),
-        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5)
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5),
+        nvrhi::BindingLayoutItem::Texture_SRV(6),
+        nvrhi::BindingLayoutItem::Sampler(4)
     };
     nvrhi::VulkanBindingOffsets& offsets =
         nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
@@ -373,6 +400,10 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
         perFrame.DirectionalLight.Color = lightningColor;
         perFrame.PointLightCount = pointLightCount;
         perFrame.Ambient = 0.1f; // hardcoded ambient for now
+        const Renderer::ShadowView& sv = m_Renderer->GetShadowView();
+        perFrame.LightVP = sv.LightVP;
+        perFrame.ShadowEnabled = sv.Enabled;
+        perFrame.ShadowBias = GetShadowSettings().Bias;
         commandList->writeBuffer(m_PerFrameCB, &perFrame, sizeof(perFrame));
 
         // Upload point lights data (if any)
@@ -527,7 +558,9 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                         nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
                         nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
                         nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer),
-                        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer),
+                        nvrhi::BindingSetItem::Texture_SRV(6, m_Renderer->GetShadowDepthTexture(), nvrhi::Format::R32_FLOAT),
+                        nvrhi::BindingSetItem::Sampler(4, m_Renderer->GetShadowSampler())
                     };
                     nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
