@@ -294,7 +294,10 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                         // ImGuizmo integration: manipulate this entity's transform using camera
                         if (!hasTextTransform) {
                             glm::mat4 cameraView(1.0f), cameraProjection(1.0f);
-                            if (const auto* cam = ctx.World ? ctx.World->GetSingleton<WorldCameraComponent>() : nullptr) {
+                            if (ctx.EditorCameraActive) {
+                                cameraView = ctx.EditorCamView;
+                                cameraProjection = ctx.EditorCamProj;
+                            } else if (const auto* cam = ctx.World ? ctx.World->GetSingleton<WorldCameraComponent>() : nullptr) {
                                 cameraView = cam->View;
                                 cameraProjection = cam->Projection;
                             }
