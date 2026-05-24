@@ -207,6 +207,20 @@ void GameThread::RunLoop() {
                 ECSCommandProcessor::ProcessCommands(gameState.World, m_AppContext->ECSCommandRing);
             }
 
+            // Editor scene-file requests (fire-and-forget atomics from the File menu).
+            if (m_AppContext->RequestSceneNew.exchange(false, std::memory_order_relaxed)) {
+                const std::vector<EntityId> ids = gameState.World.GetActiveEntities(); // copy before destroy
+                for (EntityId e : ids) gameState.World.DestroyEntity(e);
+                SM_TRACE("GameThread: new (empty) scene");
+            }
+            if (m_AppContext->RequestSceneReload.exchange(false, std::memory_order_relaxed)) {
+                if (WorldManager::LoadWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, &gameState.World)) {
+                    SM_TRACE("GameThread: reloaded world from '%s'", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
+                } else {
+                    SM_WARN("GameThread: reload failed for '%s'", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
+                }
+            }
+
             // Drain completed background model loads and forward to Render via GR ring
             {
                 ZoneScopedN("Game:ProcessCompletedModelLoads");
