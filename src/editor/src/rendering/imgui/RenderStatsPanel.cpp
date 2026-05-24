@@ -3,6 +3,7 @@
 #include <imgui.h>
 
 #include "RenderStats.h" // resolved via the editor's Engine PUBLIC include dirs (same as StagingBufferPool.h in MemoryPanel)
+#include "Fog.h" // resolved via the editor's Engine PUBLIC include dirs (same as RenderStats.h)
 
 void DrawRenderStatsPanel(bool* open)
 {
@@ -32,6 +33,15 @@ void DrawRenderStatsPanel(bool* open)
     ShadowSettings& sh = GetShadowSettings();
     ImGui::Checkbox("Shadows", &sh.Enabled);
     ImGui::SliderFloat("Shadow bias", &sh.Bias, 0.0f, 0.01f, "%.4f");
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Fog");
+    FogSettings& fog = GetFogSettings();
+    ImGui::Checkbox("Fog enabled", &fog.Enabled);
+    ImGui::SliderFloat("Day density",   &fog.DayDensity,   0.0f, 0.05f, "%.4f");
+    ImGui::SliderFloat("Night density", &fog.NightDensity, 0.0f, 0.30f, "%.3f");
+    ImGui::ColorEdit3("Day color",   &fog.DayColor.x);
+    ImGui::ColorEdit3("Night color", &fog.NightColor.x);
 
     ImGui::End();
 }
