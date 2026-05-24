@@ -595,7 +595,9 @@ void MeshRenderPass::Render(nvrhi::ICommandList* commandList,
                     nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
                     nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
                     nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer),
-                    nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer),
+                    nvrhi::BindingSetItem::Texture_SRV(6, m_Renderer->GetShadowDepthTexture(), nvrhi::Format::R32_FLOAT),
+                    nvrhi::BindingSetItem::Sampler(4, m_Renderer->GetShadowSampler())
                 };
                 nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
