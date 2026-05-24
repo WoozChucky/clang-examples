@@ -260,10 +260,9 @@ void PrimitiveRenderPass::Render(
     commandList->beginMarker("PrimiviteRenderPass");
 
     // Common VP for this frame
-    glm::mat4 V(1.0f), P(1.0f); glm::vec3 camPos(0.0f);
-    if (const auto* cam = world ? world->GetSingleton<WorldCameraComponent>() : nullptr) {
-        V = cam->View; P = cam->Projection; camPos = cam->Position;
-    }
+    const CameraView& cam = m_Renderer->GetActiveCamera();
+    const glm::mat4 V = cam.View, P = cam.Projection;
+    const glm::vec3 camPos = cam.Position;
 
     {
         ZoneScopedN("Upload ContantBuffer 1");

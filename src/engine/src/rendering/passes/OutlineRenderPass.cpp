@@ -110,12 +110,9 @@ void OutlineRenderPass::Render(nvrhi::ICommandList* commandList,
     if (!res.valid)
         return;
 
-    glm::mat4 V(1.0f), P(1.0f);
-    if (const auto* cam = world->GetSingleton<WorldCameraComponent>())
-    {
-        V = cam->View;
-        P = cam->Projection;
-    }
+    const CameraView& camv = m_Renderer->GetActiveCamera();
+    const glm::mat4 V = camv.View;
+    const glm::mat4 P = camv.Projection;
 
     if (!m_Pipeline)
     {
