@@ -15,14 +15,22 @@ EntityId PickEntity(const EditorContext& ctx, float mouseX, float mouseY)
     if (!ctx.World || !ctx.MeshSys || ctx.ViewportW == 0 || ctx.ViewportH == 0)
         return INVALID_ENTITY;
 
-    const auto* cam = ctx.World->GetSingleton<WorldCameraComponent>();
-    if (!cam)
-        return INVALID_ENTITY;
+    glm::mat4 view, proj;
+    if (ctx.EditorCameraActive) {
+        view = ctx.EditorCamView;
+        proj = ctx.EditorCamProj;
+    } else {
+        const auto* cam = ctx.World->GetSingleton<WorldCameraComponent>();
+        if (!cam)
+            return INVALID_ENTITY;
+        view = cam->View;
+        proj = cam->Projection;
+    }
 
     const Ray ray = ScreenPointToRay(mouseX, mouseY,
                                      ctx.ViewportMinX, ctx.ViewportMinY,
                                      static_cast<float>(ctx.ViewportW), static_cast<float>(ctx.ViewportH),
-                                     cam->View, cam->Projection);
+                                     view, proj);
 
     EntityId best = INVALID_ENTITY;
     float bestT = std::numeric_limits<float>::max();
