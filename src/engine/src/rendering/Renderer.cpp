@@ -234,7 +234,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 ZoneScopedN("RenderPasses");
 
                 // Resolve sun-driven fog once per frame. The same color drives the
-                // scene clear ("sky") and the geometry fog in MeshRenderPass, so the
+                // scene clear ("sky") and the geometry fog in LightingRenderPass, so the
                 // horizon has no seam. elevation defaults to night if no sun exists.
                 glm::vec3 sunDir(0.0f, 1.0f, 0.0f); // points up = below horizon = night default
                 if (world) {
@@ -245,7 +245,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                         });
                 }
                 const FogSettings& fogSettings = GetFogSettings();
-                // Always resolve fog: MeshRenderPass reads m_FrameFog regardless of Enabled.
+                // Always resolve fog: LightingRenderPass reads m_FrameFog regardless of Enabled.
                 m_FrameFog = ComputeFog(sunDir, fogSettings);
 
                 const auto sceneClear = fogSettings.Enabled
@@ -254,7 +254,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 nvrhi::utils::ClearColorAttachment(m_CommandList, sceneBuffer, 0, sceneClear);
                 if (sceneBuffer != frameBuffer) {
                     // Offscreen scene: clear the swapchain (dark) so the present surface is clean
-                    // behind the ImGui dockspace. Depth of sceneBuffer is cleared inside MeshRenderPass.
+                    // behind the ImGui dockspace. Depth of sceneBuffer is cleared inside GBufferFillPass.
                     nvrhi::utils::ClearColorAttachment(m_CommandList, frameBuffer, 0, nvrhi::Color(0.1f, 0.1f, 0.1f, 1.0f));
                 }
 
@@ -456,40 +456,46 @@ void Renderer::ReleaseGBuffer()
 void Renderer::EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* sharedDepth)
 {
     if (!sharedDepth || width == 0 || height == 0) return;
-    if (m_GBuffer.Fb && m_GBuffer.Width == width && m_GBuffer.Height == height
-        // Rebuild if the shared depth texture identity changed (SceneViewport recreates
-        // its depth on resize). Relies on the old depth still being alive when the new
-        // one is created, so the pointers differ during a resize.
-        && m_GBuffer.Fb->getDesc().depthAttachment.texture == sharedDepth)
-        return; // already current
 
-    auto makeRT = [&](nvrhi::Format fmt, const char* name) {
-        nvrhi::TextureDesc td;
-        td.width = width; td.height = height;
-        td.format = fmt;
-        td.dimension = nvrhi::TextureDimension::Texture2D;
-        td.isRenderTarget = true;
-        td.isShaderResource = true;
-        td.initialState = nvrhi::ResourceStates::ShaderResource;
-        td.keepInitialState = true;
-        td.debugName = name;
-        td.clearValue = nvrhi::Color(0.f);
-        td.useClearValue = true;
-        return m_Device->createTexture(td);
-    };
+    // Recreate the color targets only when the size changes; this also invalidates
+    // every cached framebuffer (they reference the old color textures).
+    if (!m_GBuffer.Albedo || m_GBuffer.Width != width || m_GBuffer.Height != height)
+    {
+        // Assumes a non-MSAA scene target (swapchain is 1x); G-buffer RTs are single-sampled.
+        auto makeRT = [&](nvrhi::Format fmt, const char* name) {
+            nvrhi::TextureDesc td;
+            td.width = width; td.height = height;
+            td.format = fmt;
+            td.dimension = nvrhi::TextureDimension::Texture2D;
+            td.isRenderTarget = true;
+            td.isShaderResource = true;
+            td.initialState = nvrhi::ResourceStates::ShaderResource;
+            td.keepInitialState = true;
+            td.debugName = name;
+            td.clearValue = nvrhi::Color(0.f);
+            td.useClearValue = true;
+            return m_Device->createTexture(td);
+        };
+        m_GBuffer.Albedo   = makeRT(nvrhi::Format::RGBA8_UNORM,  "GBuffer.Albedo");
+        m_GBuffer.Normal   = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.Normal");
+        m_GBuffer.WorldPos = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.WorldPos");
+        m_GBuffer.FbCache.clear();
+        m_GBuffer.Fb = nullptr;
+        m_GBuffer.Width = width;
+        m_GBuffer.Height = height;
+    }
 
-    // Assumes a non-MSAA scene target (swapchain is 1x); G-buffer RTs are single-sampled.
-    m_GBuffer.Albedo   = makeRT(nvrhi::Format::RGBA8_UNORM,  "GBuffer.Albedo");
-    m_GBuffer.Normal   = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.Normal");
-    m_GBuffer.WorldPos = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.WorldPos");
-
-    m_GBuffer.Fb = m_Device->createFramebuffer(nvrhi::FramebufferDesc()
+    // Reuse a cached framebuffer for this depth texture, or build one and cache it.
+    for (auto& [depth, fb] : m_GBuffer.FbCache) {
+        if (depth == sharedDepth) { m_GBuffer.Fb = fb; return; }
+    }
+    nvrhi::FramebufferHandle fb = m_Device->createFramebuffer(nvrhi::FramebufferDesc()
         .addColorAttachment(m_GBuffer.Albedo)
         .addColorAttachment(m_GBuffer.Normal)
         .addColorAttachment(m_GBuffer.WorldPos)
         .setDepthAttachment(sharedDepth));
-    m_GBuffer.Width = width;
-    m_GBuffer.Height = height;
+    m_GBuffer.FbCache.emplace_back(sharedDepth, fb);
+    m_GBuffer.Fb = fb;
 }
 
 void Renderer::TeardownForSwap()

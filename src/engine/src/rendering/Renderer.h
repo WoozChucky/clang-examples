@@ -3,6 +3,7 @@
 #include <nvrhi/nvrhi.h>
 #include <GLFW/glfw3.h>
 #include <vector>
+#include <utility>
 
 #include "Engine.h"
 #include "ApplicationContext.h"
@@ -176,7 +177,10 @@ private:
         nvrhi::TextureHandle     Albedo;   // RGBA8_UNORM linear
         nvrhi::TextureHandle     Normal;   // RGBA16_FLOAT
         nvrhi::TextureHandle     WorldPos; // RGBA16_FLOAT
-        nvrhi::FramebufferHandle Fb;       // RT0,1,2 + shared depth
+        nvrhi::FramebufferHandle Fb;       // current frame's framebuffer (one of the cached ones)
+        // One framebuffer per distinct shared-depth texture (swapchain rotates depths
+        // across back-buffers; editor uses a single stable depth). Avoids per-frame churn.
+        std::vector<std::pair<nvrhi::ITexture*, nvrhi::FramebufferHandle>> FbCache;
         uint32_t Width  = 0;
         uint32_t Height = 0;
     };

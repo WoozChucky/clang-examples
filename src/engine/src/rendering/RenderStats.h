@@ -3,7 +3,7 @@
 
 #include "Engine.h"
 
-// Per-frame mesh render counters, written by MeshRenderPass once at the end of each frame.
+// Per-frame mesh render counters, written by GBufferFillPass once at the end of each frame.
 struct RenderStats {
     uint32_t MeshEntitiesTotal  = 0; // entities with Visible==true considered this frame
     uint32_t MeshEntitiesDrawn  = 0; // entries actually submitted (Total - Culled)
