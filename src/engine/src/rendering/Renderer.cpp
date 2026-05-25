@@ -175,6 +175,7 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     m_ShadowFb = nullptr;
     m_ShadowSampler = nullptr;
     ReleaseGBuffer();
+    ReleaseSceneColor();
 
     if (m_CommandList) {
         m_CommandList = nullptr;
@@ -501,6 +502,51 @@ void Renderer::EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* s
     m_GBuffer.Fb = fb;
 }
 
+void Renderer::ReleaseSceneColor()
+{
+    m_SceneColor = SceneColorTarget{};
+}
+
+void Renderer::EnsureSceneColor(uint32_t width, uint32_t height,
+                                nvrhi::ITexture* sharedDepth, nvrhi::Format colorFormat)
+{
+    if (!sharedDepth || width == 0 || height == 0 || colorFormat == nvrhi::Format::UNKNOWN) return;
+
+    // Recreate the color target only on size/format change; this invalidates every
+    // cached framebuffer (they reference the old color texture).
+    if (!m_SceneColor.Color || m_SceneColor.Width != width ||
+        m_SceneColor.Height != height || m_SceneColor.Format != colorFormat)
+    {
+        nvrhi::TextureDesc td;
+        td.width = width; td.height = height;
+        td.format = colorFormat;
+        td.dimension = nvrhi::TextureDimension::Texture2D;
+        td.isRenderTarget = true;
+        td.isShaderResource = true;
+        td.initialState = nvrhi::ResourceStates::ShaderResource;
+        td.keepInitialState = true;
+        td.debugName = "SceneColor";
+        td.clearValue = nvrhi::Color(0.f);
+        td.useClearValue = true;
+        m_SceneColor.Color = m_Device->createTexture(td);
+        m_SceneColor.FbCache.clear();
+        m_SceneColor.Fb = nullptr;
+        m_SceneColor.Width = width;
+        m_SceneColor.Height = height;
+        m_SceneColor.Format = colorFormat;
+    }
+
+    // Reuse a cached framebuffer for this depth texture, or build + cache one.
+    for (auto& [depth, fb] : m_SceneColor.FbCache) {
+        if (depth == sharedDepth) { m_SceneColor.Fb = fb; return; }
+    }
+    nvrhi::FramebufferHandle fb = m_Device->createFramebuffer(nvrhi::FramebufferDesc()
+        .addColorAttachment(m_SceneColor.Color)
+        .setDepthAttachment(sharedDepth));
+    m_SceneColor.FbCache.emplace_back(sharedDepth, fb);
+    m_SceneColor.Fb = fb;
+}
+
 void Renderer::TeardownForSwap()
 {
     // ImGui: drop only the NVRHI backend + device-bound preview resources;
@@ -525,6 +571,7 @@ void Renderer::TeardownForSwap()
     m_ShadowFb = nullptr;
     m_ShadowSampler = nullptr;
     ReleaseGBuffer();
+    ReleaseSceneColor();
 
     // Flush the deferred-release queue now, while the device is still alive,
     // so the editor's released handles don't leak when the device is dropped.
