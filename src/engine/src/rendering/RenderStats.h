@@ -27,6 +27,10 @@ struct ShadowSettings {
     float Bias    = 0.0015f;
 };
 
+struct AntiAliasingSettings {
+    bool FxaaEnabled = true;
+};
+
 // Single instances DEFINED in RenderStats.cpp and exported from Engine.dll so the mesh pass
 // (Engine.dll) and the editor panel (editor.exe) share ONE copy each. A header-inline
 // function-local static would give every module its own copy (the staging-pool bug).
@@ -36,3 +40,4 @@ ENGINE_API RenderStats&     GetRenderStats();
 ENGINE_API CullingSettings& GetCullingSettings();
 ENGINE_API DebugDrawSettings& GetDebugDrawSettings();
 ENGINE_API ShadowSettings& GetShadowSettings();
+ENGINE_API AntiAliasingSettings& GetAntiAliasingSettings();
