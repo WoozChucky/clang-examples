@@ -135,7 +135,7 @@ Renderer (`src/engine/src/rendering`)
   - A procedural sky pass (day/night gradient + sun/moon discs)
   - A primitives pass (e.g., a ground grid on the Y=0 plane)
   - A UI text pass using the FreeType-baked R8 glyph atlas
-- Atmosphere is editor-tunable: fog (`Fog.{h,cpp}` / `GetFogSettings`) and the procedural sky (`Sky.{h,cpp}` / `GetSkySettings`); the day/night cycle is driven by `DayNightSystem` (game), which moves the sun and writes `AtmosphereStateComponent` (tunables in `DayNightConfigComponent`).
+- Atmosphere is authored as ECS singleton components — `FogComponent` / `SkyComponent` (in `ECS.h`), read by the renderer off the snapshot and persisted per-scene in `world.json`; edit them in the editor's Atmosphere panel. `ComputeFog` (`Fog.{h,cpp}`) maps sun elevation → fog; sky shading is in the `SkyRenderPass` shader. The day/night cycle is driven by `DayNightSystem` (game), which moves the sun and writes `AtmosphereStateComponent` (tunables in `DayNightConfigComponent`).
 - ImGui is not a built-in pass; tooling UI is layered in via an injected `IOverlay`.
 - Shaders are compiled via DXC (`ShaderCompiler`).
 
@@ -175,9 +175,9 @@ Render passes (`src/engine/src/rendering/passes/`, in execution order)
 - `DebugRenderPass` – debug gizmos.
 - `UiRenderPass` – UI text/quads (instanced, FreeType R8 atlas).
 
-Atmosphere (`src/engine/src/rendering/Fog.{h,cpp}`, `Sky.{h,cpp}`)
-- Fog (`GetFogSettings` / `ComputeFog`) and the procedural sky (`GetSkySettings`) are resolved per-frame and are editor-tunable via the Render Stats panel.
-- The day/night cycle is driven by `DayNightSystem` (`src/game/src/game.cpp`): it moves the sun light and writes `AtmosphereStateComponent` (consumed by `LightingRenderPass`); tunables live in `DayNightConfigComponent`, edited via the editor's Day/Night panel. Both components are declared in `src/common/include/ECS.h`.
+Atmosphere (`src/engine/src/rendering/Fog.{h,cpp}`, `FogComponent`/`SkyComponent` in `src/common/include/ECS.h`)
+- Fog and the procedural sky are ECS **singleton components** (`FogComponent` / `SkyComponent`), read per-frame from the ECS snapshot (default-constructed if unset) and persisted per-scene in `world.json` (top-level `"Environment"` block; (de)serialized in `src/common/include/ComponentSerialization.h`). `ComputeFog` resolves sun elevation → fog color/density; sky shading is in the `SkyRenderPass` shader. Both are edited in the editor's Atmosphere panel via the ECS command ring.
+- The day/night cycle is driven by `DayNightSystem` (`src/game/src/game.cpp`): it moves the sun light and writes `AtmosphereStateComponent` (consumed by `LightingRenderPass`); tunables live in `DayNightConfigComponent` (also persisted in the `"Environment"` block), edited via the editor's Atmosphere panel. The components are declared in `src/common/include/ECS.h`.
 
 Backends (`src/engine/src/rendering/backends/`)
 - `RendererBackendDX12` – DX12 queues, DXGI flip-discard swapchain, per-backbuffer fence, NVRHI device. `Present` can return `DXGI_STATUS_OCCLUDED` when the window is occluded.
