@@ -54,12 +54,23 @@ static void T03_aspect_changes_projection()
     EXPECT(!near(a.Projection[0][0], b.Projection[0][0])); // horizontal scale tracks aspect
 }
 
+static void T04_extreme_elevation_is_finite()
+{
+    FollowCameraParams p = kPoE2Follow; p.ElevationDeg = 90.0f; // would degenerate without the clamp
+    const CameraView v = ComputeFollowCamera(glm::vec3(0.0f), p, 1.6f);
+    for (int c = 0; c < 4; ++c)
+        for (int r = 0; r < 4; ++r)
+            EXPECT(std::isfinite(v.View[c][r]));
+    EXPECT(std::isfinite(v.Position.x) && std::isfinite(v.Position.y) && std::isfinite(v.Position.z));
+}
+
 int main()
 {
     T00_eye_above_and_distance();
     T01_lookat_centers_target();
     T02_yaw_orientation();
     T03_aspect_changes_projection();
+    T04_extreme_elevation_is_finite();
     if (g_Failures == 0) { std::printf("All follow camera tests passed.\n"); return 0; }
     std::printf("%d follow camera test(s) FAILED.\n", g_Failures);
     return 1;

@@ -10,7 +10,7 @@
 // Fixed-angle isometric follow-camera parameters (no runtime controls).
 struct FollowCameraParams {
     float Distance;     // eye distance from the look-at target
-    float ElevationDeg; // angle above the horizon (90 = straight down)
+    float ElevationDeg; // angle above the horizon; clamped to +/-89.9 (90 would degenerate lookAt)
     float YawDeg;       // rotation around the target's Y axis
     float FovDeg;       // vertical field of view
     float TargetHeight; // look-at point raised above the player's origin
@@ -29,7 +29,9 @@ inline CameraView ComputeFollowCamera(const glm::vec3& targetPos,
                                       const FollowCameraParams& p,
                                       float aspect) {
     const glm::vec3 target = targetPos + glm::vec3(0.0f, p.TargetHeight, 0.0f);
-    const float E = glm::radians(p.ElevationDeg);
+    // Clamp just under +/-90deg: at exactly +/-90 the eye is directly over the target and
+    // the view direction becomes parallel to +Y, degenerating glm::lookAtRH into NaNs.
+    const float E = glm::clamp(glm::radians(p.ElevationDeg), glm::radians(-89.9f), glm::radians(89.9f));
     const float A = glm::radians(p.YawDeg);
     // Unit direction from the target up to the eye (|offsetDir| == 1).
     const glm::vec3 offsetDir(std::cos(E) * std::sin(A), std::sin(E), std::cos(E) * std::cos(A));
