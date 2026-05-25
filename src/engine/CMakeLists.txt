@@ -22,6 +22,7 @@ add_library(Engine SHARED
     src/rendering/RendererBackend.cpp
     src/rendering/StagingBufferPool.cpp
     src/rendering/RenderStats.cpp
+    src/rendering/Fog.cpp
 
     # Rendering Systems
     src/rendering/MeshSystem.cpp
@@ -33,7 +34,8 @@ add_library(Engine SHARED
 
     # Rendering Passes
     src/rendering/passes/PrimitiveRenderPass.cpp
-    src/rendering/passes/MeshRenderPass.cpp
+    src/rendering/passes/GBufferFillPass.cpp
+    src/rendering/passes/LightingRenderPass.cpp
     src/rendering/passes/OutlineRenderPass.cpp
     src/rendering/passes/ShadowDepthPass.cpp
     src/rendering/passes/DebugRenderPass.cpp

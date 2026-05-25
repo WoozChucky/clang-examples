@@ -3,11 +3,13 @@
 #include <nvrhi/nvrhi.h>
 #include <GLFW/glfw3.h>
 #include <vector>
+#include <utility>
 
 #include "Engine.h"
 #include "ApplicationContext.h"
 #include "RendererBackend.h"
 #include "IRenderPass.h"
+#include "Fog.h"
 
 #include "FrameAllocator.h"
 #include "IOverlay.h"
@@ -125,6 +127,15 @@ public:
     nvrhi::ISampler*     GetShadowSampler()      const { return m_ShadowSampler; }
     nvrhi::IFramebuffer* GetShadowFramebuffer()  const { return m_ShadowFb; }
     ShadowView&          GetShadowView()               { return m_ShadowView; }
+
+    nvrhi::ITexture*     GetGBufferAlbedo()      const { return m_GBuffer.Albedo;   }
+    nvrhi::ITexture*     GetGBufferNormal()      const { return m_GBuffer.Normal;   }
+    nvrhi::ITexture*     GetGBufferWorldPos()    const { return m_GBuffer.WorldPos; }
+    nvrhi::IFramebuffer* GetGBufferFramebuffer() const { return m_GBuffer.Fb;       }
+
+    // Per-frame fog resolved at the top of Render() (like GetActiveCamera): drives
+    // both the scene clear color and the mesh pass's distance fog.
+    const FogFrame&      GetFrameFog() const           { return m_FrameFog; }
     static constexpr uint32_t kShadowMapSize = 2048;
 
 private:
@@ -158,6 +169,27 @@ private:
     nvrhi::FramebufferHandle m_ShadowFb;
     nvrhi::SamplerHandle     m_ShadowSampler;
     ShadowView               m_ShadowView{};
+    FogFrame                 m_FrameFog{}; // resolved each frame; drives clear + mesh-pass fog
+
+    // Deferred G-buffer (Renderer-owned intermediates; recreated on size change,
+    // released with the backend). RT0 albedo(linear) / RT1 world-normal / RT2 world-pos.
+    struct GBuffer {
+        nvrhi::TextureHandle     Albedo;   // RGBA8_UNORM linear
+        nvrhi::TextureHandle     Normal;   // RGBA16_FLOAT
+        nvrhi::TextureHandle     WorldPos; // RGBA16_FLOAT
+        nvrhi::FramebufferHandle Fb;       // current frame's framebuffer (one of the cached ones)
+        // One framebuffer per distinct shared-depth texture (swapchain rotates depths
+        // across back-buffers; editor uses a single stable depth). Avoids per-frame churn.
+        std::vector<std::pair<nvrhi::ITexture*, nvrhi::FramebufferHandle>> FbCache;
+        uint32_t Width  = 0;
+        uint32_t Height = 0;
+    };
+    GBuffer m_GBuffer{};
+
+    // Builds m_GBuffer at the given size sharing the supplied depth texture.
+    // No-op if already matching width/height/depth.
+    void EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* sharedDepth);
+    void ReleaseGBuffer();
 
     RendererBackend*            m_Backend = nullptr;
     RendererBackendSettings     m_BackendSettings{};

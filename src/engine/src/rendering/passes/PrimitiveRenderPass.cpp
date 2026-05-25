@@ -251,7 +251,12 @@ void PrimitiveRenderPass::Render(
         pso.inputLayout = m_InputLayout;
         pso.bindingLayouts = { m_BindingLayout };
         pso.primType = nvrhi::PrimitiveType::TriangleList;
-        pso.renderState.depthStencilState.depthTestEnable = false; // no depth buffer yet
+        // Deferred order: the grid runs AFTER the lighting pass, so it must depth-test
+        // against the G-buffer geometry depth (written by GBufferFillPass) to stay
+        // occluded by/under meshes. Depth write stays off (grid must not perturb depth
+        // for the later outline/debug passes), matching the pre-deferred result where
+        // the grid was drawn first and overdrawn by opaque meshes.
+        pso.renderState.depthStencilState.depthTestEnable = true;
         pso.renderState.depthStencilState.depthWriteEnable = false;
         pso.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);

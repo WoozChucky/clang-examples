@@ -132,7 +132,19 @@ struct FreeLookControlComponent {
     float Sensitivity = 0.002f;
     bool  MouseAimEnabled = false;
 };
-struct DayNightConfigComponent { float CycleSeconds = 10.0f; };
+struct DayNightConfigComponent {
+    float     CycleSeconds  = 60.0f;                 // full day length (was 10)
+    float     DayBrightness = 1.0f;                  // peak sun brightness (cap <= 1.0, no blow-out)
+    float     MoonIntensity = 0.15f;                 // night ambient strength
+    float     TwilightWidth = 0.25f;                 // smoothstep band for dawn/dusk easing (elevation units)
+    float     DayAmbient    = 0.08f;                 // neutral daytime ambient floor
+    glm::vec3 MoonColor     = glm::vec3(0.10f, 0.14f, 0.26f); // cool blue night fill
+};
+
+// Computed per-tick by DayNightSystem (game), read by the deferred LightingRenderPass.
+struct AtmosphereStateComponent {
+    glm::vec4 AmbientColor = glm::vec4(0.08f, 0.08f, 0.08f, 1.0f); // rgb = omnidirectional ambient
+};
 struct AppControlComponent     { bool  QuitRequested = false; };
 struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; };
 
@@ -154,6 +166,7 @@ struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; 
     X(UICameraComponent) \
     X(FreeLookControlComponent) \
     X(DayNightConfigComponent) \
+    X(AtmosphereStateComponent) \
     X(AppControlComponent) \
     X(ViewportComponent)
 

@@ -7,7 +7,7 @@ class Renderer;
 
 // Renders scene depth from the sun's POV into the Renderer's shadow map (depth-only, front-face cull),
 // fitting an ortho light frustum to the visible-mesh AABB. Gated by GetShadowSettings().Enabled +
-// IsSunUp; when gated off it sets Renderer.GetShadowView().Enabled = 0 and skips. Runs before MeshRenderPass.
+// IsSunUp; when gated off it sets Renderer.GetShadowView().Enabled = 0 and skips. Runs before GBufferFillPass.
 class ShadowDepthPass : public IRenderPass
 {
 public:

@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include "ECS.h" // world->Each, LightningComponent
 
 #include <algorithm>
 #include <iostream>
@@ -11,7 +12,8 @@
 #include "passes/PrimitiveRenderPass.h"
 #include "passes/OutlineRenderPass.h"
 #include "passes/DebugRenderPass.h"
-#include "passes/MeshRenderPass.h"
+#include "passes/GBufferFillPass.h"
+#include "passes/LightingRenderPass.h"
 #include "passes/ShadowDepthPass.h"
 
 #include <tracy/Tracy.hpp>
@@ -86,14 +88,8 @@ bool Renderer::Init(const RendererAPI api) {
 
     SM_TRACE("Renderer initialized with API: %d", static_cast<int>(m_Backend->GetAPI()));
 
-    // Initialize and add render passes
-    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
-    if (!primitivePass->Initialize(m_Device, this)) {
-        SM_ERROR("Failed to initialize PrimitiveRenderPass");
-        return false;
-    }
-    AddRenderPass(std::move(primitivePass));
-
+    // Initialize and add render passes (deferred order):
+    // Shadow -> GBufferFill -> Lighting -> Primitive -> Outline -> Debug -> UI.
     auto shadowPass = std::make_unique<ShadowDepthPass>();
     if (!shadowPass->Initialize(m_Device, this)) {
         SM_ERROR("Failed to initialize ShadowDepthPass");
@@ -101,12 +97,26 @@ bool Renderer::Init(const RendererAPI api) {
     }
     AddRenderPass(std::move(shadowPass));
 
-    auto meshPass = std::make_unique<MeshRenderPass>();
-    if (!meshPass->Initialize(m_Device, this)) {
-        SM_ERROR("Failed to initialize MeshRenderPass");
+    auto gbufferPass = std::make_unique<GBufferFillPass>();
+    if (!gbufferPass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize GBufferFillPass");
         return false;
     }
-    AddRenderPass(std::move(meshPass));
+    AddRenderPass(std::move(gbufferPass));
+
+    auto lightingPass = std::make_unique<LightingRenderPass>();
+    if (!lightingPass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize LightingRenderPass");
+        return false;
+    }
+    AddRenderPass(std::move(lightingPass));
+
+    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
+    if (!primitivePass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize PrimitiveRenderPass");
+        return false;
+    }
+    AddRenderPass(std::move(primitivePass));
 
     auto outlinePass = std::make_unique<OutlineRenderPass>();
     if (!outlinePass->Initialize(m_Device, this)) {
@@ -164,6 +174,7 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     m_ShadowDepth = nullptr;
     m_ShadowFb = nullptr;
     m_ShadowSampler = nullptr;
+    ReleaseGBuffer();
 
     if (m_CommandList) {
         m_CommandList = nullptr;
@@ -212,13 +223,38 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
             nvrhi::IFramebuffer* sceneBuffer = m_Overlay ? m_Overlay->GetSceneFramebuffer(frameBuffer) : nullptr;
             if (!sceneBuffer) sceneBuffer = frameBuffer;
 
+            // Keep the G-buffer sized to the scene target + sharing its depth.
+            {
+                const auto& fbinfo = sceneBuffer->getFramebufferInfo();
+                EnsureGBuffer(fbinfo.width, fbinfo.height,
+                              sceneBuffer->getDesc().depthAttachment.texture);
+            }
+
             {
                 ZoneScopedN("RenderPasses");
-                const auto sceneClear = nvrhi::Color(red, green, blue, 1.0f);
+
+                // Resolve sun-driven fog once per frame. The same color drives the
+                // scene clear ("sky") and the geometry fog in LightingRenderPass, so the
+                // horizon has no seam. elevation defaults to night if no sun exists.
+                glm::vec3 sunDir(0.0f, 1.0f, 0.0f); // points up = below horizon = night default
+                if (world) {
+                    // Track the tagged sun specifically (SunMarker), not just any directional light.
+                    world->Each<SunMarker, LightningComponent>(
+                        [&](EntityId, const SunMarker&, const LightningComponent& l) {
+                            if (l.Type == LightningType::Directional) sunDir = glm::vec3(l.Direction);
+                        });
+                }
+                const FogSettings& fogSettings = GetFogSettings();
+                // Always resolve fog: LightingRenderPass reads m_FrameFog regardless of Enabled.
+                m_FrameFog = ComputeFog(sunDir, fogSettings);
+
+                const auto sceneClear = fogSettings.Enabled
+                    ? nvrhi::Color(m_FrameFog.Color.r, m_FrameFog.Color.g, m_FrameFog.Color.b, 1.0f)
+                    : nvrhi::Color(red, green, blue, 1.0f);
                 nvrhi::utils::ClearColorAttachment(m_CommandList, sceneBuffer, 0, sceneClear);
                 if (sceneBuffer != frameBuffer) {
                     // Offscreen scene: clear the swapchain (dark) so the present surface is clean
-                    // behind the ImGui dockspace. Depth of sceneBuffer is cleared inside MeshRenderPass.
+                    // behind the ImGui dockspace. Depth of sceneBuffer is cleared inside GBufferFillPass.
                     nvrhi::utils::ClearColorAttachment(m_CommandList, frameBuffer, 0, nvrhi::Color(0.1f, 0.1f, 0.1f, 1.0f));
                 }
 
@@ -412,6 +448,56 @@ void Renderer::CreateShadowResources()
     }
 }
 
+void Renderer::ReleaseGBuffer()
+{
+    m_GBuffer = GBuffer{};
+}
+
+void Renderer::EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* sharedDepth)
+{
+    if (!sharedDepth || width == 0 || height == 0) return;
+
+    // Recreate the color targets only when the size changes; this also invalidates
+    // every cached framebuffer (they reference the old color textures).
+    if (!m_GBuffer.Albedo || m_GBuffer.Width != width || m_GBuffer.Height != height)
+    {
+        // Assumes a non-MSAA scene target (swapchain is 1x); G-buffer RTs are single-sampled.
+        auto makeRT = [&](nvrhi::Format fmt, const char* name) {
+            nvrhi::TextureDesc td;
+            td.width = width; td.height = height;
+            td.format = fmt;
+            td.dimension = nvrhi::TextureDimension::Texture2D;
+            td.isRenderTarget = true;
+            td.isShaderResource = true;
+            td.initialState = nvrhi::ResourceStates::ShaderResource;
+            td.keepInitialState = true;
+            td.debugName = name;
+            td.clearValue = nvrhi::Color(0.f);
+            td.useClearValue = true;
+            return m_Device->createTexture(td);
+        };
+        m_GBuffer.Albedo   = makeRT(nvrhi::Format::RGBA8_UNORM,  "GBuffer.Albedo");
+        m_GBuffer.Normal   = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.Normal");
+        m_GBuffer.WorldPos = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.WorldPos");
+        m_GBuffer.FbCache.clear();
+        m_GBuffer.Fb = nullptr;
+        m_GBuffer.Width = width;
+        m_GBuffer.Height = height;
+    }
+
+    // Reuse a cached framebuffer for this depth texture, or build one and cache it.
+    for (auto& [depth, fb] : m_GBuffer.FbCache) {
+        if (depth == sharedDepth) { m_GBuffer.Fb = fb; return; }
+    }
+    nvrhi::FramebufferHandle fb = m_Device->createFramebuffer(nvrhi::FramebufferDesc()
+        .addColorAttachment(m_GBuffer.Albedo)
+        .addColorAttachment(m_GBuffer.Normal)
+        .addColorAttachment(m_GBuffer.WorldPos)
+        .setDepthAttachment(sharedDepth));
+    m_GBuffer.FbCache.emplace_back(sharedDepth, fb);
+    m_GBuffer.Fb = fb;
+}
+
 void Renderer::TeardownForSwap()
 {
     // ImGui: drop only the NVRHI backend + device-bound preview resources;
@@ -435,6 +521,7 @@ void Renderer::TeardownForSwap()
     m_ShadowDepth = nullptr;
     m_ShadowFb = nullptr;
     m_ShadowSampler = nullptr;
+    ReleaseGBuffer();
 
     // Flush the deferred-release queue now, while the device is still alive,
     // so the editor's released handles don't leak when the device is dropped.
@@ -497,18 +584,23 @@ bool Renderer::InitForSwap(RendererAPI newApi)
         return false;
     }
 
-    // Recreate render passes.
-    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
-    if (!primitivePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: PrimitivePass failed"); return false; }
-    AddRenderPass(std::move(primitivePass));
-
+    // Recreate render passes (deferred order):
+    // Shadow -> GBufferFill -> Lighting -> Primitive -> Outline -> Debug -> UI.
     auto shadowPass = std::make_unique<ShadowDepthPass>();
     if (!shadowPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: ShadowPass failed"); return false; }
     AddRenderPass(std::move(shadowPass));
 
-    auto meshPass = std::make_unique<MeshRenderPass>();
-    if (!meshPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: MeshPass failed"); return false; }
-    AddRenderPass(std::move(meshPass));
+    auto gbufferPass = std::make_unique<GBufferFillPass>();
+    if (!gbufferPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: GBufferFillPass failed"); return false; }
+    AddRenderPass(std::move(gbufferPass));
+
+    auto lightingPass = std::make_unique<LightingRenderPass>();
+    if (!lightingPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: LightingPass failed"); return false; }
+    AddRenderPass(std::move(lightingPass));
+
+    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
+    if (!primitivePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: PrimitivePass failed"); return false; }
+    AddRenderPass(std::move(primitivePass));
 
     auto outlinePass = std::make_unique<OutlineRenderPass>();
     if (!outlinePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: OutlinePass failed"); return false; }

@@ -18,6 +18,7 @@ add_executable(editor
     src/rendering/imgui/MeshManagerPanel.cpp
     src/rendering/imgui/GizmoController.cpp
     src/rendering/imgui/EcsInspectorPanel.cpp
+    src/rendering/imgui/DayNightPanel.cpp
     src/rendering/imgui/MainMenuBar.cpp
     src/rendering/imgui/ImGuiOverlay.cpp
     src/rendering/imgui/ViewportPicker.cpp

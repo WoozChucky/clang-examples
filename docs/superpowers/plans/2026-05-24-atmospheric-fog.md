@@ -159,7 +159,7 @@ with:
                 // Resolve sun-driven fog once per frame. The same color drives the
                 // scene clear ("sky") and the geometry fog in MeshRenderPass, so the
                 // horizon has no seam. elevation defaults to night if no sun exists.
-                glm::vec3 sunDir(0.0f, -1.0f, 0.0f);
+                glm::vec3 sunDir(0.0f, 1.0f, 0.0f); // points up = below horizon = night default
                 if (world) {
                     world->Each<TransformComponent, LightningComponent>(
                         [&](EntityId, const TransformComponent&, const LightningComponent& l) {

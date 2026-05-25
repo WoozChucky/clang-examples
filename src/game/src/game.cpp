@@ -38,46 +38,49 @@ public:
 };
 
 // Drives the SunMarker directional light over a day/night cycle.
-// Cycle length is read from the DayNightConfigComponent singleton (default 10.0f).
+// Cycle length is read from the DayNightConfigComponent singleton (default 60.0f).
 class DayNightSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
-        float kDayNightCycleSeconds = 10.0f;
-        if (const auto* cfg = ctx.world.GetSingleton<DayNightConfigComponent>()) kDayNightCycleSeconds = cfg->CycleSeconds;
+        // Tunables (fallback to defaults if the config singleton is missing).
+        DayNightConfigComponent cfg{};
+        if (const auto* c = ctx.world.GetSingleton<DayNightConfigComponent>()) cfg = *c;
+
+        const float cycle = glm::max(cfg.CycleSeconds, 0.001f);
+        const double gameTime = ctx.gameTime;
+        const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
+        const float theta = phase * 6.28318530718f;
+        const glm::vec3 dir = glm::normalize(glm::vec3(0.0f, -cosf(theta), sinf(theta)));
+
+        const float elevation = glm::clamp(-dir.y, 0.0f, 1.0f); // 1 = noon, 0 = at/below horizon
+        const float nightDepth = glm::clamp(dir.y, 0.0f, 1.0f);  // 0 = horizon, 1 = deep midnight
+        const float tw = glm::max(cfg.TwilightWidth, 0.001f);
+
+        // Sun: warm at the horizon, white high up; brightness eased + capped, faded to ~0 at night.
+        const float dayMix = glm::smoothstep(0.0f, 0.5f, elevation);          // warm -> white
+        const glm::vec3 warmColor = glm::vec3(1.00f, 0.68f, 0.35f);
+        const glm::vec3 dayColor  = glm::vec3(1.00f, 0.98f, 0.90f);
+        const glm::vec3 sunHue    = glm::mix(warmColor, dayColor, dayMix);
+        const float sunBright = cfg.DayBrightness * glm::smoothstep(0.0f, tw, elevation); // <= DayBrightness, 0 at night
+
         ctx.world.Each<SunMarker, LightningComponent>([&](EntityId sun) {
             ctx.world.Modify<LightningComponent>(sun, [&](auto& l) {
                 if (l.Type != LightningType::Directional) return;
-
-                const float cycle = glm::max(kDayNightCycleSeconds, 0.001f);
-                const double gameTime = ctx.gameTime;
-                const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
-                const float theta = phase * 6.28318530718f;
-                const glm::vec3 dir = glm::normalize(glm::vec3(0.0f, -cosf(theta), sinf(theta)));
-                /*
-                 * DO NOT REMOVE THIS COMMENTED OUT CODE - kept for reference
-                const float cycle = glm::max(kDayNightCycleSeconds, 0.001f);
-                const double gameTime = ctx.gameTime; // seconds
-                const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
-                // Move the light direction from (-X, -Z) to (+X, +Z) over the cycle, with a constant downward Y
-                const float xz = -1.0f + 2.0f * phase; // [-1 .. +1]
-                const glm::vec3 dir = glm::normalize(glm::vec3(xz, -1.0f, xz));
-                */
                 l.Direction = glm::vec4(dir, 0.0f);
-
-                const float elevation = glm::clamp(-dir.y, 0.0f, 1.0f);
-                const float horizon = 1.0f - glm::abs(dir.y);
-                const float horizonSmooth = glm::smoothstep(0.0f, 0.5f, horizon);
-
-                const glm::vec3 dayColor  = glm::vec3(1.00f, 0.98f, 0.90f);
-                const glm::vec3 warmColor = glm::vec3(1.00f, 0.68f, 0.35f);
-                const glm::vec3 nightColor= glm::vec3(0.15f, 0.20f, 0.40f);
-
-                const glm::vec3 dayWarm   = glm::mix(dayColor, warmColor, horizonSmooth);
-                const glm::vec3 baseColor = glm::mix(nightColor, dayWarm, elevation);
-                const float brightness = 0.75f + 0.75f * elevation;
-                const glm::vec3 finalColor = baseColor * brightness;
-                l.Color = glm::vec4(finalColor, 1.0f);
+                l.Color = glm::vec4(sunHue * sunBright, 1.0f);
             });
+        });
+
+        // Ambient: small neutral day floor (ramped with the sun) + cool moon fill (ramped with night depth).
+        const float dayA   = cfg.DayAmbient * glm::smoothstep(0.0f, tw, elevation);
+        const float moonA  = cfg.MoonIntensity * glm::smoothstep(0.0f, tw, nightDepth);
+        // Small constant floor so the dusk/dawn terminator never reaches pure black
+        // (both the day and moon ramps bottom out at the exact horizon crossing).
+        const float kMinAmbient = 0.02f;
+        const glm::vec3 ambient = glm::max(glm::vec3(dayA) + cfg.MoonColor * moonA, glm::vec3(kMinAmbient));
+
+        ctx.world.ModifySingleton<AtmosphereStateComponent>([&](AtmosphereStateComponent& a) {
+            a.AmbientColor = glm::vec4(ambient, 1.0f);
         });
     }
     const char* Name() const override { return "DayNightSystem"; }
@@ -211,6 +214,7 @@ void GameUpdate(GameState* state) {
 	        g_GameState->World.SetSingleton(WorldCameraComponent{});
 	        g_GameState->World.SetSingleton(AppControlComponent{});
 	        g_GameState->World.SetSingleton(DayNightConfigComponent{});
+	        g_GameState->World.SetSingleton(AtmosphereStateComponent{});
 
 	        // World loaded from world.json is authoritative — skip default spawns
 	        // to prevent duplicates. Defaults exist only as a Unity-like fallback

@@ -9,7 +9,7 @@
 class Renderer;
 
 // Draws the selected entity's mesh enlarged along its normals in a flat color (inverted hull),
-// AFTER MeshRenderPass, depth-tested (cull FRONT, depth test on, depth write off): the hull is
+// AFTER the deferred lighting pass, depth-tested (cull FRONT, depth test on, depth write off): the hull is
 // occluded by the mesh in the interior and passes only in the rim -> a colored silhouette with
 // correct occlusion. Reads the selected entity from ApplicationContext (set by the editor
 // overlay); no-op in runtime (selection stays INVALID_ENTITY).
