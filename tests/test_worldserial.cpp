@@ -146,6 +146,26 @@ static void T06_player_roundtrip()
     EXPECT(near(out.MoveSpeed, in.MoveSpeed));
 }
 
+static void T07_uirect_roundtrip()
+{
+    UIRectComponent in;
+    in.Size = glm::vec2(123.0f, 45.0f);
+    in.Color = glm::vec4(0.1f, 0.2f, 0.3f, 0.4f);
+    const nlohmann::json j = in;
+    const auto out = j.get<UIRectComponent>();
+    EXPECT(near(out.Size.x, in.Size.x) && near(out.Size.y, in.Size.y));
+    EXPECT(veq(glm::vec3(out.Color), glm::vec3(in.Color)) && near(out.Color.a, in.Color.a));
+}
+
+static void T08_statescope_roundtrip()
+{
+    StateScopeComponent in;
+    in.StateMask = (1u << 1) | (1u << 4); // MainMenu | Paused
+    const nlohmann::json j = in;
+    const auto out = j.get<StateScopeComponent>();
+    EXPECT(out.StateMask == in.StateMask);
+}
+
 int main()
 {
     T00_fog_roundtrip();
@@ -155,6 +175,8 @@ int main()
     T04_environment_absent_is_backward_compatible();
     T05_computefog_day_vs_night();
     T06_player_roundtrip();
+    T07_uirect_roundtrip();
+    T08_statescope_roundtrip();
 
     if (g_Failures == 0) { std::printf("All world-serialization tests passed.\n"); return 0; }
     std::printf("%d world-serialization test(s) FAILED.\n", g_Failures);
