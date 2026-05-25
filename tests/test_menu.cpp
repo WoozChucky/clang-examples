@@ -1,5 +1,6 @@
 #include <cstdio>
 #include "StateScope.h" // ScopeAllows + GameStateId
+#include "MenuHitTest.h" // ToUiSpace
 
 static int g_Failures = 0;
 #define EXPECT(cond)                                                     \
@@ -32,10 +33,21 @@ static void T02_multi_state() {
     EXPECT(!ScopeAllows(mask, GameStateId::InLevel));
 }
 
+// Window-space mouse -> UI/viewport space by subtracting the viewport origin.
+static void T03_to_ui_space() {
+    // Runtime: origin (0,0) -> identity.
+    const glm::vec2 a = ToUiSpace(100.0, 50.0, 0u, 0u);
+    EXPECT(a.x == 100.0f && a.y == 50.0f);
+    // Editor: subtract the docked viewport's top-left.
+    const glm::vec2 b = ToUiSpace(300.0, 220.0, 50u, 20u);
+    EXPECT(b.x == 250.0f && b.y == 200.0f);
+}
+
 int main() {
     T00_unscoped_is_always_on();
     T01_single_state();
     T02_multi_state();
+    T03_to_ui_space();
     if (g_Failures == 0) { std::printf("All menu tests passed.\n"); return 0; }
     std::printf("%d menu test(s) FAILED.\n", g_Failures);
     return 1;
