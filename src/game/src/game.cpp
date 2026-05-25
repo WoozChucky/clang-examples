@@ -23,6 +23,10 @@ class TextRotationSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
         ctx.world.Each<TextComponent, TransformComponent>([&](EntityId e) {
+            // Leave authored UI/menu text static (don't spin labels, titles, buttons).
+            if (ctx.world.HasComponent<StateScopeComponent>(e) ||
+                ctx.world.HasComponent<UIRectComponent>(e) ||
+                ctx.world.HasComponent<MenuButtonComponent>(e)) return;
             ctx.world.Modify<TransformComponent>(e, [&](auto& transform) {
                 constexpr float TWO_PI = 6.28318530718f;
                 transform.Rotation.z = fmodf(
