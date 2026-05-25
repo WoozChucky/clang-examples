@@ -29,6 +29,7 @@ private:
     Renderer* m_Renderer = nullptr;
     nvrhi::ShaderHandle m_VS, m_PS;
     nvrhi::GraphicsPipelineHandle m_Pipeline;
+    nvrhi::GraphicsPipelineHandle m_WireframePipeline;
     nvrhi::InputLayoutHandle m_InputLayout;
     nvrhi::BindingLayoutHandle m_BindingLayout;
     nvrhi::BufferHandle m_FrameCB;

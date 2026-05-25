@@ -147,6 +147,9 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
         pso.renderState.blendState.setRenderTarget(1, rt);
         pso.renderState.blendState.setRenderTarget(2, rt);
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
+
+        pso.renderState.rasterState.fillMode = nvrhi::RasterFillMode::Wireframe;
+        m_WireframePipeline = m_Device->createGraphicsPipeline(pso, fbi);
     }
 
     commandList->beginMarker("GBufferFillPass");
@@ -217,9 +220,12 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
 
     // Render each batch (run) with instancing into the G-buffer.
     nvrhi::GraphicsState state;
-    state.pipeline = m_Pipeline;
+    state.pipeline = (GetDebugDrawSettings().Wireframe && m_WireframePipeline)
+                         ? m_WireframePipeline : m_Pipeline;
     state.framebuffer = gfb;
     state.viewport.addViewportAndScissorRect(gfb->getFramebufferInfo().getViewport());
+
+    uint32_t instancesDrawn = 0;
 
     for (uint32_t r = 0; r < runCount; ++r)
     {
@@ -279,6 +285,8 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             frameAllocator->RewindTo(instanceMark);
             continue;
         }
+
+        instancesDrawn += instanceOut;
 
         commandList->writeBuffer(m_InstanceBuffer, instances, instanceOut * sizeof(MeshInstanceCPU));
 
@@ -351,12 +359,20 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
         frameAllocator->RewindTo(instanceMark);
     }
 
+    RenderStats& rs = GetRenderStats();
+    rs.MeshEntitiesDrawn  = entryCount;
+    rs.MeshEntitiesCulled = culledCount;
+    rs.MeshEntitiesTotal  = entryCount + culledCount;
+    rs.InstancesDrawn     = instancesDrawn;
+    rs.BatchesDrawn       = runCount;
+
     commandList->endMarker();
 }
 
 void GBufferFillPass::Shutdown()
 {
     m_Pipeline = nullptr;
+    m_WireframePipeline = nullptr;
     m_InputLayout = nullptr;
     m_BindingLayout = nullptr;
     m_FrameCB = nullptr;
@@ -371,4 +387,5 @@ void GBufferFillPass::OnResize(uint32_t /*width*/, uint32_t /*height*/)
 {
     // Rebuild the pipeline against the resized G-buffer framebuffer on next render.
     m_Pipeline = nullptr;
+    m_WireframePipeline = nullptr;
 }
