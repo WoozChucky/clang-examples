@@ -18,7 +18,9 @@ it.
 
 In scope: a new full-screen `SkyRenderPass` that paints the gradient + sun disc +
 moon disc into sky pixels, plus engine-side `SkySettings` (editor-tunable) and a
-Sky section in the editor's Render Stats panel.
+Sky section in the editor's Render Stats panel. **Plus a documentation pass**
+(see below) bringing `README.md` / `CLAUDE.md` up to date with the deferred
+pipeline and the fog / day-night / sky features shipped this cycle.
 
 Out of scope (YAGNI / future): a moon texture or phases; stars/cubemap at night;
 clouds; atmospheric scattering (Rayleigh/Mie); lens flare; HDR/bloom on the sun
@@ -130,6 +132,37 @@ SkySettings (engine global, editor-tuned)
   (mirror the other passes); `glm::vec3` fields padded to vec4 in the CB to match
   HLSL packing.
 
+## Documentation pass
+
+The project docs still describe the **forward** renderer and are stale after this
+cycle's deferred conversion + fog/day-night work. As the final step of this
+feature (done last, so the docs describe the final state including the sky),
+update:
+
+- **`README.md`** — the "Renderer" + "Render passes" sections (currently lines
+  ~130-168) list `MeshRenderPass` and a forward flow. Rewrite to describe the
+  **deferred** pipeline and the actual pass order:
+  `ShadowDepthPass → GBufferFillPass (G-buffer MRT: albedo/normal/world-pos +
+  depth) → LightingRenderPass (full-screen: directional + point + shadow + fog,
+  reads the G-buffer) → SkyRenderPass (procedural gradient + sun/moon discs) →
+  PrimitiveRenderPass (grid) → OutlineRenderPass → DebugRenderPass → UiRenderPass`.
+  Mention fog (`Fog.{h,cpp}` / `GetFogSettings`), the day/night cycle
+  (`DayNightSystem`, `DayNightConfigComponent`, `AtmosphereStateComponent`), and
+  sky (`Sky.{h,cpp}` / `GetSkySettings`). Remove `MeshRenderPass` references.
+- **`CLAUDE.md`** — the "Renderer (Engine)" architecture paragraph (~line 96):
+  replace the forward/`MeshRenderPass` description with the deferred pipeline +
+  the pass list above + the new editor-tunable settings (`FogSettings`,
+  `SkySettings`) and the day/night components. **Fix the stale line** stating the
+  `ECSCommandProcessor` lives in `ApplicationContext.h` — it is actually in
+  `src/common/include/ECSCommands.h` (update both the "ECS command pattern" and
+  the "adding a new component type" references that cite `ApplicationContext.h`).
+- **`docs/ECS_Threading_Architecture.md`** — only if it makes a now-false claim
+  about the renderer passes or the component set; otherwise leave it (the
+  snapshot/command threading model is unchanged). Light touch only.
+
+Keep edits accurate to the merged code; do not document features that don't
+exist. This is a docs-only change (no code), committed separately.
+
 ## Testing / verification
 No unit tests (renderer visual work; project norm). Manual:
 - Build + run the editor; scrub the day/night cycle and confirm the sun rises,
@@ -145,6 +178,7 @@ No unit tests (renderer visual work; project norm). Manual:
 - `src/engine/src/rendering/Renderer.cpp` (pass registration, both Init paths)
 - `src/engine/CMakeLists.txt` (add Sky.cpp + SkyRenderPass.cpp)
 - `src/editor/src/rendering/imgui/RenderStatsPanel.cpp` (Sky tuning section)
+- `README.md`, `CLAUDE.md` (documentation pass; `docs/ECS_Threading_Architecture.md` only if it has a now-false claim)
 
 ## Notes
 - No `ECS.h`/`Game.h` change → no `ecs.dll` rebuild/restart beyond a normal build;
