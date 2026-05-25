@@ -212,15 +212,19 @@ public:
     }
 
 private:
-    // Copy the editor-facing per-entity components from src to dst (the same set ApplyComponentCommand
-    // handles). Deliberately excludes singletons (cameras/viewport/input) and hierarchy (Parent/Child).
+    // Copy the editor-facing per-entity components from src to dst. Deliberately excludes
+    // singletons (cameras/viewport/input/atmosphere/game-state/action-queue) and hierarchy
+    // (Parent/Child). Keep in sync when a new authorable per-entity component is added.
     static void DuplicateEntityComponents(ECS& world, EntityId src, EntityId dst) {
-        if (auto* c = world.GetComponent<TransformComponent>(src)) world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<LightningComponent>(src)) world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<MeshComponent>(src))      world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<MaterialComponent>(src))  world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<TextComponent>(src))      world.AddComponent(dst, *c);
-        if (world.HasComponent<SunMarker>(src))                    world.AddComponent(dst, SunMarker{});
+        if (auto* c = world.GetComponent<TransformComponent>(src))  world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<LightningComponent>(src))  world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<MeshComponent>(src))       world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<MaterialComponent>(src))   world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<TextComponent>(src))       world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<PlayerComponent>(src))     world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<UIRectComponent>(src))     world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<StateScopeComponent>(src)) world.AddComponent(dst, *c);
+        if (world.HasComponent<SunMarker>(src))                     world.AddComponent(dst, SunMarker{});
     }
 
     // Apply a component command (add or modify)
