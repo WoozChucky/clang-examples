@@ -167,6 +167,15 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                     }
                 }
 
+                if (!ctx.WorldSnapshot->HasComponent<PlayerComponent>(entity)) {
+                    if (ImGui::MenuItem("Add Player Component")) {
+                        ECSCommand addCmd = ECSCommand::AddComponent(entity, PlayerComponent{});
+                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
+                            SM_WARN("ECS command queue full! Add component command dropped.");
+                        }
+                    }
+                }
+
                 ImGui::Separator();
 
                 // Remove component options
@@ -218,6 +227,15 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                 if (ctx.WorldSnapshot->HasComponent<SunMarker>(entity)) {
                     if (ImGui::MenuItem("Remove Sun Marker")) {
                         ECSCommand removeCmd = ECSCommand::RemoveComponent<SunMarker>(entity);
+                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
+                            SM_WARN("ECS command queue full! Remove component command dropped.");
+                        }
+                    }
+                }
+
+                if (ctx.WorldSnapshot->HasComponent<PlayerComponent>(entity)) {
+                    if (ImGui::MenuItem("Remove Player Component")) {
+                        ECSCommand removeCmd = ECSCommand::RemoveComponent<PlayerComponent>(entity);
                         if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
                             SM_WARN("ECS command queue full! Remove component command dropped.");
                         }
@@ -620,6 +638,34 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                 if (ImGui::CollapsingHeader("Sun Marker", ImGuiTreeNodeFlags_DefaultOpen)) {
                     ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Tagged as Sun");
                     ImGui::TextDisabled("Day/night cycle drives this entity.");
+                }
+            }
+
+            // Edit Player Component
+            if (ctx.WorldSnapshot->HasComponent<PlayerComponent>(selectedEntity)) {
+                if (ImGui::CollapsingHeader("Player Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto* player = ctx.WorldSnapshot->GetComponent<PlayerComponent>(selectedEntity);
+                    if (player) {
+                        if (lastEditedPlayerEntity != selectedEntity) {
+                            editPlayer = *player;
+                            lastEditedPlayerEntity = selectedEntity;
+                            playerModified = false;
+                        }
+                        if (!playerModified) {
+                            editPlayer = *player;
+                        }
+                        if (ImGui::DragFloat("Move speed", &editPlayer.MoveSpeed, 0.1f, 0.5f, 50.0f, "%.1f")) {
+                            playerModified = true;
+                        }
+                        ImGui::Spacing();
+                        if (playerModified) {
+                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editPlayer);
+                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
+                                SM_WARN("ECS command queue full! Modify command dropped.");
+                            }
+                            playerModified = false;
+                        }
+                    }
                 }
             }
 
