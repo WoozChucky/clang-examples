@@ -37,6 +37,7 @@ add_library(Engine SHARED
     src/rendering/passes/PrimitiveRenderPass.cpp
     src/rendering/passes/GBufferFillPass.cpp
     src/rendering/passes/LightingRenderPass.cpp
+    src/rendering/passes/SkyRenderPass.cpp
     src/rendering/passes/OutlineRenderPass.cpp
     src/rendering/passes/ShadowDepthPass.cpp
     src/rendering/passes/DebugRenderPass.cpp
