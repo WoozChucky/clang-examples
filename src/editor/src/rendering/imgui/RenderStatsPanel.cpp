@@ -3,13 +3,15 @@
 #include <imgui.h>
 
 #include "RenderStats.h" // resolved via the editor's Engine PUBLIC include dirs (same as StagingBufferPool.h in MemoryPanel)
+#include "EditorPreferences.h" // persist the toggles across runs
 
 void DrawRenderStatsPanel(bool* open)
 {
     if (open && !*open) return;
     if (!ImGui::Begin("Render Stats", open)) { ImGui::End(); return; }
 
-    ImGui::Checkbox("Frustum culling", &GetCullingSettings().Enabled);
+    bool changed = false;
+    changed |= ImGui::Checkbox("Frustum culling", &GetCullingSettings().Enabled);
     ImGui::Separator();
 
     const RenderStats& s = GetRenderStats();
@@ -22,17 +24,22 @@ void DrawRenderStatsPanel(bool* open)
     ImGui::Separator();
     ImGui::TextDisabled("Debug Draw");
     DebugDrawSettings& dd = GetDebugDrawSettings();
-    ImGui::Checkbox("Light gizmos",   &dd.ShowLightGizmos);
-    ImGui::Checkbox("Camera frustum", &dd.ShowCameraFrustum);
-    ImGui::Checkbox("Selected AABB",  &dd.ShowSelectedAABB);
-    ImGui::Checkbox("Wireframe",      &dd.Wireframe);
-    ImGui::Checkbox("Grid",           &dd.ShowGrid);
+    changed |= ImGui::Checkbox("Light gizmos",   &dd.ShowLightGizmos);
+    changed |= ImGui::Checkbox("Camera frustum", &dd.ShowCameraFrustum);
+    changed |= ImGui::Checkbox("Selected AABB",  &dd.ShowSelectedAABB);
+    changed |= ImGui::Checkbox("Wireframe",      &dd.Wireframe);
+    changed |= ImGui::Checkbox("Grid",           &dd.ShowGrid);
 
     ImGui::Separator();
     ImGui::TextDisabled("Shadows");
     ShadowSettings& sh = GetShadowSettings();
-    ImGui::Checkbox("Shadows", &sh.Enabled);
-    ImGui::SliderFloat("Shadow bias", &sh.Bias, 0.0f, 0.01f, "%.4f");
+    changed |= ImGui::Checkbox("Shadows", &sh.Enabled);
+    changed |= ImGui::SliderFloat("Shadow bias", &sh.Bias, 0.0f, 0.01f, "%.4f");
+
+    // ImGui widgets return true only on the frame the value changes, so this writes
+    // editor_preferences.json on edits only — never per-frame.
+    if (changed)
+        EditorPreferences::Save(EditorPreferences::DEFAULT_PREFERENCES_PATH);
 
     ImGui::End();
 }

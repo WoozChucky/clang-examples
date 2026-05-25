@@ -14,6 +14,7 @@
 #include "MemoryPanel.h"
 #include "RenderStatsPanel.h"
 #include "RenderStats.h"
+#include "EditorPreferences.h"
 #include "EditorContext.h"
 #include "PerformancePanel.h"
 #include "SimulationPanel.h"
@@ -178,6 +179,10 @@ bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext,
     // Ground grid is an editor authoring aid — on by default in the editor, never in
     // the runtime (separate process, no overlay, leaves the flag at its default false).
     GetDebugDrawSettings().ShowGrid = true;
+
+    // Restore persisted RenderStats toggles. Runs after the editor defaults above so a
+    // saved file wins; first run (no file) keeps the defaults (e.g. grid on).
+    EditorPreferences::Load(EditorPreferences::DEFAULT_PREFERENCES_PATH);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
