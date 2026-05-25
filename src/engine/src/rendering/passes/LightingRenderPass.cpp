@@ -10,9 +10,10 @@
 // Full-screen deferred lighting. The PS math is a 1:1 port of MeshRenderPass's
 // pixel shader (ambient/diffuse/point loop/ShadowFactor 3x3 PCF/fog) but reads
 // its surface inputs (albedo/world-normal/world-pos) from the G-buffer instead
-// of interpolated vertex attributes. Registers mirror the mesh-pass scheme so
-// the Vulkan flat-binding offsets line up (CB b0, t0/t1/t2 gbuffer, s0 sampler,
-// t4 point lights, t6 shadow map, s7 shadow comparison sampler).
+// of interpolated vertex attributes. Registers use globally-unique slots across
+// b/t/s so the Vulkan flat-binding offsets don't collide (CB b0, t1/t2/t3
+// gbuffer, s4 sampler, t5 point lights, t6 shadow map, s7 shadow comparison
+// sampler -> Vulkan bindings 0..7, all unique).
 static const char* LIGHT_VS_HLSL = R"(
 struct VSOut { float4 PosH:SV_POSITION; float2 UV:TEXCOORD0; };
 VSOut main_vs(uint vid : SV_VertexID){
@@ -34,11 +35,11 @@ cbuffer PerFrame : register(b0) {
     uint  uPointLightCount; float uAmbient; int uShadowEnabled; float uShadowBias;
     int   uFogEnabled; int3 _padL;
 };
-Texture2D uAlbedo   : register(t0);
-Texture2D uNormal   : register(t1);
-Texture2D uWorldPos : register(t2);
-SamplerState uSamp  : register(s0);
-StructuredBuffer<PointLight> gPointLights : register(t4);
+Texture2D uAlbedo   : register(t1);
+Texture2D uNormal   : register(t2);
+Texture2D uWorldPos : register(t3);
+SamplerState uSamp  : register(s4);
+StructuredBuffer<PointLight> gPointLights : register(t5);
 Texture2D              uShadowMap  : register(t6);
 SamplerComparisonState uShadowSamp : register(s7);
 struct PSIn { float4 PosH:SV_POSITION; float2 UV:TEXCOORD0; };
@@ -109,19 +110,19 @@ bool LightingRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         m_GBufSampler = m_Device->createSampler(sd);
     }
 
-    // Binding layout: b0 (PerFrame), t0/t1/t2 (G-buffer albedo/normal/worldpos),
-    // s0 (G-buffer sampler), t4 (point lights), t6 (shadow map), s7 (shadow sampler).
+    // Binding layout: b0 (PerFrame), t1/t2/t3 (G-buffer albedo/normal/worldpos),
+    // s4 (G-buffer sampler), t5 (point lights), t6 (shadow map), s7 (shadow sampler).
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
     layoutDesc.bindings = {
         nvrhi::BindingLayoutItem::ConstantBuffer(0),
-        nvrhi::BindingLayoutItem::Texture_SRV(0),
-        nvrhi::BindingLayoutItem::Texture_SRV(1),
-        nvrhi::BindingLayoutItem::Texture_SRV(2),
-        nvrhi::BindingLayoutItem::Sampler(0),
-        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4),
-        nvrhi::BindingLayoutItem::Texture_SRV(6),
-        nvrhi::BindingLayoutItem::Sampler(7)
+        nvrhi::BindingLayoutItem::Texture_SRV(1),        // albedo
+        nvrhi::BindingLayoutItem::Texture_SRV(2),        // normal
+        nvrhi::BindingLayoutItem::Texture_SRV(3),        // worldpos
+        nvrhi::BindingLayoutItem::Sampler(4),            // gbuffer sampler
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5), // point lights
+        nvrhi::BindingLayoutItem::Texture_SRV(6),        // shadow map
+        nvrhi::BindingLayoutItem::Sampler(7)             // shadow cmp sampler
     };
     nvrhi::VulkanBindingOffsets& offsets =
         nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
@@ -248,11 +249,11 @@ void LightingRenderPass::Render(nvrhi::ICommandList* commandList,
     nvrhi::BindingSetDesc bindingDesc;
     bindingDesc.bindings = {
         nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
-        nvrhi::BindingSetItem::Texture_SRV(0, m_Renderer->GetGBufferAlbedo()),
-        nvrhi::BindingSetItem::Texture_SRV(1, m_Renderer->GetGBufferNormal()),
-        nvrhi::BindingSetItem::Texture_SRV(2, m_Renderer->GetGBufferWorldPos()),
-        nvrhi::BindingSetItem::Sampler(0, m_GBufSampler),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_PointLightBuffer),
+        nvrhi::BindingSetItem::Texture_SRV(1, m_Renderer->GetGBufferAlbedo()),
+        nvrhi::BindingSetItem::Texture_SRV(2, m_Renderer->GetGBufferNormal()),
+        nvrhi::BindingSetItem::Texture_SRV(3, m_Renderer->GetGBufferWorldPos()),
+        nvrhi::BindingSetItem::Sampler(4, m_GBufSampler),
+        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_PointLightBuffer),
         nvrhi::BindingSetItem::Texture_SRV(6, m_Renderer->GetShadowDepthTexture(), nvrhi::Format::R32_FLOAT),
         nvrhi::BindingSetItem::Sampler(7, m_Renderer->GetShadowSampler())
     };
