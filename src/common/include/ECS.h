@@ -187,6 +187,22 @@ struct StateScopeComponent {
     uint32_t StateMask = 0;
 };
 
+// Marks a UI-rect entity as a clickable menu button (authored). ActionId is an Actions:: id
+// (data binding to behavior; 0 = none). The interaction system drives UIRectComponent.Color
+// between Normal/Hover/Press based on the pointer.
+struct MenuButtonComponent {
+    uint32_t  ActionId = 0;
+    glm::vec4 Normal{0.15f, 0.15f, 0.18f, 1.0f};
+    glm::vec4 Hover {0.25f, 0.25f, 0.30f, 1.0f};
+    glm::vec4 Press {0.35f, 0.35f, 0.42f, 1.0f};
+};
+
+// Runtime singleton: the button currently held under a left-press (click latch). 0 = none.
+// Not persisted, not authored (seeded in the boot block like ActionQueueComponent).
+struct MenuStateComponent {
+    EntityId ArmedButton = 0;
+};
+
 // Marks the player-controlled entity. Moved by PlayerMovementSystem (game) from input.
 struct PlayerComponent {
     float MoveSpeed = 5.0f; // world units / second
@@ -239,7 +255,9 @@ struct ActionQueueComponent {
     X(GameStateComponent) \
     X(ActionQueueComponent) \
     X(UIRectComponent) \
-    X(StateScopeComponent)
+    X(StateScopeComponent) \
+    X(MenuButtonComponent) \
+    X(MenuStateComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

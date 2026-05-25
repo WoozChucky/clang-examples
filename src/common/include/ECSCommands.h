@@ -224,6 +224,7 @@ private:
         if (auto* c = world.GetComponent<PlayerComponent>(src))     world.AddComponent(dst, *c);
         if (auto* c = world.GetComponent<UIRectComponent>(src))     world.AddComponent(dst, *c);
         if (auto* c = world.GetComponent<StateScopeComponent>(src)) world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<MenuButtonComponent>(src))  world.AddComponent(dst, *c);
         if (world.HasComponent<SunMarker>(src))                     world.AddComponent(dst, SunMarker{});
     }
 
@@ -276,6 +277,10 @@ private:
             if (auto* scope = componentData.Get<StateScopeComponent>()) {
                 world.AddComponent(entity, *scope);
             }
+        } else if (componentData.Type == std::type_index(typeid(MenuButtonComponent))) {
+            if (auto* btn = componentData.Get<MenuButtonComponent>()) {
+                world.AddComponent(entity, *btn);
+            }
         }
         // Add more component types as needed
     }
@@ -306,6 +311,8 @@ private:
             world.RemoveComponent<UIRectComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(StateScopeComponent))) {
             world.RemoveComponent<StateScopeComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(MenuButtonComponent))) {
+            world.RemoveComponent<MenuButtonComponent>(entity);
         }
         // Add more component types as needed
     }
