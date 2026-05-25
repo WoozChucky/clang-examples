@@ -12,8 +12,8 @@
 #include "passes/PrimitiveRenderPass.h"
 #include "passes/OutlineRenderPass.h"
 #include "passes/DebugRenderPass.h"
-#include "passes/MeshRenderPass.h"
 #include "passes/GBufferFillPass.h"
+#include "passes/LightingRenderPass.h"
 #include "passes/ShadowDepthPass.h"
 
 #include <tracy/Tracy.hpp>
@@ -88,14 +88,8 @@ bool Renderer::Init(const RendererAPI api) {
 
     SM_TRACE("Renderer initialized with API: %d", static_cast<int>(m_Backend->GetAPI()));
 
-    // Initialize and add render passes
-    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
-    if (!primitivePass->Initialize(m_Device, this)) {
-        SM_ERROR("Failed to initialize PrimitiveRenderPass");
-        return false;
-    }
-    AddRenderPass(std::move(primitivePass));
-
+    // Initialize and add render passes (deferred order):
+    // Shadow -> GBufferFill -> Lighting -> Primitive -> Outline -> Debug -> UI.
     auto shadowPass = std::make_unique<ShadowDepthPass>();
     if (!shadowPass->Initialize(m_Device, this)) {
         SM_ERROR("Failed to initialize ShadowDepthPass");
@@ -110,12 +104,19 @@ bool Renderer::Init(const RendererAPI api) {
     }
     AddRenderPass(std::move(gbufferPass));
 
-    auto meshPass = std::make_unique<MeshRenderPass>();
-    if (!meshPass->Initialize(m_Device, this)) {
-        SM_ERROR("Failed to initialize MeshRenderPass");
+    auto lightingPass = std::make_unique<LightingRenderPass>();
+    if (!lightingPass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize LightingRenderPass");
         return false;
     }
-    AddRenderPass(std::move(meshPass));
+    AddRenderPass(std::move(lightingPass));
+
+    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
+    if (!primitivePass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize PrimitiveRenderPass");
+        return false;
+    }
+    AddRenderPass(std::move(primitivePass));
 
     auto outlinePass = std::make_unique<OutlineRenderPass>();
     if (!outlinePass->Initialize(m_Device, this)) {
@@ -577,11 +578,8 @@ bool Renderer::InitForSwap(RendererAPI newApi)
         return false;
     }
 
-    // Recreate render passes.
-    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
-    if (!primitivePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: PrimitivePass failed"); return false; }
-    AddRenderPass(std::move(primitivePass));
-
+    // Recreate render passes (deferred order):
+    // Shadow -> GBufferFill -> Lighting -> Primitive -> Outline -> Debug -> UI.
     auto shadowPass = std::make_unique<ShadowDepthPass>();
     if (!shadowPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: ShadowPass failed"); return false; }
     AddRenderPass(std::move(shadowPass));
@@ -590,9 +588,13 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     if (!gbufferPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: GBufferFillPass failed"); return false; }
     AddRenderPass(std::move(gbufferPass));
 
-    auto meshPass = std::make_unique<MeshRenderPass>();
-    if (!meshPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: MeshPass failed"); return false; }
-    AddRenderPass(std::move(meshPass));
+    auto lightingPass = std::make_unique<LightingRenderPass>();
+    if (!lightingPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: LightingPass failed"); return false; }
+    AddRenderPass(std::move(lightingPass));
+
+    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
+    if (!primitivePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: PrimitivePass failed"); return false; }
+    AddRenderPass(std::move(primitivePass));
 
     auto outlinePass = std::make_unique<OutlineRenderPass>();
     if (!outlinePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: OutlinePass failed"); return false; }
