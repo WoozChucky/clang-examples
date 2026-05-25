@@ -133,7 +133,7 @@ Renderer (`src/engine/src/rendering`)
   - A G-buffer fill pass (albedo / world-normal / world-position MRT + depth; meshes addressed by `MeshHandle` / `MaterialHandle`)
   - A full-screen lighting pass (directional + point lights, PCF shadows, distance fog)
   - A procedural sky pass (day/night gradient + sun/moon discs)
-  - A primitives pass (e.g., a ground grid on the Y=0 plane)
+  - A debug line pass (gizmos + the editor ground grid on the Y=0 plane)
   - A UI text pass using the FreeType-baked R8 glyph atlas
 - Atmosphere is authored as ECS singleton components — `FogComponent` / `SkyComponent` (in `ECS.h`), read by the renderer off the snapshot and persisted per-scene in `world.json`; edit them in the editor's Atmosphere panel. `ComputeFog` (`Fog.{h,cpp}`) maps sun elevation → fog; sky shading is in the `SkyRenderPass` shader. The day/night cycle is driven by `DayNightSystem` (game), which moves the sun and writes `AtmosphereStateComponent` (tunables in `DayNightConfigComponent`).
 - ImGui is not a built-in pass; tooling UI is layered in via an injected `IOverlay`.
@@ -209,7 +209,7 @@ Shaders
 Controls are defined by the loaded `Game.dll`; consult `src/game/src/Game.cpp` for the current bindings.
 
 On-screen
-- A procedural ground grid (primitives pass) and any meshes the game requests (rendered through the deferred G-buffer + lighting passes).
+- A procedural ground grid (editor-only, drawn by the debug pass) and any meshes the game requests (rendered through the deferred G-buffer + lighting passes).
 - A procedural day/night sky with sun/moon and distance fog.
 - UI text via the UI pass.
 - In `editor.exe`, the ImGui tooling layer (panels, inspector, gizmos, Memory panel). `runtime.exe` renders no ImGui.
