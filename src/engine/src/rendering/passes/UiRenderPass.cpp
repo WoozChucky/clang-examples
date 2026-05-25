@@ -1,6 +1,7 @@
 #include "UiRenderPass.h"
 
 #include "Renderer.h"
+#include "StateScope.h" // ScopeAllows
 #include "nvrhi/utils.h"
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -296,6 +297,62 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
     if (world) {
 
+        // Current state drives scope filtering (entities with a StateScopeComponent only render
+        // when their mask allows the current state; unscoped entities always render).
+        GameStateId uiState = GameStateId::MainMenu;
+        if (const auto* gs = world->GetSingleton<GameStateComponent>()) uiState = gs->Current;
+        auto scopeVisible = [&](EntityId e) -> bool {
+            const auto* sc = world->GetComponent<StateScopeComponent>(e);
+            return !sc || ScopeAllows(sc->StateMask, uiState);
+        };
+
+        // Solid UI rectangles (drawn before text so labels sit on top). One instanced draw
+        // using the default font atlas's binding set (its texture is bound but unused since
+        // Flags=0 => the PS outputs solid Color).
+        if (auto* rectAtlas = m_FontManager.GetAtlas(FontManager::DEFAULT_FONT, m_Device, commandList);
+            rectAtlas && rectAtlas->uiBindingSet) {
+            auto* rectEnts = frameAllocator->AllocateArray<EntityId>(world->GetEntityCount());
+            uint32_t rectCount = 0;
+            if (rectEnts) {
+                world->Each<UIRectComponent, TransformComponent>([&](EntityId e){
+                    if (scopeVisible(e)) rectEnts[rectCount++] = e;
+                });
+            }
+            uint32_t rectN = std::min(rectCount, m_MaxInstances);
+            if (rectN > 0) {
+                auto* rectInstances = frameAllocator->AllocateArray<UIInstanceCPU>(rectN);
+                if (rectInstances) {
+                    uint32_t out = 0;
+                    for (uint32_t ri = 0; ri < rectCount && out < rectN; ++ri) {
+                        const EntityId e = rectEnts[ri];
+                        const auto* tr = world->GetComponent<TransformComponent>(e);
+                        const auto* rc = world->GetComponent<UIRectComponent>(e);
+                        if (!tr || !rc) continue;
+                        const glm::mat4 T = glm::translate(glm::mat4(1.0f), tr->Position);
+                        const glm::mat4 R = glm::rotate(glm::mat4(1.0f), tr->Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
+                        const glm::mat4 S = glm::scale(glm::mat4(1.0f), glm::vec3(rc->Size.x, rc->Size.y, 1.0f));
+                        UIInstanceCPU inst{};
+                        inst.Transform = T * R * S;   // unit quad [0,1] -> [pos, pos+Size]
+                        inst.Color = rc->Color;
+                        inst.UVRect = glm::vec4(0.0f);
+                        inst.Flags = 0u;              // solid color (no atlas sample)
+                        rectInstances[out++] = inst;
+                    }
+                    if (out > 0) {
+                        commandList->writeBuffer(m_InstanceBuffer, rectInstances, out * sizeof(UIInstanceCPU));
+                        state.bindings = { rectAtlas->uiBindingSet };
+                        commandList->setGraphicsState(state);
+                        nvrhi::DrawArguments rectArgs;
+                        rectArgs.vertexCount = m_IndexCount;
+                        rectArgs.instanceCount = out;
+                        rectArgs.startIndexLocation = 0;
+                        rectArgs.startVertexLocation = 0;
+                        commandList->drawIndexed(rectArgs);
+                    }
+                }
+            }
+        }
+
         // Collect text entities into an arena buffer (entity-only Each), reused below.
         auto* textEnts = frameAllocator->AllocateArray<EntityId>(world->GetEntityCount());
         uint32_t textCount = 0;
@@ -375,7 +432,7 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
                 auto* transform = world->GetComponent<TransformComponent>(entity);
                 auto* text = world->GetComponent<TextComponent>(entity);
 
-                if (transform && text && text->FontSize == fontSize) {
+                if (transform && text && text->FontSize == fontSize && scopeVisible(entity)) {
                     const std::string& str = text->Text;
 
                     // Build entity transform matrix (Translation * Rotation * Scale)
