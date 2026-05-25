@@ -179,6 +179,8 @@ public:
         const auto* in = ctx.world.GetSingleton<InputStateComponent>();
         if (!in) return;
         const float dt = static_cast<float>(ctx.dt);
+        // EntityId-only callback (no live component refs) so Modify<TransformComponent>
+        // below can safely clone/realloc the queried array without invalidating a ref.
         ctx.world.Each<PlayerComponent, TransformComponent>([&](EntityId e) {
             float speed = 5.0f;
             if (const auto* p = ctx.world.GetComponent<PlayerComponent>(e)) speed = p->MoveSpeed;
