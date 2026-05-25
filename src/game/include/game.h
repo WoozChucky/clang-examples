@@ -17,15 +17,10 @@
 // Bump every time GameState layout changes or any export signature changes.
 // Editor compares against the compiled-in value at load time; mismatch rejects
 // the reload and keeps the previous Game.dll active.
-#define GAME_API_VERSION 8u
+#define GAME_API_VERSION 9u
 
-enum class GameStateId : uint32_t {
-    Uninitialized = 0,
-    MainMenu = 1,
-    InLevel = 2,
-    InEditor = 3,
-    Paused = 4,
-};
+// GameStateId moved to src/common/include/GameStateId.h (included via ECS.h) so ECS
+// components + engine code can reference it.
 
 struct ApplicationSettings;
 

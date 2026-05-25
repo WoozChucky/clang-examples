@@ -21,6 +21,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "input.h"
+#include "GameStateId.h"
 
 // Cross-DLL export annotation. Defined as dllexport in ecs.dll's TU,
 // dllimport everywhere else. Allow override (defining ECS_API empty
@@ -176,6 +177,26 @@ struct PlayerComponent {
     float MoveSpeed = 5.0f; // world units / second
 };
 
+// Current game lifecycle state (singleton). Authoritative source of truth: AppFlowSystem
+// writes Current; systems + the renderer read it. Not persisted in world.json (runtime).
+struct GameStateComponent {
+    GameStateId Current = GameStateId::MainMenu;
+};
+
+// One queued UI/game action. Producers (menu interaction, Phase 4) push; owning systems
+// consume by ActionId. Param is a generic payload; Source is the emitting entity (0 = none).
+struct ActionEvent {
+    uint32_t ActionId = 0;
+    EntityId Source   = 0;
+    uint64_t Param    = 0;
+};
+
+// Per-tick action queue (singleton). Cleared at the top of each GameUpdate tick and drained
+// by consumer systems the same tick. Not persisted.
+struct ActionQueueComponent {
+    std::vector<ActionEvent> Events;
+};
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -199,7 +220,9 @@ struct PlayerComponent {
     X(AppControlComponent) \
     X(ViewportComponent) \
     X(PlayerComponent) \
-    X(CameraZoomComponent)
+    X(CameraZoomComponent) \
+    X(GameStateComponent) \
+    X(ActionQueueComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)
