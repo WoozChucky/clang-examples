@@ -116,6 +116,6 @@ void EditorCamera::SetState(const EditorCameraState& s)
         m_Position = s.Position;
     if (std::isfinite(s.Yaw))   m_Yaw   = s.Yaw;
     if (std::isfinite(s.Pitch)) m_Pitch = std::clamp(s.Pitch, -kPitchLimit, kPitchLimit);
-    if (std::isfinite(s.FlySpeed) && s.FlySpeed > 0.0f)
+    if (std::isfinite(s.FlySpeed))
         m_FlySpeed = std::clamp(s.FlySpeed, 0.5f, 200.0f);
 }

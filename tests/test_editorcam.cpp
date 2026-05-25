@@ -141,6 +141,15 @@ static void T09_get_set_state_roundtrip_and_clamp()
     EXPECT(rc.Pitch <= glm::radians(89.0f) + 1e-4f);
     EXPECT(rc.FlySpeed <= 200.0f + 1e-4f);
 
+    // Lower clamp: very negative pitch -> -89deg; tiny flySpeed -> 0.5.
+    EditorCameraState under{};
+    under.Pitch = glm::radians(-200.0f);
+    under.FlySpeed = 0.001f;
+    c.SetState(under);
+    const EditorCameraState ru = c.GetState();
+    EXPECT(ru.Pitch >= -glm::radians(89.0f) - 1e-4f);
+    EXPECT(ru.FlySpeed >= 0.5f - 1e-4f);
+
     // Non-finite fields are ignored (previous good values kept).
     EditorCamera c2;
     c2.SetState(s); // known-good pose
