@@ -1,7 +1,7 @@
 #include "SkyRenderPass.h"
 
 #include "Renderer.h"
-#include "Sky.h"
+#include "ECS.h"
 #include "CameraView.h"
 #include <nvrhi/utils.h>
 #include <glm/vec3.hpp>
@@ -14,7 +14,7 @@
 // LessOrEqual depth test with depth writes disabled, so only pixels the
 // deferred passes left at the far plane (no geometry) are painted. The PS
 // reconstructs a world-space ray from the inverse view-projection and shades
-// a day/night gradient plus sun/moon discs from GetSkySettings().
+// a day/night gradient plus sun/moon discs from the SkyComponent singleton.
 static const char* SKY_VS_HLSL = R"(
 struct VSOut { float4 PosH:SV_POSITION; float2 UV:TEXCOORD0; };
 VSOut main_vs(uint vid : SV_VertexID){
@@ -112,7 +112,11 @@ void SkyRenderPass::Render(nvrhi::ICommandList* commandList,
                            double /*deltaTime*/,
                            FrameAllocator* /*frameAllocator*/)
 {
-    if (!GetSkySettings().Enabled)
+    SkyComponent s{};
+    if (world) {
+        if (const auto* sk = world->GetSingleton<SkyComponent>()) s = *sk;
+    }
+    if (!s.Enabled)
         return;
 
     if (!m_Pipeline)
@@ -151,7 +155,6 @@ void SkyRenderPass::Render(nvrhi::ICommandList* commandList,
     }
 
     const CameraView& cam = m_Renderer->GetActiveCamera();
-    const SkySettings& s = GetSkySettings();
     SkyFrameCB cb{};
     cb.InvViewProj  = glm::inverse(cam.Projection * cam.View);
     cb.CameraPos    = glm::vec4(cam.Position, 1.0f);

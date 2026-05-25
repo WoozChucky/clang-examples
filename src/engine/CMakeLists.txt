@@ -23,7 +23,6 @@ add_library(Engine SHARED
     src/rendering/StagingBufferPool.cpp
     src/rendering/RenderStats.cpp
     src/rendering/Fog.cpp
-    src/rendering/Sky.cpp
 
     # Rendering Systems
     src/rendering/MeshSystem.cpp

@@ -216,6 +216,7 @@ set_target_properties(test_shadowmath PROPERTIES
 
 add_executable(test_worldserial
     test_worldserial.cpp
+    ${CMAKE_SOURCE_DIR}/src/engine/src/rendering/Fog.cpp
 )
 
 target_link_libraries(test_worldserial PRIVATE
@@ -227,6 +228,7 @@ target_link_libraries(test_worldserial PRIVATE
 
 target_include_directories(test_worldserial PRIVATE
     ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/engine/src/rendering
 )
 
 target_compile_definitions(test_worldserial PRIVATE

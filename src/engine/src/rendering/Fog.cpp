@@ -2,13 +2,7 @@
 
 #include <glm/common.hpp> // glm::clamp, glm::mix
 
-FogSettings& GetFogSettings()
-{
-    static FogSettings s;
-    return s;
-}
-
-FogFrame ComputeFog(const glm::vec3& sunDir, const FogSettings& s)
+FogFrame ComputeFog(const glm::vec3& sunDir, const FogComponent& s)
 {
     const float elevation = glm::clamp(-sunDir.y, 0.0f, 1.0f);
     FogFrame f;

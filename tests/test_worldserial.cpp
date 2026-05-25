@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include "ComponentSerialization.h" // inline json (de)serializers for components
+#include "Fog.h"                     // ComputeFog(const glm::vec3&, const FogComponent&)
 
 static int g_Failures = 0;
 #define EXPECT(cond)                                                     \
@@ -122,6 +123,21 @@ static void T04_environment_absent_is_backward_compatible()
     EXPECT(!env.HasDayNight);
 }
 
+static void T05_computefog_day_vs_night()
+{
+    FogComponent fog; // defaults: DayDensity 0, NightDensity 0.09, day/night colors
+    // Sun overhead -> sunDir points down (-y): elevation = 1 -> day endpoints.
+    const FogFrame day = ComputeFog(glm::vec3(0, -1, 0), fog);
+    // Sun below horizon -> sunDir points up (+y): elevation = 0 -> night endpoints.
+    const FogFrame night = ComputeFog(glm::vec3(0, 1, 0), fog);
+
+    EXPECT(near(day.Density, fog.DayDensity));
+    EXPECT(veq(day.Color, fog.DayColor));
+    EXPECT(near(night.Density, fog.NightDensity));
+    EXPECT(veq(night.Color, fog.NightColor));
+    EXPECT(night.Density > day.Density); // night is foggier with default values
+}
+
 int main()
 {
     T00_fog_roundtrip();
@@ -129,6 +145,7 @@ int main()
     T02_daynight_roundtrip();
     T03_environment_roundtrip();
     T04_environment_absent_is_backward_compatible();
+    T05_computefog_day_vs_night();
 
     if (g_Failures == 0) { std::printf("All world-serialization tests passed.\n"); return 0; }
     std::printf("%d world-serialization test(s) FAILED.\n", g_Failures);
