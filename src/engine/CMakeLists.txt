@@ -33,7 +33,6 @@ add_library(Engine SHARED
     src/rendering/backends/RendererBackendVulkan.cpp
 
     # Rendering Passes
-    src/rendering/passes/PrimitiveRenderPass.cpp
     src/rendering/passes/GBufferFillPass.cpp
     src/rendering/passes/LightingRenderPass.cpp
     src/rendering/passes/SkyRenderPass.cpp

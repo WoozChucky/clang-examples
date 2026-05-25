@@ -13,6 +13,7 @@
 #include "MeshPreviewRenderer.h"
 #include "MemoryPanel.h"
 #include "RenderStatsPanel.h"
+#include "RenderStats.h"
 #include "EditorContext.h"
 #include "PerformancePanel.h"
 #include "SimulationPanel.h"
@@ -173,6 +174,10 @@ bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext,
     m_MeshSystem = meshSystem;
     m_MaterialSystem = materialSystem;
     m_Renderer = renderer;
+
+    // Ground grid is an editor authoring aid — on by default in the editor, never in
+    // the runtime (separate process, no overlay, leaves the flag at its default false).
+    GetDebugDrawSettings().ShowGrid = true;
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
