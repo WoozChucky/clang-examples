@@ -116,7 +116,7 @@ MainMenuBarResult MainMenuBar::Draw(const EditorContext& ctx, bool& editMode)
                 else
                 {
                     ctx.App->Settings.Backend = previous;
-                    m_SettingsSaveError = "Failed to save editor_settings.json";
+                    m_SettingsSaveError = "Failed to save engine_settings.json";
                 }
             }
             ImGui::EndDisabled();

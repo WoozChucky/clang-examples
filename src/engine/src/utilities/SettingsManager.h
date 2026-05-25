@@ -8,9 +8,9 @@
 #include "ApplicationContext.h"
 
 namespace SettingsManager {
-    // Settings persist in editor_settings.json next to the executable.
+    // Settings persist in engine_settings.json next to the executable.
     // Unknown keys are ignored on load so the file format can evolve.
-    constexpr auto     DEFAULT_SETTINGS_PATH = "editor_settings.json";
+    constexpr auto     DEFAULT_SETTINGS_PATH = "engine_settings.json";
     constexpr uint32_t SETTINGS_VERSION      = 1;
 
     // Reads JSON at `filepath` and merges fields into `*out`.

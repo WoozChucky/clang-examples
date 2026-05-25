@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include "CameraView.h"
+#include "EditorCameraState.h"
 
 // Per-frame fly inputs, filled by the editor overlay from ImGui IO. Pure data.
 struct EditorCameraInput {
@@ -30,6 +31,11 @@ public:
 
     void FrameSelection(const glm::vec3& center, float radius);
     void OrbitAround(const glm::vec3& pivot, float dYaw, float dPitch);
+
+    // Snapshot / restore the persistable pose. SetState is defensive: non-finite fields
+    // are ignored, Pitch is clamped to +/-89deg, FlySpeed to the [0.5, 200] wheel range.
+    EditorCameraState GetState() const;
+    void SetState(const EditorCameraState& s);
 
     // Accessors for tests.
     glm::vec3 GetPosition() const { return m_Position; }

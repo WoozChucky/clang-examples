@@ -41,7 +41,7 @@ namespace {
         std::printf("Usage: runtime.exe [--backend=<api>] [--help]\n"
                     "\n"
                     "  --backend=<api>   Override the persisted renderer backend for this run\n"
-                    "                    only. Does NOT modify editor_settings.json.\n"
+                    "                    only. Does NOT modify engine_settings.json.\n"
                     "                    Valid values: vulkan, vk, directx12, dx12.\n"
                     "                    (directx11/dx11 is reserved but the backend is not\n"
                     "                    implemented yet.)\n"
@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
         SM_ERROR("Application initialization failed!");
         MessageBoxA(nullptr,
                     "Renderer initialization failed.\n\n"
-                    "Edit editor_settings.json next to runtime.exe, or relaunch with\n"
+                    "Edit engine_settings.json next to runtime.exe, or relaunch with\n"
                     "  --backend=vulkan\n"
                     "  --backend=directx12\n",
                     "Runtime — startup failure",
