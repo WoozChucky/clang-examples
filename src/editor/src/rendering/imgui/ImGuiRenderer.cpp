@@ -330,7 +330,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
             const bool fxaaNow = GetAntiAliasingSettings().FxaaEnabled;
             if (m_AppContext && fxaaNow != m_AppContext->Settings.fxaaEnabled) {
                 m_AppContext->Settings.fxaaEnabled = fxaaNow;
-                SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH, m_AppContext->Settings);
+                if (!SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH, m_AppContext->Settings)) {
+                    SM_WARN("Failed to persist FXAA toggle to %s", SettingsManager::DEFAULT_SETTINGS_PATH);
+                }
             }
         }
 
