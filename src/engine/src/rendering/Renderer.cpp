@@ -22,6 +22,8 @@
 
 #include "passes/UiRenderPass.h"
 
+#include "RenderStats.h"
+
 bool Renderer::Init(const RendererAPI api) {
     switch (api) {
         case RendererAPI::DirectX11:
@@ -139,6 +141,13 @@ bool Renderer::Init(const RendererAPI api) {
     }
     AddRenderPass(std::move(uiPass));
 
+    // FXAA resolve pass: Renderer-owned, not part of m_RenderPasses.
+    m_FxaaPass = std::make_unique<FxaaRenderPass>();
+    if (!m_FxaaPass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize FxaaRenderPass");
+        return false;
+    }
+
     Engine::Registry().Register(&m_FrameAllocator);
 
     return true;
@@ -165,6 +174,7 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
         }
     }
     m_RenderPasses.clear();
+    if (m_FxaaPass) { m_FxaaPass->Shutdown(); m_FxaaPass.reset(); }
 
     // Cleanup resource systems
     m_MaterialSystem.Shutdown();
@@ -252,13 +262,36 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 // Always resolve fog: LightingRenderPass reads m_FrameFog regardless of Enabled.
                 m_FrameFog = ComputeFog(sunDir, fogComp);
 
+                // FXAA path: world passes render into an offscreen scene-color SRV,
+                // which the FXAA pass then resolves into sceneBuffer. UI draws on top,
+                // un-AA'd. When disabled, worldTarget == sceneBuffer (today's path).
+                bool fxaa = GetAntiAliasingSettings().FxaaEnabled && m_FxaaPass != nullptr;
+                nvrhi::IFramebuffer* worldTarget = sceneBuffer;
+                if (fxaa) {
+                    const auto& sfbi = sceneBuffer->getFramebufferInfo();
+                    nvrhi::ITexture* sharedDepth = sceneBuffer->getDesc().depthAttachment.texture;
+                    EnsureSceneColor(sfbi.width, sfbi.height, sharedDepth, sfbi.colorFormats[0]);
+                    if (m_SceneColor.Fb) {
+                        worldTarget = m_SceneColor.Fb;
+                    } else {
+                        // Degradation path (e.g. scene-color allocation failed): log once,
+                        // then fall back to direct rendering so the frame still presents.
+                        static bool s_warnedFxaaAlloc = false;
+                        if (!s_warnedFxaaAlloc) {
+                            SM_WARN("FXAA enabled but scene-color target unavailable; falling back to direct rendering (no AA)");
+                            s_warnedFxaaAlloc = true;
+                        }
+                        fxaa = false;
+                    }
+                }
+
                 const auto sceneClear = fogComp.Enabled
                     ? nvrhi::Color(m_FrameFog.Color.r, m_FrameFog.Color.g, m_FrameFog.Color.b, 1.0f)
                     : nvrhi::Color(red, green, blue, 1.0f);
-                nvrhi::utils::ClearColorAttachment(m_CommandList, sceneBuffer, 0, sceneClear);
+                nvrhi::utils::ClearColorAttachment(m_CommandList, worldTarget, 0, sceneClear);
                 if (sceneBuffer != frameBuffer) {
                     // Offscreen scene: clear the swapchain (dark) so the present surface is clean
-                    // behind the ImGui dockspace. Depth of sceneBuffer is cleared inside GBufferFillPass.
+                    // behind the ImGui dockspace. Depth of the scene target is cleared in GBufferFillPass.
                     nvrhi::utils::ClearColorAttachment(m_CommandList, frameBuffer, 0, nvrhi::Color(0.1f, 0.1f, 0.1f, 1.0f));
                 }
 
@@ -275,10 +308,23 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                     }
                     m_ActiveCamera = active;
                 }
-                // Render all passes into the scene buffer
+
+                // World passes -> world target (offscreen scene color when FXAA on, else sceneBuffer).
                 for (auto& pass : m_RenderPasses) {
                     ZoneScopedN("RenderPass Rec N");
-                    if (pass) {
+                    if (pass && pass->Stage() == IRenderPass::RenderStage::World) {
+                        pass->Render(m_CommandList, worldTarget, snapshot, world, deltaTime, &m_FrameAllocator);
+                    }
+                }
+
+                // FXAA resolve: scene-color SRV -> sceneBuffer.
+                if (fxaa) {
+                    m_FxaaPass->Render(m_CommandList, sceneBuffer, snapshot, world, deltaTime, &m_FrameAllocator);
+                }
+
+                // Overlay passes (UI) on top of sceneBuffer, after the resolve.
+                for (auto& pass : m_RenderPasses) {
+                    if (pass && pass->Stage() == IRenderPass::RenderStage::Overlay) {
                         pass->Render(m_CommandList, sceneBuffer, snapshot, world, deltaTime, &m_FrameAllocator);
                     }
                 }
@@ -323,6 +369,10 @@ void Renderer::Resize(const uint32_t width, const uint32_t height) {
         if (pass) {
             pass->OnResize(width, height);
         }
+    }
+
+    if (m_FxaaPass) {
+        m_FxaaPass->OnResize(width, height);
     }
 
     if (m_Backend) {
@@ -561,6 +611,7 @@ void Renderer::TeardownForSwap()
         if (pass) pass->Shutdown();
     }
     m_RenderPasses.clear();
+    if (m_FxaaPass) { m_FxaaPass->Shutdown(); m_FxaaPass.reset(); }
 
     // Release GPU resources but keep CPU caches + entry slots.
     m_MaterialSystem.DestroyGpuResources();
@@ -663,6 +714,9 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     auto uiPass = std::make_unique<UiRenderPass>();
     if (!uiPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: UiPass failed"); return false; }
     AddRenderPass(std::move(uiPass));
+
+    m_FxaaPass = std::make_unique<FxaaRenderPass>();
+    if (!m_FxaaPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: FxaaPass failed"); return false; }
 
     // Frame index reset so the first post-swap frame is treated like a warm-up
     // (Render() skips frame 0; see m_FrameIndex guard).

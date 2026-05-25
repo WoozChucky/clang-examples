@@ -18,6 +18,8 @@
 #include "MeshSystem.h"
 #include "MaterialSystem.h"
 
+#include "passes/FxaaRenderPass.h"
+
 struct GpuTimer
 {
     std::vector<nvrhi::TimerQueryHandle> m_Queries; // size = FramesInFlight (or >)
@@ -214,6 +216,10 @@ private:
     void EnsureSceneColor(uint32_t width, uint32_t height,
                           nvrhi::ITexture* sharedDepth, nvrhi::Format colorFormat);
     void ReleaseSceneColor();
+
+    // FXAA resolve pass. Owned here (not in m_RenderPasses) and invoked between the
+    // World and Overlay pass loops when FXAA is enabled.
+    std::unique_ptr<FxaaRenderPass> m_FxaaPass;
 
     RendererBackend*            m_Backend = nullptr;
     RendererBackendSettings     m_BackendSettings{};
