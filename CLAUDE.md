@@ -49,7 +49,7 @@ ECS code lives in `ecs.dll` (`src/ecs/`). All `ComponentArray<T>` template insta
 
 1. Declare the struct in `ECS.h`.
 2. Add `X(NewType)` to `ECS_FOR_EACH_REGISTERED_COMPONENT`.
-3. Add handling to `ECSCommandProcessor::ApplyComponentCommand` and `RemoveComponentByType` in `ApplicationContext.h`.
+3. Add handling to `ECSCommandProcessor::ApplyComponentCommand` and `RemoveComponentByType` in `src/common/include/ECSCommands.h`.
 4. (Optional) Add inspector UI in `ImGuiRenderer.cpp`.
 
 ## Architecture
@@ -83,9 +83,9 @@ Expected latency from ImGui edit → visible change is 1–2 frames.
 
 ### ECS command pattern (RenderThread → GameThread)
 
-ImGui edits in the editor cannot mutate ECS directly. They push an `ECSCommand` (`src/common/include/ECSCommands.h` + `ApplicationContext.h`) into `ECSCommandRing` (SPSC, 128). GameThread drains it via `ECSCommandProcessor::ProcessCommands` *before* running game logic.
+ImGui edits in the editor cannot mutate ECS directly. They push an `ECSCommand` (`src/common/include/ECSCommands.h`) into `ECSCommandRing` (SPSC, 128, declared in `ApplicationContext.h`). GameThread drains it via `ECSCommandProcessor::ProcessCommands` *before* running game logic.
 
-**When adding a new component type**, also register it in both branches of `ECSCommandProcessor` in `ApplicationContext.h`:
+**When adding a new component type**, also register it in both branches of `ECSCommandProcessor` in `src/common/include/ECSCommands.h`:
 - `ApplyComponentCommand` — `AddComponent`/`ModifyComponent` dispatch
 - `RemoveComponentByType` — `RemoveComponent` dispatch
 
@@ -93,7 +93,17 @@ Forgetting this is silent (commands queue successfully, world stays unchanged).
 
 ### Renderer (Engine)
 
-`src/engine/src/rendering/Renderer.{h,cpp}` is the front-end; it owns an NVRHI device through a `RendererBackend` (DX12 or Vulkan, selected by `RendererAPI` passed to the `RenderThread` constructor). Gameplay render passes are pluggable (`IRenderPass`): `PrimitiveRenderPass`, `MeshRenderPass`, `UiRenderPass` (UI text). ImGui is **not** a built-in pass — tooling UI is layered in via an injected `IOverlay` (the editor's `ImGuiOverlay`/`ImGuiRenderer`, which live in `src/editor/src/rendering/imgui/`); `runtime` injects no overlay. Mesh/material GPU resources are owned by `MeshSystem` / `MaterialSystem` and addressed by handle (`MeshHandle`, `MaterialHandle`). Shaders are compiled via DXC (`ShaderCompiler.cpp`, depends on `third_party/dxc-prebuilt/bin/x64/dxcompiler.dll`, copied to output by CMake).
+`src/engine/src/rendering/Renderer.{h,cpp}` is the front-end; it owns an NVRHI device through a `RendererBackend` (DX12 or Vulkan, selected by `RendererAPI` passed to the `RenderThread` constructor). The pipeline is **deferred** (opaque geometry → G-buffer, then full-screen lighting) and built from pluggable `IRenderPass`es. The active pass order (see `Renderer::Init` / `Renderer::InitForSwap`) is:
+- `ShadowDepthPass` — directional shadow depth map (ortho frustum fit to the visible-mesh AABB).
+- `GBufferFillPass` — opaque geometry into a G-buffer (albedo / world-normal / world-position MRT + depth).
+- `LightingRenderPass` — full-screen deferred lighting: directional + point lights, 3x3 PCF shadows, exponential distance fog; reads the G-buffer.
+- `SkyRenderPass` — full-screen procedural sky: day/night gradient + sun/moon discs (far-plane depth test).
+- `PrimitiveRenderPass` — procedural primitives (e.g., the ground grid).
+- `OutlineRenderPass` — selection silhouette.
+- `DebugRenderPass` — debug gizmos.
+- `UiRenderPass` — UI text/quads (instanced, FreeType R8 atlas).
+
+ImGui is **not** a built-in pass — tooling UI is layered in via an injected `IOverlay` (the editor's `ImGuiOverlay`/`ImGuiRenderer`, which live in `src/editor/src/rendering/imgui/`); `runtime` injects no overlay. Mesh/material GPU resources are owned by `MeshSystem` / `MaterialSystem` and addressed by handle (`MeshHandle`, `MaterialHandle`). Atmosphere is editor-tunable (via the Render Stats panel): `FogSettings` (`Fog.{h,cpp}` / `GetFogSettings()` / `ComputeFog()`) and `SkySettings` (`Sky.{h,cpp}` / `GetSkySettings()`). The day/night cycle is driven by `DayNightSystem` in `src/game/src/game.cpp`, which moves the sun light and writes the `AtmosphereStateComponent` singleton (consumed by `LightingRenderPass`); tunables live in `DayNightConfigComponent` (editor's `DayNightPanel`). Both components are declared in `src/common/include/ECS.h`. Shaders are compiled via DXC (`ShaderCompiler.cpp`, depends on `third_party/dxc-prebuilt/bin/x64/dxcompiler.dll`, copied to output by CMake).
 
 ### .NET plugins (Engine)
 

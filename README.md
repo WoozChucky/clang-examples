@@ -72,7 +72,7 @@ Source
 - `src/engine/` – the reusable runtime core (`Engine.dll`); ImGui-free
   - `src/core/Application.cpp` – owns `ApplicationContext`, spawns the three threads, takes an optional overlay factory
   - `src/threading/` – `PlatformThread`, `GameThread`, `RenderThread`, and `GameLibrary` (Game.dll hot-reload)
-  - `src/rendering/` – `Renderer`, `RendererBackend` (DX12/Vulkan), passes (`Primitive`/`Mesh`/`Ui`), `MeshSystem`/`MaterialSystem`, `ShaderCompiler`
+  - `src/rendering/` – `Renderer`, `RendererBackend` (DX12/Vulkan), the deferred passes (`ShadowDepth`/`GBufferFill`/`Lighting`/`Sky`/`Primitive`/`Outline`/`Debug`/`Ui`), `Fog`/`Sky`, `MeshSystem`/`MaterialSystem`, `ShaderCompiler`
   - `src/plugins/` – `DotNetPluginManager` / `DotNetPluginHost` (.NET plugin host)
   - `src/memory/` (+ `AllocatorRegistry.cpp`) – Arena/Pool allocator toolkit and registry
   - `include/IOverlay.h` – the interface a tooling overlay implements to hook into the renderer
@@ -128,10 +128,14 @@ Game library (`src/game`)
 - `GameState` is owned by the host (`Engine`); the DLL holds only a pointer to it, so state survives hot reloads.
 
 Renderer (`src/engine/src/rendering`)
-- Front-end (`Renderer.{h,cpp}`) owns an NVRHI device through a `RendererBackend` and runs pluggable `IRenderPass`es:
+- Front-end (`Renderer.{h,cpp}`) owns an NVRHI device through a `RendererBackend` and runs a **deferred** pipeline as pluggable `IRenderPass`es: opaque geometry is written into a G-buffer, then lit full-screen.
+  - A shadow depth pass (directional sun shadow map)
+  - A G-buffer fill pass (albedo / world-normal / world-position MRT + depth; meshes addressed by `MeshHandle` / `MaterialHandle`)
+  - A full-screen lighting pass (directional + point lights, PCF shadows, distance fog)
+  - A procedural sky pass (day/night gradient + sun/moon discs)
   - A primitives pass (e.g., a ground grid on the Y=0 plane)
-  - A mesh pass (GPU meshes/materials addressed by `MeshHandle` / `MaterialHandle`)
   - A UI text pass using the FreeType-baked R8 glyph atlas
+- Atmosphere is editor-tunable: fog (`Fog.{h,cpp}` / `GetFogSettings`) and the procedural sky (`Sky.{h,cpp}` / `GetSkySettings`); the day/night cycle is driven by `DayNightSystem` (game), which moves the sun and writes `AtmosphereStateComponent` (tunables in `DayNightConfigComponent`).
 - ImGui is not a built-in pass; tooling UI is layered in via an injected `IOverlay`.
 - Shaders are compiled via DXC (`ShaderCompiler`).
 
@@ -159,12 +163,21 @@ There is no separate overlay DLL: the ImGui tooling layer is compiled into `edit
 
 Front-end (`src/engine/src/rendering/Renderer.{h,cpp}`)
 - Owns an NVRHI device through a `RendererBackend` selected by `RendererAPI` (DX12 or Vulkan), creates the swapchain and command lists, builds pipelines, and loads fonts/atlas.
-- Each frame runs the pluggable `IRenderPass`es and, if one is attached, the `IOverlay` (the editor's ImGui overlay), then presents.
+- Runs a **deferred** pipeline: opaque geometry is written into a G-buffer (geometry pass), then shaded by a full-screen lighting pass. Each frame runs the pluggable `IRenderPass`es in order and, if one is attached, the `IOverlay` (the editor's ImGui overlay), then presents.
 
-Render passes (`src/engine/src/rendering/passes/`)
-- `PrimitiveRenderPass` – procedural primitives (e.g., a ground grid on the Y=0 plane).
-- `MeshRenderPass` – GPU meshes/materials owned by `MeshSystem` / `MaterialSystem`, addressed by `MeshHandle` / `MaterialHandle`.
-- `UiRenderPass` – UI text using instanced quads sampling the FreeType R8 glyph atlas with straight alpha blending.
+Render passes (`src/engine/src/rendering/passes/`, in execution order)
+- `ShadowDepthPass` – directional shadow depth map (ortho frustum fit to the visible-mesh AABB).
+- `GBufferFillPass` – opaque geometry into a G-buffer (albedo / world-normal / world-position MRT + depth).
+- `LightingRenderPass` – full-screen deferred lighting: directional + point lights, 3x3 PCF shadows, and exponential distance fog, reading the G-buffer.
+- `SkyRenderPass` – full-screen procedural sky: day/night gradient + sun/moon discs (far-plane depth test).
+- `PrimitiveRenderPass` – procedural primitives (e.g., the ground grid).
+- `OutlineRenderPass` – selection silhouette.
+- `DebugRenderPass` – debug gizmos.
+- `UiRenderPass` – UI text/quads (instanced, FreeType R8 atlas).
+
+Atmosphere (`src/engine/src/rendering/Fog.{h,cpp}`, `Sky.{h,cpp}`)
+- Fog (`GetFogSettings` / `ComputeFog`) and the procedural sky (`GetSkySettings`) are resolved per-frame and are editor-tunable via the Render Stats panel.
+- The day/night cycle is driven by `DayNightSystem` (`src/game/src/game.cpp`): it moves the sun light and writes `AtmosphereStateComponent` (consumed by `LightingRenderPass`); tunables live in `DayNightConfigComponent`, edited via the editor's Day/Night panel. Both components are declared in `src/common/include/ECS.h`.
 
 Backends (`src/engine/src/rendering/backends/`)
 - `RendererBackendDX12` – DX12 queues, DXGI flip-discard swapchain, per-backbuffer fence, NVRHI device. `Present` can return `DXGI_STATUS_OCCLUDED` when the window is occluded.
@@ -179,7 +192,7 @@ Shaders
 
 - The ECS lives in `ecs.dll` (`src/ecs/`). Component types are registered through the `ECS_FOR_EACH_REGISTERED_COMPONENT` X-macro in `ECS.h`.
 - The editor cannot mutate the ECS directly across threads. ImGui edits push an `ECSCommand` (`src/common/include/ECSCommands.h`) into `ECSCommandRing` (SPSC); the GameThread drains it via `ECSCommandProcessor::ProcessCommands` before running game logic.
-- Adding a new component type also requires registering it in both branches of `ECSCommandProcessor` in `ApplicationContext.h` (`ApplyComponentCommand` and `RemoveComponentByType`). See `docs/ECS_Threading_Architecture.md`.
+- Adding a new component type also requires registering it in both branches of `ECSCommandProcessor` in `src/common/include/ECSCommands.h` (`ApplyComponentCommand` and `RemoveComponentByType`). See `docs/ECS_Threading_Architecture.md`.
 
 ---
 
@@ -197,7 +210,8 @@ Shaders
 Controls are defined by the loaded `Game.dll`; consult `src/game/src/Game.cpp` for the current bindings.
 
 On-screen
-- A procedural ground grid (primitives pass) and any meshes the game requests (mesh pass).
+- A procedural ground grid (primitives pass) and any meshes the game requests (rendered through the deferred G-buffer + lighting passes).
+- A procedural day/night sky with sun/moon and distance fog.
 - UI text via the UI pass.
 - In `editor.exe`, the ImGui tooling layer (panels, inspector, gizmos, Memory panel). `runtime.exe` renders no ImGui.
 
