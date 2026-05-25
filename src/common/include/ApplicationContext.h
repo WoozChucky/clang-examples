@@ -19,6 +19,7 @@ struct ApplicationSettings {
     uint32_t    windowWidth   = 1920;
     uint32_t    windowHeight  = 1080;
     bool        vsyncEnabled  = true;
+    bool        fxaaEnabled   = true;
 };
 
 // Runtime-configurable game thread settings (Render -> Game)
