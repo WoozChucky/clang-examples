@@ -110,7 +110,14 @@ public:
         const auto* vp = ctx.world.GetSingleton<ViewportComponent>();
         const float aspect = (vp && vp->Height) ? float(vp->Width) / float(vp->Height) : 16.0f / 9.0f;
 
-        const CameraView cam = ComputeFollowCamera(target, kPoE2Follow, aspect);
+        // Eye distance: the zoom singleton when present, else the static default. The
+        // zoom system runs first (registered before this) so the wheel takes effect
+        // the same tick. Copy the constant params and override only Distance.
+        FollowCameraParams params = kPoE2Follow;
+        if (const auto* z = ctx.world.GetSingleton<CameraZoomComponent>())
+            params.Distance = z->Distance;
+
+        const CameraView cam = ComputeFollowCamera(target, params, aspect);
         ctx.world.ModifySingleton<WorldCameraComponent>([&](WorldCameraComponent& w) {
             w.View       = cam.View;
             w.Projection = cam.Projection;
@@ -119,6 +126,34 @@ public:
     }
     const char* Name() const override { return "IsometricFollowCameraSystem"; }
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
+// Mouse-wheel zoom for the isometric follow camera. Adjusts the persistent eye
+// distance (CameraZoomComponent) only; the follow system rebuilds the view matrix
+// from it, so this never touches the camera transform directly. Runs before the
+// follow system so a notch applies the same tick.
+class CameraZoomSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const auto* in = ctx.world.GetSingleton<InputStateComponent>();
+        if (!in || in->Wheel == 0) return; // Wheel is a per-tick delta (reset each tick)
+
+        // Seed the singleton on first use so ModifySingleton has a target.
+        if (!ctx.world.GetSingleton<CameraZoomComponent>())
+            ctx.world.SetSingleton(CameraZoomComponent{ kPoE2Follow.Distance });
+
+        ctx.world.ModifySingleton<CameraZoomComponent>([&](CameraZoomComponent& z) {
+            // Wheel up (+) zooms in (smaller distance). Discrete notch -> no dt scaling.
+            z.Distance = glm::clamp(z.Distance - static_cast<float>(in->Wheel) * kZoomStep,
+                                    kMinDistance, kMaxDistance);
+        });
+    }
+    const char* Name() const override { return "CameraZoomSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+private:
+    static constexpr float kZoomStep    = 2.0f;  // distance units per wheel notch
+    static constexpr float kMinDistance = 6.0f;
+    static constexpr float kMaxDistance = 40.0f;
 };
 
 // Sets AppControlComponent::QuitRequested when the configured quit key is pressed.
@@ -180,6 +215,7 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<DayNightSystem>());
     s->Register(std::make_unique<DebugSpawnSystem>());
     s->Register(std::make_unique<PlayerMovementSystem>());
+    s->Register(std::make_unique<CameraZoomSystem>());          // before follow: sets distance same tick
     s->Register(std::make_unique<IsometricFollowCameraSystem>());
     s->Register(std::make_unique<QuitRequestSystem>(KEY_ESCAPE));
 }
@@ -251,7 +287,6 @@ void GameUpdate(GameState* state) {
 	                .Range = 3.0f
 	            });
 	        }
-
 	        break;
 	    }
         case GameStateId::MainMenu: {
