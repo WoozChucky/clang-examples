@@ -172,7 +172,7 @@ struct SkyComponent {
     float     MoonGlow      = 128.0f;
 };
 struct AppControlComponent     { bool  QuitRequested = false; };
-struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; };
+struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; uint32_t OriginX = 0; uint32_t OriginY = 0; };
 
 // Marks the player-controlled entity. Moved by PlayerMovementSystem (game) from input.
 struct PlayerComponent {

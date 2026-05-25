@@ -432,10 +432,17 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         }
 
         // Publish the panel size for the GameThread (camera aspect + UI ortho).
-        if (m_AppContext)
+        if (m_AppContext) {
             m_AppContext->SceneViewportSize.store(
                 (static_cast<uint64_t>(m_LastViewportW) << 32) | static_cast<uint64_t>(m_LastViewportH),
                 std::memory_order_relaxed);
+            // Scene-viewport image top-left (screen-space, same value the picker uses) so the
+            // GameThread can offset the window-space mouse into UI space.
+            m_AppContext->SceneViewportOrigin.store(
+                (static_cast<uint64_t>(static_cast<uint32_t>(m_ViewportImageMinX)) << 32)
+                    | static_cast<uint64_t>(static_cast<uint32_t>(m_ViewportImageMinY)),
+                std::memory_order_relaxed);
+        }
 
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();

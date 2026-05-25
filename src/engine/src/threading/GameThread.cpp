@@ -392,7 +392,10 @@ void GameThread::RunLoop() {
 			const uint64_t sv = m_AppContext->SceneViewportSize.load(std::memory_order_relaxed);
 			const uint32_t vw = sv ? uint32_t(sv >> 32) : m_AppContext->Settings.windowWidth;
 			const uint32_t vh = sv ? uint32_t(sv & 0xffffffffu) : m_AppContext->Settings.windowHeight;
-			gameState.World.ModifySingleton<ViewportComponent>([&](ViewportComponent& v){ v.Width = vw; v.Height = vh; });
+			const uint64_t so = m_AppContext->SceneViewportOrigin.load(std::memory_order_relaxed);
+			const uint32_t ox = uint32_t(so >> 32);
+			const uint32_t oy = uint32_t(so & 0xffffffffu);
+			gameState.World.ModifySingleton<ViewportComponent>([&](ViewportComponent& v){ v.Width = vw; v.Height = vh; v.OriginX = ox; v.OriginY = oy; });
 			gameState.World.ModifySingleton<UICameraComponent>([&](UICameraComponent& ui){
 				ui.Projection = glm::orthoRH_ZO(0.0f, float(vw), float(vh), 0.0f, -1.0f, 1.0f);
 				ui.View = glm::mat4(1.0f);
