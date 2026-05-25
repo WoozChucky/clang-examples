@@ -48,6 +48,9 @@ bool WorldManager::SaveWorldSnapshot(const std::string& filepath, const ECS* wor
         if (world->HasComponent<SunMarker>(entity)) {
             jEntity["SunMarker"] = *(world->GetComponent<SunMarker>(entity));
         }
+        if (world->HasComponent<PlayerComponent>(entity)) {
+            jEntity["PlayerComponent"] = *(world->GetComponent<PlayerComponent>(entity));
+        }
 
         j["Entities"].push_back(jEntity);
     }
@@ -103,6 +106,8 @@ bool WorldManager::LoadWorldSnapshot(const std::string& filepath, ECS* world) {
                 world->AddComponent(createdEntity, jEntity["TextComponent"].get<TextComponent>());
             if (jEntity.contains("SunMarker"))
                 world->AddComponent(createdEntity, SunMarker{});
+            if (jEntity.contains("PlayerComponent"))
+                world->AddComponent(createdEntity, jEntity["PlayerComponent"].get<PlayerComponent>());
         }
 
         // Apply scene atmosphere if present. Singletons survive Clear(), so when the
