@@ -9,7 +9,6 @@
 #include "backends/RendererBackendDX12.h"
 #include "backends/RendererBackendVulkan.h"
 
-#include "passes/PrimitiveRenderPass.h"
 #include "passes/OutlineRenderPass.h"
 #include "passes/DebugRenderPass.h"
 #include "passes/GBufferFillPass.h"
@@ -90,7 +89,7 @@ bool Renderer::Init(const RendererAPI api) {
     SM_TRACE("Renderer initialized with API: %d", static_cast<int>(m_Backend->GetAPI()));
 
     // Initialize and add render passes (deferred order):
-    // Shadow -> GBufferFill -> Lighting -> Primitive -> Outline -> Debug -> UI.
+    // Shadow -> GBufferFill -> Lighting -> Sky -> Outline -> Debug -> UI.
     auto shadowPass = std::make_unique<ShadowDepthPass>();
     if (!shadowPass->Initialize(m_Device, this)) {
         SM_ERROR("Failed to initialize ShadowDepthPass");
@@ -118,13 +117,6 @@ bool Renderer::Init(const RendererAPI api) {
         return false;
     }
     AddRenderPass(std::move(skyPass));
-
-    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
-    if (!primitivePass->Initialize(m_Device, this)) {
-        SM_ERROR("Failed to initialize PrimitiveRenderPass");
-        return false;
-    }
-    AddRenderPass(std::move(primitivePass));
 
     auto outlinePass = std::make_unique<OutlineRenderPass>();
     if (!outlinePass->Initialize(m_Device, this)) {
@@ -596,7 +588,7 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     }
 
     // Recreate render passes (deferred order):
-    // Shadow -> GBufferFill -> Lighting -> Sky -> Primitive -> Outline -> Debug -> UI.
+    // Shadow -> GBufferFill -> Lighting -> Sky -> Outline -> Debug -> UI.
     auto shadowPass = std::make_unique<ShadowDepthPass>();
     if (!shadowPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: ShadowPass failed"); return false; }
     AddRenderPass(std::move(shadowPass));
@@ -612,10 +604,6 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     auto skyPass = std::make_unique<SkyRenderPass>();
     if (!skyPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: SkyPass failed"); return false; }
     AddRenderPass(std::move(skyPass));
-
-    auto primitivePass = std::make_unique<PrimitiveRenderPass>();
-    if (!primitivePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: PrimitivePass failed"); return false; }
-    AddRenderPass(std::move(primitivePass));
 
     auto outlinePass = std::make_unique<OutlineRenderPass>();
     if (!outlinePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: OutlinePass failed"); return false; }

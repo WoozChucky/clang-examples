@@ -26,6 +26,7 @@ void DrawRenderStatsPanel(bool* open)
     ImGui::Checkbox("Camera frustum", &dd.ShowCameraFrustum);
     ImGui::Checkbox("Selected AABB",  &dd.ShowSelectedAABB);
     ImGui::Checkbox("Wireframe",      &dd.Wireframe);
+    ImGui::Checkbox("Grid",           &dd.ShowGrid);
 
     ImGui::Separator();
     ImGui::TextDisabled("Shadows");

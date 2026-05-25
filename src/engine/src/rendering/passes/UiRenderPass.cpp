@@ -120,7 +120,7 @@ bool UiRenderPass::Initialize(nvrhi::IDevice *device, Renderer *renderer) {
     m_Renderer = renderer;
 
     if (!m_Device || !m_Renderer) {
-        SM_ERROR("PrimitiveRenderPass::Initialize - Invalid device or renderer");
+        SM_ERROR("UiRenderPass::Initialize - Invalid device or renderer");
         return false;
     }
 
