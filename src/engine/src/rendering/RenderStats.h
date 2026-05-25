@@ -19,6 +19,7 @@ struct DebugDrawSettings {
     bool ShowCameraFrustum = false;
     bool ShowSelectedAABB  = false;
     bool Wireframe         = false;
+    bool ShowGrid          = false;
 };
 
 struct ShadowSettings {

@@ -89,10 +89,18 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
         return;
 
     const DebugDrawSettings& s = GetDebugDrawSettings();
-    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB)
+    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid)
         return;
 
     m_Verts.clear();
+
+    if (s.ShowGrid) {
+        const glm::vec3 camPos = m_Renderer->GetActiveCamera().Position;
+        DebugAppendGrid(m_Verts, camPos, 50.0f, 1.0f,
+                        glm::vec4(0.35f, 0.35f, 0.35f, 1.0f),  // grid grey
+                        glm::vec4(1.0f, 0.2f, 0.2f, 1.0f),     // X axis red
+                        glm::vec4(0.2f, 0.6f, 1.0f, 1.0f));    // Z axis blue
+    }
 
     if (s.ShowLightGizmos) {
         world->Each<TransformComponent, LightningComponent>(
