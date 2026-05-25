@@ -10,7 +10,7 @@
 // only on the RenderThread (mesh pass + ImGui overlay run there).
 struct FogSettings {
     bool      Enabled      = true;
-    float     DayDensity   = 0.008f;                 // barely-there daytime haze
+    float     DayDensity   = 0.0f;                   // no fog at full day (tunable up via the Fog panel)
     float     NightDensity = 0.09f;                  // noticeable at night
     glm::vec3 DayColor     = glm::vec3(0.60f, 0.70f, 0.80f); // hazy blue-grey
     glm::vec3 NightColor   = glm::vec3(0.03f, 0.04f, 0.08f); // dark blue
