@@ -89,11 +89,46 @@ static void T02_daynight_roundtrip()
     EXPECT(veq(out.MoonColor, in.MoonColor));
 }
 
+static void T03_environment_roundtrip()
+{
+    FogComponent fog; fog.NightDensity = 0.17f; fog.DayColor = glm::vec3(0.1f, 0.2f, 0.3f);
+    SkyComponent sky; sky.SunGlow = 42.0f; sky.MoonColor = glm::vec3(0.4f, 0.5f, 0.6f);
+    DayNightConfigComponent dn; dn.CycleSeconds = 77.0f; dn.DayAmbient = 0.2f;
+
+    nlohmann::json root;
+    root["Entities"] = nlohmann::json::array();
+    root["Environment"] = BuildEnvironmentJson(fog, sky, dn);
+
+    const EnvironmentData env = ParseEnvironmentJson(root);
+    EXPECT(env.HasFog && env.HasSky && env.HasDayNight);
+    EXPECT(near(env.Fog.NightDensity, fog.NightDensity));
+    EXPECT(veq(env.Fog.DayColor, fog.DayColor));
+    EXPECT(near(env.Sky.SunGlow, sky.SunGlow));
+    EXPECT(veq(env.Sky.MoonColor, sky.MoonColor));
+    EXPECT(near(env.DayNight.CycleSeconds, dn.CycleSeconds));
+    EXPECT(near(env.DayNight.DayAmbient, dn.DayAmbient));
+}
+
+static void T04_environment_absent_is_backward_compatible()
+{
+    // An old world.json: entities only, no "Environment" key.
+    nlohmann::json root;
+    root["EntityCount"] = 0;
+    root["Entities"] = nlohmann::json::array();
+
+    const EnvironmentData env = ParseEnvironmentJson(root); // must not throw
+    EXPECT(!env.HasFog);
+    EXPECT(!env.HasSky);
+    EXPECT(!env.HasDayNight);
+}
+
 int main()
 {
     T00_fog_roundtrip();
     T01_sky_roundtrip();
     T02_daynight_roundtrip();
+    T03_environment_roundtrip();
+    T04_environment_absent_is_backward_compatible();
 
     if (g_Failures == 0) { std::printf("All world-serialization tests passed.\n"); return 0; }
     std::printf("%d world-serialization test(s) FAILED.\n", g_Failures);

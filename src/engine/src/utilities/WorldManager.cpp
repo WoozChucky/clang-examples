@@ -52,6 +52,18 @@ bool WorldManager::SaveWorldSnapshot(const std::string& filepath, const ECS* wor
         j["Entities"].push_back(jEntity);
     }
 
+    // Top-level scene atmosphere (singletons live on the hidden reserved entity, so
+    // they are not in the Entities array). Defaults if a singleton is somehow absent.
+    {
+        FogComponent fog{};
+        SkyComponent sky{};
+        DayNightConfigComponent dayNight{};
+        if (const auto* f = world->GetSingleton<FogComponent>())            fog = *f;
+        if (const auto* s = world->GetSingleton<SkyComponent>())            sky = *s;
+        if (const auto* d = world->GetSingleton<DayNightConfigComponent>()) dayNight = *d;
+        j["Environment"] = BuildEnvironmentJson(fog, sky, dayNight);
+    }
+
     ofs << j.dump(4); // Pretty-print with 4-space indentation
 
     ofs.close();
@@ -92,6 +104,13 @@ bool WorldManager::LoadWorldSnapshot(const std::string& filepath, ECS* world) {
             if (jEntity.contains("SunMarker"))
                 world->AddComponent(createdEntity, SunMarker{});
         }
+
+        // Apply scene atmosphere if present. Singletons survive Clear(), so when the
+        // block is absent (old world.json) the seeded defaults are left untouched.
+        const EnvironmentData env = ParseEnvironmentJson(j);
+        if (env.HasFog)      world->SetSingleton(env.Fog);
+        if (env.HasSky)      world->SetSingleton(env.Sky);
+        if (env.HasDayNight) world->SetSingleton(env.DayNight);
     } catch (const std::exception& e) {
         SM_WARN("Failed to load world snapshot '%s': %s", filepath.c_str(), e.what());
         return false;

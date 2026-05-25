@@ -178,3 +178,37 @@ inline void from_json(const nlohmann::json& j, DayNightConfigComponent& t) {
     j.at("DayAmbient").get_to(t.DayAmbient);
     j.at("MoonColor").get_to(t.MoonColor);
 }
+
+// ----- world.json top-level "Environment" block -----
+
+// Build the "Environment" object value (NOT wrapped — assign to root["Environment"]).
+inline nlohmann::json BuildEnvironmentJson(const FogComponent& fog,
+                                           const SkyComponent& sky,
+                                           const DayNightConfigComponent& dayNight) {
+    return nlohmann::json{
+        {"Fog", fog},
+        {"Sky", sky},
+        {"DayNight", dayNight}};
+}
+
+// Parsed result of a root document's "Environment" block. Each Has* flag is true
+// only if that sub-object was present; the corresponding value is otherwise left
+// at its default. Absent "Environment" (old files) => all flags false.
+struct EnvironmentData {
+    bool HasFog = false;
+    bool HasSky = false;
+    bool HasDayNight = false;
+    FogComponent Fog;
+    SkyComponent Sky;
+    DayNightConfigComponent DayNight;
+};
+
+inline EnvironmentData ParseEnvironmentJson(const nlohmann::json& root) {
+    EnvironmentData e;
+    if (!root.contains("Environment")) return e;
+    const auto& env = root.at("Environment");
+    if (env.contains("Fog"))      { e.Fog      = env.at("Fog").get<FogComponent>();             e.HasFog = true; }
+    if (env.contains("Sky"))      { e.Sky      = env.at("Sky").get<SkyComponent>();             e.HasSky = true; }
+    if (env.contains("DayNight")) { e.DayNight = env.at("DayNight").get<DayNightConfigComponent>(); e.HasDayNight = true; }
+    return e;
+}
