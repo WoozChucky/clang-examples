@@ -174,6 +174,19 @@ struct SkyComponent {
 struct AppControlComponent     { bool  QuitRequested = false; };
 struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; uint32_t OriginX = 0; uint32_t OriginY = 0; };
 
+// Solid screen-space UI quad (authorable). Positioned by TransformComponent (top-left, pixels);
+// rendered by UiRenderPass via the UI shader's solid-color path. Size is in pixels.
+struct UIRectComponent {
+    glm::vec2 Size{160.0f, 48.0f};
+    glm::vec4 Color{0.15f, 0.15f, 0.18f, 1.0f};
+};
+
+// Scopes an entity to one or more game states (bit i = GameStateId value i; 0 = always-on).
+// The UI renderer + menu interaction only act on entities whose scope allows the current state.
+struct StateScopeComponent {
+    uint32_t StateMask = 0;
+};
+
 // Marks the player-controlled entity. Moved by PlayerMovementSystem (game) from input.
 struct PlayerComponent {
     float MoveSpeed = 5.0f; // world units / second
@@ -224,7 +237,9 @@ struct ActionQueueComponent {
     X(PlayerComponent) \
     X(CameraZoomComponent) \
     X(GameStateComponent) \
-    X(ActionQueueComponent)
+    X(ActionQueueComponent) \
+    X(UIRectComponent) \
+    X(StateScopeComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)
