@@ -151,7 +151,7 @@ struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; 
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
-// (3) registering in ECSCommandProcessor in ApplicationContext.h.
+// (3) registering in ECSCommandProcessor in ECSCommands.h.
 #define ECS_FOR_EACH_REGISTERED_COMPONENT(X) \
     X(TransformComponent) \
     X(MeshComponent) \

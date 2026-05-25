@@ -121,7 +121,7 @@ struct ApplicationContext {
 
 ### 3. ECSCommand (Type-Erased Commands)
 
-**Location**: `src/common/include/ApplicationContext.h`
+**Location**: `src/common/include/ECSCommands.h`
 
 ```cpp
 enum class ECSCommandType : uint8_t {
@@ -223,7 +223,7 @@ void GameThread::RunLoop() {
 }
 ```
 
-**File**: `src/common/include/ApplicationContext.h`
+**File**: `src/common/include/ECSCommands.h`
 
 ```cpp
 class ECSCommandProcessor {

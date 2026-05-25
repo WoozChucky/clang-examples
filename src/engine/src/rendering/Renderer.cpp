@@ -14,6 +14,7 @@
 #include "passes/DebugRenderPass.h"
 #include "passes/GBufferFillPass.h"
 #include "passes/LightingRenderPass.h"
+#include "passes/SkyRenderPass.h"
 #include "passes/ShadowDepthPass.h"
 
 #include <tracy/Tracy.hpp>
@@ -110,6 +111,13 @@ bool Renderer::Init(const RendererAPI api) {
         return false;
     }
     AddRenderPass(std::move(lightingPass));
+
+    auto skyPass = std::make_unique<SkyRenderPass>();
+    if (!skyPass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize SkyRenderPass");
+        return false;
+    }
+    AddRenderPass(std::move(skyPass));
 
     auto primitivePass = std::make_unique<PrimitiveRenderPass>();
     if (!primitivePass->Initialize(m_Device, this)) {
@@ -585,7 +593,7 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     }
 
     // Recreate render passes (deferred order):
-    // Shadow -> GBufferFill -> Lighting -> Primitive -> Outline -> Debug -> UI.
+    // Shadow -> GBufferFill -> Lighting -> Sky -> Primitive -> Outline -> Debug -> UI.
     auto shadowPass = std::make_unique<ShadowDepthPass>();
     if (!shadowPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: ShadowPass failed"); return false; }
     AddRenderPass(std::move(shadowPass));
@@ -597,6 +605,10 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     auto lightingPass = std::make_unique<LightingRenderPass>();
     if (!lightingPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: LightingPass failed"); return false; }
     AddRenderPass(std::move(lightingPass));
+
+    auto skyPass = std::make_unique<SkyRenderPass>();
+    if (!skyPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: SkyPass failed"); return false; }
+    AddRenderPass(std::move(skyPass));
 
     auto primitivePass = std::make_unique<PrimitiveRenderPass>();
     if (!primitivePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: PrimitivePass failed"); return false; }
