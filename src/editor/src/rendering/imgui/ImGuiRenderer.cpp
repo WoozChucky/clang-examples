@@ -438,9 +438,13 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                 std::memory_order_relaxed);
             // Scene-viewport image top-left (screen-space, same value the picker uses) so the
             // GameThread can offset the window-space mouse into UI space.
+            // Clamp to >= 0 before the unsigned cast: a detached Viewport dragged off the
+            // top-left can yield a negative GetCursorScreenPos(), and float->uint32 of a
+            // negative value is UB.
+            const uint32_t originX = static_cast<uint32_t>(m_ViewportImageMinX > 0.0f ? m_ViewportImageMinX : 0.0f);
+            const uint32_t originY = static_cast<uint32_t>(m_ViewportImageMinY > 0.0f ? m_ViewportImageMinY : 0.0f);
             m_AppContext->SceneViewportOrigin.store(
-                (static_cast<uint64_t>(static_cast<uint32_t>(m_ViewportImageMinX)) << 32)
-                    | static_cast<uint64_t>(static_cast<uint32_t>(m_ViewportImageMinY)),
+                (static_cast<uint64_t>(originX) << 32) | static_cast<uint64_t>(originY),
                 std::memory_order_relaxed);
         }
 
