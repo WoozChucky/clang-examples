@@ -84,7 +84,7 @@ void RenderThread::RunLoop()
                         MessageBoxA(nullptr,
                             "Failed to initialize the selected renderer backend.\n"
                             "The editor cannot continue. Restart and choose a different\n"
-                            "backend via editor_settings.json or --backend=...",
+                            "backend via engine_settings.json or --backend=...",
                             "Editor - swap failure", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
                         ExitProcess(static_cast<UINT>(-1));
                     }
