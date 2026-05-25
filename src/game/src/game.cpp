@@ -74,7 +74,10 @@ public:
         // Ambient: small neutral day floor (ramped with the sun) + cool moon fill (ramped with night depth).
         const float dayA   = cfg.DayAmbient * glm::smoothstep(0.0f, tw, elevation);
         const float moonA  = cfg.MoonIntensity * glm::smoothstep(0.0f, tw, nightDepth);
-        const glm::vec3 ambient = glm::vec3(dayA) + cfg.MoonColor * moonA;
+        // Small constant floor so the dusk/dawn terminator never reaches pure black
+        // (both the day and moon ramps bottom out at the exact horizon crossing).
+        const float kMinAmbient = 0.02f;
+        const glm::vec3 ambient = glm::max(glm::vec3(dayA) + cfg.MoonColor * moonA, glm::vec3(kMinAmbient));
 
         ctx.world.ModifySingleton<AtmosphereStateComponent>([&](AtmosphereStateComponent& a) {
             a.AmbientColor = glm::vec4(ambient, 1.0f);
