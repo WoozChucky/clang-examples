@@ -4,6 +4,7 @@
 
 #include "RenderStats.h" // resolved via the editor's Engine PUBLIC include dirs (same as StagingBufferPool.h in MemoryPanel)
 #include "Fog.h" // resolved via the editor's Engine PUBLIC include dirs (same as RenderStats.h)
+#include "Sky.h"
 
 void DrawRenderStatsPanel(bool* open)
 {
@@ -42,6 +43,21 @@ void DrawRenderStatsPanel(bool* open)
     ImGui::SliderFloat("Night density", &fog.NightDensity, 0.0f, 0.30f, "%.3f");
     ImGui::ColorEdit3("Day color",   &fog.DayColor.x);
     ImGui::ColorEdit3("Night color", &fog.NightColor.x);
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Sky");
+    SkySettings& sky = GetSkySettings();
+    ImGui::Checkbox("Sky enabled", &sky.Enabled);
+    ImGui::ColorEdit3("Day zenith",    &sky.DayZenith.x);
+    ImGui::ColorEdit3("Day horizon",   &sky.DayHorizon.x);
+    ImGui::ColorEdit3("Night zenith",  &sky.NightZenith.x);
+    ImGui::ColorEdit3("Night horizon", &sky.NightHorizon.x);
+    ImGui::ColorEdit3("Sun color",     &sky.SunColor.x);
+    ImGui::SliderFloat("Sun radius (deg)",  &sky.SunRadiusDeg, 0.5f, 15.0f, "%.1f");
+    ImGui::SliderFloat("Sun glow",          &sky.SunGlow, 1.0f, 512.0f, "%.0f");
+    ImGui::ColorEdit3("Moon color",    &sky.MoonColor.x);
+    ImGui::SliderFloat("Moon radius (deg)", &sky.MoonRadiusDeg, 0.5f, 15.0f, "%.1f");
+    ImGui::SliderFloat("Moon glow",         &sky.MoonGlow, 1.0f, 512.0f, "%.0f");
 
     ImGui::End();
 }
