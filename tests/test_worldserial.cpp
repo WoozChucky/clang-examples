@@ -48,6 +48,9 @@ static void T01_sky_roundtrip()
     in.MoonColor = glm::vec3(0.5f, 0.6f, 0.7f);
     in.MoonRadiusDeg = 4.25f;
     in.MoonGlow = 99.0f;
+    in.DayHorizon = glm::vec3(0.15f, 0.25f, 0.35f);
+    in.NightZenith = glm::vec3(0.45f, 0.55f, 0.65f);
+    in.NightHorizon = glm::vec3(0.75f, 0.85f, 0.95f);
 
     const nlohmann::json j = in;
     const auto out = j.get<SkyComponent>();
@@ -60,6 +63,9 @@ static void T01_sky_roundtrip()
     EXPECT(veq(out.MoonColor, in.MoonColor));
     EXPECT(near(out.MoonRadiusDeg, in.MoonRadiusDeg));
     EXPECT(near(out.MoonGlow, in.MoonGlow));
+    EXPECT(veq(out.DayHorizon, in.DayHorizon));
+    EXPECT(veq(out.NightZenith, in.NightZenith));
+    EXPECT(veq(out.NightHorizon, in.NightHorizon));
 }
 
 static void T02_daynight_roundtrip()
