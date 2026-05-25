@@ -267,6 +267,7 @@ public:
         FrameAllocator* frameAllocator) override;
     void Shutdown() override;
     void OnResize(uint32_t width, uint32_t height) override;
+    RenderStage Stage() const override { return RenderStage::Overlay; }
 
 private:
     nvrhi::IDevice* m_Device = nullptr;
