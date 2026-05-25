@@ -41,6 +41,9 @@ static void T03_to_ui_space() {
     // Editor: subtract the docked viewport's top-left.
     const glm::vec2 b = ToUiSpace(300.0, 220.0, 50u, 20u);
     EXPECT(b.x == 250.0f && b.y == 200.0f);
+    // Mouse left/above the viewport origin -> negative UI coords (must NOT clamp).
+    const glm::vec2 c = ToUiSpace(10.0, 5.0, 50u, 20u);
+    EXPECT(c.x == -40.0f && c.y == -15.0f);
 }
 
 int main() {

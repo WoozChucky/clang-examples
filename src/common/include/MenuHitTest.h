@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <glm/vec2.hpp>
 
 // Convert window-space mouse coords to UI/viewport space by subtracting the viewport origin
