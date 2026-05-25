@@ -292,3 +292,27 @@ set_target_properties(test_playermove PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_followcam
+    test_followcam.cpp
+)
+
+target_link_libraries(test_followcam PRIVATE
+    glm::glm
+)
+
+target_include_directories(test_followcam PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/game/src
+)
+
+target_compile_definitions(test_followcam PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_followcam PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
