@@ -1,5 +1,6 @@
 #pragma once
 
 // Draws the "Render Stats" debug window: per-frame mesh draw/cull counters and the
-// frustum-culling on/off toggle. `open` may be null (always draw) or point to a toggle bool.
-void DrawRenderStatsPanel(bool* open);
+// debug toggles. `open` may be null (always draw) or point to a toggle bool.
+// Returns true if any toggle/slider changed this frame (so the caller can persist).
+bool DrawRenderStatsPanel(bool* open);

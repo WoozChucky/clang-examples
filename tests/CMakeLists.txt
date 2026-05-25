@@ -255,6 +255,7 @@ target_include_directories(test_editorprefs PRIVATE
     ${CMAKE_SOURCE_DIR}/src/engine/include
     ${CMAKE_SOURCE_DIR}/src/engine/src/rendering
     ${CMAKE_SOURCE_DIR}/src/editor/src
+    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering
 )
 
 target_compile_definitions(test_editorprefs PRIVATE

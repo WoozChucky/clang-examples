@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include "RenderStats.h" // CullingSettings, DebugDrawSettings, ShadowSettings (+ ENGINE_API getters)
+#include "EditorCameraState.h"
 
 // Editor-only persistence of the RenderStats panel toggles. Saved next to the
 // executable as editor_preferences.json; the runtime never touches it.
@@ -18,7 +19,8 @@ constexpr uint32_t PREFERENCES_VERSION      = 1;
 // No globals touched -> unit-testable without an Engine link.
 inline nlohmann::json PrefsToJson(const CullingSettings& culling,
                                   const DebugDrawSettings& debug,
-                                  const ShadowSettings& shadows) {
+                                  const ShadowSettings& shadows,
+                                  const EditorCameraState& camera) {
     return nlohmann::json{
         {"version", PREFERENCES_VERSION},
         {"culling", {
@@ -35,6 +37,12 @@ inline nlohmann::json PrefsToJson(const CullingSettings& culling,
             {"enabled", shadows.Enabled},
             {"bias",    shadows.Bias},
         }},
+        {"camera", {
+            {"position", { camera.Position.x, camera.Position.y, camera.Position.z }},
+            {"yaw",      camera.Yaw},
+            {"pitch",    camera.Pitch},
+            {"flySpeed", camera.FlySpeed},
+        }},
     };
 }
 
@@ -44,7 +52,8 @@ inline nlohmann::json PrefsToJson(const CullingSettings& culling,
 inline void PrefsFromJson(const nlohmann::json& j,
                           CullingSettings& culling,
                           DebugDrawSettings& debug,
-                          ShadowSettings& shadows) {
+                          ShadowSettings& shadows,
+                          EditorCameraState& camera) {
     if (j.contains("culling") && j["culling"].is_object()) {
         const auto& c = j["culling"];
         if (c.contains("frustum") && c["frustum"].is_boolean()) culling.Enabled = c["frustum"].get<bool>();
@@ -62,13 +71,25 @@ inline void PrefsFromJson(const nlohmann::json& j,
         if (s.contains("enabled") && s["enabled"].is_boolean()) shadows.Enabled = s["enabled"].get<bool>();
         if (s.contains("bias")    && s["bias"].is_number())     shadows.Bias    = s["bias"].get<float>();
     }
+    if (j.contains("camera") && j["camera"].is_object()) {
+        const auto& cam = j["camera"];
+        if (cam.contains("position") && cam["position"].is_array() && cam["position"].size() == 3) {
+            const auto& p = cam["position"];
+            if (p[0].is_number() && p[1].is_number() && p[2].is_number())
+                camera.Position = glm::vec3(p[0].get<float>(), p[1].get<float>(), p[2].get<float>());
+        }
+        if (cam.contains("yaw")      && cam["yaw"].is_number())      camera.Yaw      = cam["yaw"].get<float>();
+        if (cam.contains("pitch")    && cam["pitch"].is_number())    camera.Pitch    = cam["pitch"].get<float>();
+        if (cam.contains("flySpeed") && cam["flySpeed"].is_number()) camera.FlySpeed = cam["flySpeed"].get<float>();
+    }
 }
 
-// Read editor_preferences.json at `path` and apply it onto the live RenderStats globals.
-// Missing file -> true (defaults stay). Parse error -> false (WARN; globals untouched).
-bool Load(const std::string& path);
+// Read editor_preferences.json at `path`: applies toggles to the live RenderStats
+// globals and fills `camera` from the file. Seed `camera` with the current pose so a
+// missing "camera" block leaves it. Missing file -> true. Parse error -> false.
+bool Load(const std::string& path, EditorCameraState& camera);
 
-// Serialize the live RenderStats globals to `path`. I/O failure -> false (WARN).
-bool Save(const std::string& path);
+// Serialize the live RenderStats globals + the given camera to `path`. I/O failure -> false.
+bool Save(const std::string& path, const EditorCameraState& camera);
 
 } // namespace EditorPreferences

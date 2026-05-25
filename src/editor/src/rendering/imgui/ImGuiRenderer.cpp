@@ -180,9 +180,11 @@ bool ImGuiRenderer::Init(nvrhi::IDevice* device, ApplicationContext* appContext,
     // the runtime (separate process, no overlay, leaves the flag at its default false).
     GetDebugDrawSettings().ShowGrid = true;
 
-    // Restore persisted RenderStats toggles. Runs after the editor defaults above so a
-    // saved file wins; first run (no file) keeps the defaults (e.g. grid on).
-    EditorPreferences::Load(EditorPreferences::DEFAULT_PREFERENCES_PATH);
+    // Restore persisted RenderStats toggles + editor camera pose. Runs after the editor
+    // defaults above so a saved file wins; first run (no file) keeps the defaults.
+    EditorCameraState cs = m_EditorCamera.GetState();
+    EditorPreferences::Load(EditorPreferences::DEFAULT_PREFERENCES_PATH, cs);
+    m_EditorCamera.SetState(cs);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -319,7 +321,8 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         DrawMemoryPanel(&s_ShowMemoryPanel, world);
 
         static bool s_ShowRenderStatsPanel = true;
-        DrawRenderStatsPanel(&s_ShowRenderStatsPanel);
+        if (DrawRenderStatsPanel(&s_ShowRenderStatsPanel))
+            EditorPreferences::Save(EditorPreferences::DEFAULT_PREFERENCES_PATH, m_EditorCamera.GetState());
 
         // Scene viewport: shows the offscreen scene RT. Zero padding so the image fills the panel.
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
@@ -498,6 +501,9 @@ nvrhi::IFramebuffer* ImGuiRenderer::GetSceneFramebuffer(nvrhi::IFramebuffer* swa
 }
 
 void ImGuiRenderer::Shutdown() {
+    // Persist final editor preferences (RenderStats toggles + camera pose) on exit.
+    EditorPreferences::Save(EditorPreferences::DEFAULT_PREFERENCES_PATH, m_EditorCamera.GetState());
+
     m_ImGuiNvrhi.reset();
     m_ImGuiNvrhi = nullptr;
 
