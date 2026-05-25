@@ -95,6 +95,10 @@ public:
 class IsometricFollowCameraSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
+        // Gameplay runs only in-level.
+        const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
+        if (!gs || gs->Current != GameStateId::InLevel) return;
+
         bool found = false;
         glm::vec3 target(0.0f);
         // EntityId-only callback (no live component refs) so ModifySingleton below is safe.
@@ -135,6 +139,10 @@ public:
 class CameraZoomSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
+        // Gameplay runs only in-level.
+        const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
+        if (!gs || gs->Current != GameStateId::InLevel) return;
+
         const auto* in = ctx.world.GetSingleton<InputStateComponent>();
         if (!in || in->Wheel == 0) return; // Wheel is a per-tick delta (reset each tick)
 
@@ -189,6 +197,10 @@ public:
 class PlayerMovementSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
+        // Gameplay runs only in-level.
+        const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
+        if (!gs || gs->Current != GameStateId::InLevel) return;
+
         const auto* in = ctx.world.GetSingleton<InputStateComponent>();
         if (!in) return;
         const float dt = static_cast<float>(ctx.dt);
@@ -207,12 +219,39 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 };
 
+// Owns game-state transitions. Drains the per-tick ActionQueue (producers arrive in Phase 4)
+// and routes navigation actions. TEMP (Phase 1): toggles MainMenu<->InLevel on TAB so the
+// gameplay gating is testable before the menu exists — remove the TAB block in Phase 4.
+class AppFlowSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        if (const auto* q = ctx.world.GetSingleton<ActionQueueComponent>()) {
+            for (const ActionEvent& e : q->Events) {
+                // Phase 4: route by CategoryOf(e.ActionId) and apply Nav transitions here.
+                (void)e;
+            }
+        }
+
+        // TEMP (Phase 1 testability) — remove in Phase 4.
+        const auto* in = ctx.world.GetSingleton<InputStateComponent>();
+        if (in && in->Pressed[KEY_TAB]) {
+            ctx.world.ModifySingleton<GameStateComponent>([](GameStateComponent& s) {
+                s.Current = (s.Current == GameStateId::InLevel)
+                              ? GameStateId::MainMenu : GameStateId::InLevel;
+            });
+        }
+    }
+    const char* Name() const override { return "AppFlowSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
 } // namespace
 
 void GameRegisterSystems(SystemScheduler* s) {
     if (!s) return;
     s->Register(std::make_unique<TextRotationSystem>());
     s->Register(std::make_unique<DayNightSystem>());
+    s->Register(std::make_unique<AppFlowSystem>());   // owns transitions; runs before gameplay
     s->Register(std::make_unique<DebugSpawnSystem>());
     s->Register(std::make_unique<PlayerMovementSystem>());
     s->Register(std::make_unique<CameraZoomSystem>());          // before follow: sets distance same tick
@@ -234,74 +273,70 @@ void GameUpdate(GameState* state) {
 
     if (!g_GameState) return;
 
+    // Mirror authoritative ECS state onto the host field (legacy/editor reads). Absent on the
+    // very first tick (seeded in the boot block below).
+    if (const auto* gs = g_GameState->World.GetSingleton<GameStateComponent>())
+        g_GameState->StateId = gs->Current;
+
+    // Clear the per-tick action queue; producers push fresh events this tick.
+    if (g_GameState->World.GetSingleton<ActionQueueComponent>())
+        g_GameState->World.ModifySingleton<ActionQueueComponent>(
+            [](ActionQueueComponent& q){ q.Events.clear(); });
+
     // Note: input/camera/quit/spawn + day/night + text rotation are now handled by
     // systems (IsometricFollowCameraSystem / QuitRequestSystem / DebugSpawnSystem /
     // DayNightSystem / TextRotationSystem) driven by the SystemScheduler.
 
-    switch (g_GameState->StateId)
-    {
+    // One-time boot: seed singletons + the starting scene, then enter MainMenu. After this,
+    // GameStateComponent.Current is authoritative (AppFlowSystem drives transitions).
+    if (g_GameState->StateId == GameStateId::Uninitialized) {
+        SM_TRACE("[GAMEDLL] Initializing game...");
 
-	    case GameStateId::Uninitialized: {
-	        SM_TRACE("[GAMEDLL] Initializing game...");
-            g_GameState->StateId = GameStateId::MainMenu;
+        // Game-owned singletons.
+        g_GameState->World.SetSingleton(WorldCameraComponent{});
+        g_GameState->World.SetSingleton(AppControlComponent{});
+        g_GameState->World.SetSingleton(AtmosphereStateComponent{});
+        g_GameState->World.SetSingleton(GameStateComponent{ GameStateId::MainMenu });
+        g_GameState->World.SetSingleton(ActionQueueComponent{});
 
-	        // Seed game-owned singletons (resolved camera + app control + day/night state).
-	        g_GameState->World.SetSingleton(WorldCameraComponent{});
-	        g_GameState->World.SetSingleton(AppControlComponent{});
-	        g_GameState->World.SetSingleton(AtmosphereStateComponent{});
-	        // Persisted scene atmosphere: a startup world.json load (which runs before the
-	        // first GameUpdate) may have already set these from the "Environment" block.
-	        // Seed defaults only when absent so loaded values are not clobbered.
-	        if (!g_GameState->World.GetSingleton<DayNightConfigComponent>())
-	            g_GameState->World.SetSingleton(DayNightConfigComponent{});
-	        if (!g_GameState->World.GetSingleton<FogComponent>())
-	            g_GameState->World.SetSingleton(FogComponent{});
-	        if (!g_GameState->World.GetSingleton<SkyComponent>())
-	            g_GameState->World.SetSingleton(SkyComponent{});
+        // Persisted scene atmosphere may already be set by a startup world.json load; seed
+        // defaults only when absent so loaded values aren't clobbered.
+        if (!g_GameState->World.GetSingleton<DayNightConfigComponent>())
+            g_GameState->World.SetSingleton(DayNightConfigComponent{});
+        if (!g_GameState->World.GetSingleton<FogComponent>())
+            g_GameState->World.SetSingleton(FogComponent{});
+        if (!g_GameState->World.GetSingleton<SkyComponent>())
+            g_GameState->World.SetSingleton(SkyComponent{});
 
-	        // World loaded from world.json is authoritative — skip default spawns
-	        // to prevent duplicates. Defaults exist only as a Unity-like fallback
-	        // scene when no world is present.
-	        if (!g_GameState->WorldLoaded) {
-	            SM_TRACE("[GAMEDLL] No world loaded — spawning default scene");
+        // World loaded from world.json is authoritative — skip default spawns to avoid
+        // duplicates. Defaults are a fallback scene when no world is present.
+        if (!g_GameState->WorldLoaded) {
+            SM_TRACE("[GAMEDLL] No world loaded — spawning default scene");
 
-	            const auto textEntity = g_GameState->World.CreateEntity();
-	            g_GameState->World.AddComponent(textEntity, TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
-	            g_GameState->World.AddComponent(textEntity, TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48});
+            const auto textEntity = g_GameState->World.CreateEntity();
+            g_GameState->World.AddComponent(textEntity, TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+            g_GameState->World.AddComponent(textEntity, TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48});
 
-	            const auto sun = g_GameState->World.CreateEntity();
-	            g_GameState->World.AddComponent(sun, TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
-	            g_GameState->World.AddComponent(sun, LightningComponent{
-	                .Type = LightningType::Directional,
-	                .Direction = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 0.0f),
-	                .Color = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f)
-	            });
-	            g_GameState->World.AddComponent(sun, SunMarker{});
+            const auto sun = g_GameState->World.CreateEntity();
+            g_GameState->World.AddComponent(sun, TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+            g_GameState->World.AddComponent(sun, LightningComponent{
+                .Type = LightningType::Directional,
+                .Direction = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 0.0f),
+                .Color = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f)
+            });
+            g_GameState->World.AddComponent(sun, SunMarker{});
 
-	            const auto pointLight = g_GameState->World.CreateEntity();
-	            g_GameState->World.AddComponent(pointLight, TransformComponent{.Position = glm::vec3{0.f, 4.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
-	            g_GameState->World.AddComponent(pointLight, LightningComponent{
-	                .Type = LightningType::Point,
-	                .Color = glm::vec4(1.0f, 0.8f, 0.6f, 1.0f),
-	                .Intensity = 1.0f,
-	                .Range = 3.0f
-	            });
-	        }
-	        break;
-	    }
-        case GameStateId::MainMenu: {
-            break;
+            const auto pointLight = g_GameState->World.CreateEntity();
+            g_GameState->World.AddComponent(pointLight, TransformComponent{.Position = glm::vec3{0.f, 4.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+            g_GameState->World.AddComponent(pointLight, LightningComponent{
+                .Type = LightningType::Point,
+                .Color = glm::vec4(1.0f, 0.8f, 0.6f, 1.0f),
+                .Intensity = 1.0f,
+                .Range = 3.0f
+            });
         }
-	    case GameStateId::InLevel:
-		    break;
-	    case GameStateId::InEditor:
-		    break;
-	    case GameStateId::Paused:
 
-		    break;
-	    default:
-	        SM_ERROR("[GAMEDLL] GameUpdate: Unknown GameStateId %u", static_cast<uint32_t>(g_GameState->StateId));
-			break;
+        g_GameState->StateId = GameStateId::MainMenu;
     }
 }
 
