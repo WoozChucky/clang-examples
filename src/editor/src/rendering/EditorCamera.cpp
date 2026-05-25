@@ -104,3 +104,18 @@ CameraView EditorCamera::ToCameraView(float aspect) const
     cv.Position   = m_Position;
     return cv;
 }
+
+EditorCameraState EditorCamera::GetState() const
+{
+    return EditorCameraState{ m_Position, m_Yaw, m_Pitch, m_FlySpeed };
+}
+
+void EditorCamera::SetState(const EditorCameraState& s)
+{
+    if (std::isfinite(s.Position.x) && std::isfinite(s.Position.y) && std::isfinite(s.Position.z))
+        m_Position = s.Position;
+    if (std::isfinite(s.Yaw))   m_Yaw   = s.Yaw;
+    if (std::isfinite(s.Pitch)) m_Pitch = std::clamp(s.Pitch, -kPitchLimit, kPitchLimit);
+    if (std::isfinite(s.FlySpeed) && s.FlySpeed > 0.0f)
+        m_FlySpeed = std::clamp(s.FlySpeed, 0.5f, 200.0f);
+}

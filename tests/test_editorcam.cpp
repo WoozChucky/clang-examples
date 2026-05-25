@@ -113,6 +113,47 @@ static void T08_tocameraview_view_looks_at_target()
     EXPECT(std::abs(vp.y) < 1e-3f);
 }
 
+static void T09_get_set_state_roundtrip_and_clamp()
+{
+    EditorCamera c;
+    // GetState reflects defaults (pos {0,5,10}, flySpeed 7.5).
+    const EditorCameraState d = c.GetState();
+    EXPECT(std::abs(d.Position.y - 5.0f) < 1e-4f);
+    EXPECT(std::abs(d.FlySpeed - 7.5f) < 1e-4f);
+
+    // SetState round-trips a finite, in-range state.
+    EditorCameraState s{};
+    s.Position = glm::vec3(1.0f, 2.0f, 3.0f);
+    s.Yaw = 0.5f; s.Pitch = 0.3f; s.FlySpeed = 12.0f;
+    c.SetState(s);
+    const EditorCameraState r = c.GetState();
+    EXPECT(std::abs(r.Position.x - 1.0f) < 1e-4f && std::abs(r.Position.y - 2.0f) < 1e-4f && std::abs(r.Position.z - 3.0f) < 1e-4f);
+    EXPECT(std::abs(r.Yaw - 0.5f) < 1e-4f);
+    EXPECT(std::abs(r.Pitch - 0.3f) < 1e-4f);
+    EXPECT(std::abs(r.FlySpeed - 12.0f) < 1e-4f);
+
+    // Pitch clamps to +/-89deg; FlySpeed clamps into [0.5, 200].
+    EditorCameraState over{};
+    over.Pitch = glm::radians(200.0f);
+    over.FlySpeed = 9999.0f;
+    c.SetState(over);
+    const EditorCameraState rc = c.GetState();
+    EXPECT(rc.Pitch <= glm::radians(89.0f) + 1e-4f);
+    EXPECT(rc.FlySpeed <= 200.0f + 1e-4f);
+
+    // Non-finite fields are ignored (previous good values kept).
+    EditorCamera c2;
+    c2.SetState(s); // known-good pose
+    EditorCameraState bad{};
+    bad.Position = glm::vec3(std::nanf(""), 0.0f, 0.0f);
+    bad.Yaw = std::nanf(""); bad.Pitch = std::nanf(""); bad.FlySpeed = std::nanf("");
+    c2.SetState(bad);
+    const EditorCameraState rk = c2.GetState();
+    EXPECT(std::abs(rk.Position.x - 1.0f) < 1e-4f); // unchanged from s
+    EXPECT(std::abs(rk.Yaw - 0.5f) < 1e-4f);
+    EXPECT(std::abs(rk.FlySpeed - 12.0f) < 1e-4f);
+}
+
 int main()
 {
     T00_default_forward_is_minus_z();
@@ -124,6 +165,7 @@ int main()
     T06_orbit_preserves_distance();
     T07_frame_centers_pivot();
     T08_tocameraview_view_looks_at_target();
+    T09_get_set_state_roundtrip_and_clamp();
 
     if (g_Failures == 0) { std::printf("All editor camera tests passed.\n"); return 0; }
     std::printf("%d editor camera test(s) FAILED.\n", g_Failures);
