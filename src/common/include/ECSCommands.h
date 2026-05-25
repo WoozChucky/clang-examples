@@ -248,6 +248,10 @@ private:
             }
         } else if (componentData.Type == std::type_index(typeid(SunMarker))) {
             world.AddComponent(entity, SunMarker{});
+        } else if (componentData.Type == std::type_index(typeid(DayNightConfigComponent))) {
+            if (auto* cfg = componentData.Get<DayNightConfigComponent>()) {
+                world.AddComponent(entity, *cfg); // AddComponent updates if present
+            }
         }
         // Add more component types as needed
     }
@@ -266,6 +270,8 @@ private:
             world.RemoveComponent<TextComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(SunMarker))) {
             world.RemoveComponent<SunMarker>(entity);
+        } else if (typeIndex == std::type_index(typeid(DayNightConfigComponent))) {
+            world.RemoveComponent<DayNightConfigComponent>(entity);
         }
         // Add more component types as needed
     }

@@ -211,6 +211,7 @@ void GameUpdate(GameState* state) {
 	        g_GameState->World.SetSingleton(WorldCameraComponent{});
 	        g_GameState->World.SetSingleton(AppControlComponent{});
 	        g_GameState->World.SetSingleton(DayNightConfigComponent{});
+	        g_GameState->World.SetSingleton(AtmosphereStateComponent{});
 
 	        // World loaded from world.json is authoritative — skip default spawns
 	        // to prevent duplicates. Defaults exist only as a Unity-like fallback
