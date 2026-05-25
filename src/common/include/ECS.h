@@ -174,6 +174,11 @@ struct SkyComponent {
 struct AppControlComponent     { bool  QuitRequested = false; };
 struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; };
 
+// Marks the player-controlled entity. Moved by PlayerMovementSystem (game) from input.
+struct PlayerComponent {
+    float MoveSpeed = 5.0f; // world units / second
+};
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -196,7 +201,8 @@ struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; 
     X(FogComponent) \
     X(SkyComponent) \
     X(AppControlComponent) \
-    X(ViewportComponent)
+    X(ViewportComponent) \
+    X(PlayerComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

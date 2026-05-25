@@ -260,6 +260,10 @@ private:
             if (auto* sky = componentData.Get<SkyComponent>()) {
                 world.AddComponent(entity, *sky);
             }
+        } else if (componentData.Type == std::type_index(typeid(PlayerComponent))) {
+            if (auto* player = componentData.Get<PlayerComponent>()) {
+                world.AddComponent(entity, *player);
+            }
         }
         // Add more component types as needed
     }
@@ -284,6 +288,8 @@ private:
             world.RemoveComponent<FogComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(SkyComponent))) {
             world.RemoveComponent<SkyComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(PlayerComponent))) {
+            world.RemoveComponent<PlayerComponent>(entity);
         }
         // Add more component types as needed
     }
