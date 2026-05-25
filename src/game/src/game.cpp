@@ -2,6 +2,9 @@
 #include "Systems.h"
 #include "PlayerMovement.h"
 #include "CameraFollow.h"
+#include "MenuHitTest.h" // ToUiSpace + PointInRect
+#include "StateScope.h"  // ScopeAllows
+#include "Actions.h"     // ActionCategory / Actions::
 
 #include <memory>
 #include <tuple>
@@ -219,6 +222,83 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 };
 
+// Hit-tests scoped menu buttons against the UI-space mouse, drives their UIRectComponent.Color
+// (Normal/Hover/Press), and on a press-inside -> release-inside click pushes an ActionEvent.
+// Runs before AppFlowSystem so the action is consumed the same tick. Scope filtering means it's
+// inert in states with no scoped buttons (e.g. InLevel).
+class MenuInteractionSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const auto* in = ctx.world.GetSingleton<InputStateComponent>();
+        if (!in) return;
+
+        GameStateId cur = GameStateId::MainMenu;
+        if (const auto* gs = ctx.world.GetSingleton<GameStateComponent>()) cur = gs->Current;
+
+        const auto* vp = ctx.world.GetSingleton<ViewportComponent>();
+        const uint32_t ox = vp ? vp->OriginX : 0u;
+        const uint32_t oy = vp ? vp->OriginY : 0u;
+        const glm::vec2 mouse = ToUiSpace(in->MouseX, in->MouseY, ox, oy);
+        const bool down    = in->MouseDown[MOUSE_BUTTON_LEFT];
+        const bool pressed = in->MousePressed[MOUSE_BUTTON_LEFT];
+
+        // Ensure the runtime singleton exists, then read the armed button.
+        if (!ctx.world.GetSingleton<MenuStateComponent>())
+            ctx.world.SetSingleton(MenuStateComponent{});
+        EntityId armed = 0;
+        if (const auto* ms = ctx.world.GetSingleton<MenuStateComponent>()) armed = ms->ArmedButton;
+
+        auto scopeVisible = [&](EntityId e) {
+            const auto* sc = ctx.world.GetComponent<StateScopeComponent>(e);
+            return !sc || ScopeAllows(sc->StateMask, cur);
+        };
+        auto rectOf = [&](EntityId e, glm::vec2& pos, glm::vec2& size) {
+            const auto* tr = ctx.world.GetComponent<TransformComponent>(e);
+            const auto* rc = ctx.world.GetComponent<UIRectComponent>(e);
+            if (!tr || !rc) return false;
+            pos = glm::vec2(tr->Position.x, tr->Position.y);
+            size = rc->Size;
+            return true;
+        };
+
+        // 1) Resolve a release of the armed button (armed set on a previous tick, now up).
+        uint32_t firedAction = 0; EntityId firedSrc = 0;
+        if (armed != 0 && !down) {
+            glm::vec2 pos, size;
+            if (scopeVisible(armed) && rectOf(armed, pos, size) && PointInRect(mouse, pos, size)) {
+                if (const auto* mb = ctx.world.GetComponent<MenuButtonComponent>(armed)) {
+                    firedAction = mb->ActionId;
+                    firedSrc = armed;
+                }
+            }
+            armed = 0;
+        }
+
+        // 2) Hover/press colors + arm-on-press over scoped buttons.
+        ctx.world.Each<MenuButtonComponent, UIRectComponent, TransformComponent>([&](EntityId e) {
+            if (!scopeVisible(e)) return;
+            glm::vec2 pos, size;
+            if (!rectOf(e, pos, size)) return;
+            const bool inside = PointInRect(mouse, pos, size);
+            if (pressed && inside) armed = e;
+            const auto* mb = ctx.world.GetComponent<MenuButtonComponent>(e);
+            glm::vec4 col = mb->Normal;
+            if (inside) col = (down && armed == e) ? mb->Press : mb->Hover;
+            ctx.world.Modify<UIRectComponent>(e, [&](UIRectComponent& r){ r.Color = col; });
+        });
+
+        // 3) Persist armed state + emit the click action (consumed by AppFlowSystem this tick).
+        ctx.world.ModifySingleton<MenuStateComponent>([&](MenuStateComponent& m){ m.ArmedButton = armed; });
+        if (firedAction != 0) {
+            ctx.world.ModifySingleton<ActionQueueComponent>([&](ActionQueueComponent& q){
+                q.Events.push_back(ActionEvent{ firedAction, firedSrc, 0 });
+            });
+        }
+    }
+    const char* Name() const override { return "MenuInteractionSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
 // Owns game-state transitions. Drains the per-tick ActionQueue (producers arrive in Phase 4)
 // and routes navigation actions. TEMP (Phase 1): toggles MainMenu<->InLevel on TAB so the
 // gameplay gating is testable before the menu exists — remove the TAB block in Phase 4.
@@ -251,6 +331,7 @@ void GameRegisterSystems(SystemScheduler* s) {
     if (!s) return;
     s->Register(std::make_unique<TextRotationSystem>());
     s->Register(std::make_unique<DayNightSystem>());
+    s->Register(std::make_unique<MenuInteractionSystem>());  // emits actions; before AppFlow
     s->Register(std::make_unique<AppFlowSystem>());   // owns transitions; runs before gameplay
     s->Register(std::make_unique<DebugSpawnSystem>());
     s->Register(std::make_unique<PlayerMovementSystem>());
@@ -298,6 +379,7 @@ void GameUpdate(GameState* state) {
         g_GameState->World.SetSingleton(AtmosphereStateComponent{});
         g_GameState->World.SetSingleton(GameStateComponent{ GameStateId::MainMenu });
         g_GameState->World.SetSingleton(ActionQueueComponent{});
+        g_GameState->World.SetSingleton(MenuStateComponent{});
 
         // Persisted scene atmosphere may already be set by a startup world.json load; seed
         // defaults only when absent so loaded values aren't clobbered.
