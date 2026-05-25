@@ -1,5 +1,6 @@
 #include "Game.h"
 #include "Systems.h"
+#include "PlayerMovement.h"
 
 #include <memory>
 #include <tuple>
@@ -171,6 +172,27 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 };
 
+// Moves entities tagged with PlayerComponent on the XZ plane from WASD input.
+class PlayerMovementSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const auto* in = ctx.world.GetSingleton<InputStateComponent>();
+        if (!in) return;
+        const float dt = static_cast<float>(ctx.dt);
+        // EntityId-only callback (no live component refs) so Modify<TransformComponent>
+        // below can safely clone/realloc the queried array without invalidating a ref.
+        ctx.world.Each<PlayerComponent, TransformComponent>([&](EntityId e) {
+            float speed = 5.0f;
+            if (const auto* p = ctx.world.GetComponent<PlayerComponent>(e)) speed = p->MoveSpeed;
+            const glm::vec3 delta = ComputePlanarMove(*in, speed, dt);
+            if (delta.x != 0.0f || delta.z != 0.0f)
+                ctx.world.Modify<TransformComponent>(e, [&](TransformComponent& t){ t.Position += delta; });
+        });
+    }
+    const char* Name() const override { return "PlayerMovementSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
 } // namespace
 
 void GameRegisterSystems(SystemScheduler* s) {
@@ -179,6 +201,7 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<TextRotationSystem>());
     s->Register(std::make_unique<DayNightSystem>());
     s->Register(std::make_unique<DebugSpawnSystem>());
+    s->Register(std::make_unique<PlayerMovementSystem>());
     s->Register(std::make_unique<QuitRequestSystem>(KEY_ESCAPE));
 }
 

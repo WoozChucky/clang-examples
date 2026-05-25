@@ -38,5 +38,9 @@ private:
     EntityId           lastEditedTextEntity = INVALID_ENTITY;
     bool               textModified = false;
 
+    PlayerComponent    editPlayer{};
+    EntityId           lastEditedPlayerEntity = INVALID_ENTITY;
+    bool               playerModified = false;
+
     GizmoController    m_Gizmo;
 };
