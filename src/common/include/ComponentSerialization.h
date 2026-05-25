@@ -115,6 +115,13 @@ inline void from_json(const nlohmann::json& j, TextComponent& t) {
 inline void to_json(nlohmann::json& j, const SunMarker&) { j = nlohmann::json::object(); }
 inline void from_json(const nlohmann::json&, SunMarker&) {}
 
+inline void to_json(nlohmann::json& j, const PlayerComponent& t) {
+    j = nlohmann::json{{"MoveSpeed", t.MoveSpeed}};
+}
+inline void from_json(const nlohmann::json& j, PlayerComponent& t) {
+    j.at("MoveSpeed").get_to(t.MoveSpeed);
+}
+
 // ----- Atmosphere components (new) -----
 
 inline void to_json(nlohmann::json& j, const FogComponent& t) {

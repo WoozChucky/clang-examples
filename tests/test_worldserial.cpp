@@ -138,6 +138,14 @@ static void T05_computefog_day_vs_night()
     EXPECT(night.Density > day.Density); // night is foggier with default values
 }
 
+static void T06_player_roundtrip()
+{
+    PlayerComponent in; in.MoveSpeed = 13.5f; // non-default
+    const nlohmann::json j = in;
+    const auto out = j.get<PlayerComponent>();
+    EXPECT(near(out.MoveSpeed, in.MoveSpeed));
+}
+
 int main()
 {
     T00_fog_roundtrip();
@@ -146,6 +154,7 @@ int main()
     T03_environment_roundtrip();
     T04_environment_absent_is_backward_compatible();
     T05_computefog_day_vs_night();
+    T06_player_roundtrip();
 
     if (g_Failures == 0) { std::printf("All world-serialization tests passed.\n"); return 0; }
     std::printf("%d world-serialization test(s) FAILED.\n", g_Failures);
