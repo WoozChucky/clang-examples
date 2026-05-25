@@ -79,3 +79,34 @@ inline void DebugAppendFrustum(std::vector<DebugVertex>& out, const glm::mat4& i
     const int e[12][2] = {{0,1},{1,2},{2,3},{3,0},{4,5},{5,6},{6,7},{7,4},{0,4},{1,5},{2,6},{3,7}};
     for (auto& ed : e) DebugAppendLine(out, corners[ed[0]], corners[ed[1]], color);
 }
+
+// Camera-snapped ground grid on Y=0. The patch is centered on the camera's XZ snapped
+// to `step`, so a finite grid follows the camera (feels infinite, never reaches the
+// true horizon). Lines where world X==0 / Z==0 fall inside the patch use the axis
+// colors; all others use gridColor. Line-list: pairs of verts = segments.
+inline void DebugAppendGrid(std::vector<DebugVertex>& out,
+                            const glm::vec3& cameraPos,
+                            float halfExtent, float step,
+                            const glm::vec4& gridColor,
+                            const glm::vec4& axisXColor,
+                            const glm::vec4& axisZColor) {
+    if (step < 1e-3f) step = 1e-3f;
+    if (halfExtent < step) halfExtent = step;
+    // Snap the patch center to the grid so lines appear stationary as the camera moves.
+    const float cx = std::round(cameraPos.x / step) * step;
+    const float cz = std::round(cameraPos.z / step) * step;
+    const int   n  = static_cast<int>(halfExtent / step); // lines each side of center
+    const float axisEps = 0.5f * step;
+    // Lines parallel to Z (vary X): span the full Z extent. World Z axis is at X==0.
+    for (int i = -n; i <= n; ++i) {
+        const float gx = cx + static_cast<float>(i) * step;
+        const glm::vec4 col = (std::abs(gx) < axisEps) ? axisZColor : gridColor;
+        DebugAppendLine(out, {gx, 0.0f, cz - halfExtent}, {gx, 0.0f, cz + halfExtent}, col);
+    }
+    // Lines parallel to X (vary Z): span the full X extent. World X axis is at Z==0.
+    for (int i = -n; i <= n; ++i) {
+        const float gz = cz + static_cast<float>(i) * step;
+        const glm::vec4 col = (std::abs(gz) < axisEps) ? axisXColor : gridColor;
+        DebugAppendLine(out, {cx - halfExtent, 0.0f, gz}, {cx + halfExtent, 0.0f, gz}, col);
+    }
+}
