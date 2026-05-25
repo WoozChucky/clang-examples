@@ -317,6 +317,8 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
                 world->Each<UIRectComponent, TransformComponent>([&](EntityId e){
                     if (scopeVisible(e)) rectEnts[rectCount++] = e;
                 });
+            } else if (world->GetEntityCount() > 0) {
+                SM_WARN("UiRenderPass: frame arena exhausted, dropped all UI rects");
             }
             uint32_t rectN = std::min(rectCount, m_MaxInstances);
             if (rectN > 0) {
@@ -349,6 +351,8 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
                         rectArgs.startVertexLocation = 0;
                         commandList->drawIndexed(rectArgs);
                     }
+                } else {
+                    SM_WARN("UiRenderPass: frame arena exhausted, dropped UI rects");
                 }
             }
         }
