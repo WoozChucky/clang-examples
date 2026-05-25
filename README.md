@@ -72,7 +72,7 @@ Source
 - `src/engine/` – the reusable runtime core (`Engine.dll`); ImGui-free
   - `src/core/Application.cpp` – owns `ApplicationContext`, spawns the three threads, takes an optional overlay factory
   - `src/threading/` – `PlatformThread`, `GameThread`, `RenderThread`, and `GameLibrary` (Game.dll hot-reload)
-  - `src/rendering/` – `Renderer`, `RendererBackend` (DX12/Vulkan), the deferred passes (`ShadowDepth`/`GBufferFill`/`Lighting`/`Sky`/`Primitive`/`Outline`/`Debug`/`Ui`), `Fog`/`Sky`, `MeshSystem`/`MaterialSystem`, `ShaderCompiler`
+  - `src/rendering/` – `Renderer`, `RendererBackend` (DX12/Vulkan), the deferred passes (`ShadowDepth`/`GBufferFill`/`Lighting`/`Sky`/`Outline`/`Debug`/`Ui`), `Fog`, `MeshSystem`/`MaterialSystem`, `ShaderCompiler`
   - `src/plugins/` – `DotNetPluginManager` / `DotNetPluginHost` (.NET plugin host)
   - `src/memory/` (+ `AllocatorRegistry.cpp`) – Arena/Pool allocator toolkit and registry
   - `include/IOverlay.h` – the interface a tooling overlay implements to hook into the renderer
@@ -170,9 +170,8 @@ Render passes (`src/engine/src/rendering/passes/`, in execution order)
 - `GBufferFillPass` – opaque geometry into a G-buffer (albedo / world-normal / world-position MRT + depth).
 - `LightingRenderPass` – full-screen deferred lighting: directional + point lights, 3x3 PCF shadows, and exponential distance fog, reading the G-buffer.
 - `SkyRenderPass` – full-screen procedural sky: day/night gradient + sun/moon discs (far-plane depth test).
-- `PrimitiveRenderPass` – procedural primitives (e.g., the ground grid).
 - `OutlineRenderPass` – selection silhouette.
-- `DebugRenderPass` – debug gizmos.
+- `DebugRenderPass` – debug line gizmos + the editor ground grid (camera-snapped lines via `DebugAppendGrid`, gated by the `ShowGrid` debug flag; editor-only, runtime leaves it off).
 - `UiRenderPass` – UI text/quads (instanced, FreeType R8 atlas).
 
 Atmosphere (`src/engine/src/rendering/Fog.{h,cpp}`, `FogComponent`/`SkyComponent` in `src/common/include/ECS.h`)
