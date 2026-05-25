@@ -299,30 +299,33 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 };
 
-// Owns game-state transitions. Drains the per-tick ActionQueue (producers arrive in Phase 4)
-// and routes navigation actions. TEMP (Phase 1): toggles MainMenu<->InLevel on TAB so the
-// gameplay gating is testable before the menu exists — remove the TAB block in Phase 4.
+// Owns game-state transitions. Consumes Nav-category actions from the ActionQueue (emitted by
+// MenuInteractionSystem) and applies them; also returns to the menu on ESC while in-level.
 class AppFlowSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
         if (const auto* q = ctx.world.GetSingleton<ActionQueueComponent>()) {
             for (const ActionEvent& e : q->Events) {
-                // Phase 4: route by CategoryOf(e.ActionId) and apply Nav transitions here.
-                (void)e;
+                if (CategoryOf(e.ActionId) != ActionCategory::Nav) continue; // owned elsewhere
+                if (e.ActionId == Actions::Play)      SetState(ctx, GameStateId::InLevel);
+                else if (e.ActionId == Actions::Back) SetState(ctx, GameStateId::MainMenu);
+                else if (e.ActionId == Actions::Quit)
+                    ctx.world.ModifySingleton<AppControlComponent>([](AppControlComponent& a){ a.QuitRequested = true; });
             }
         }
 
-        // TEMP (Phase 1 testability) — remove in Phase 4.
+        // ESC returns to the menu while in-level (replaces the old always-quit ESC binding).
         const auto* in = ctx.world.GetSingleton<InputStateComponent>();
-        if (in && in->Pressed[KEY_TAB]) {
-            ctx.world.ModifySingleton<GameStateComponent>([](GameStateComponent& s) {
-                s.Current = (s.Current == GameStateId::InLevel)
-                              ? GameStateId::MainMenu : GameStateId::InLevel;
-            });
-        }
+        const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
+        if (in && gs && gs->Current == GameStateId::InLevel && in->Pressed[KEY_ESCAPE])
+            SetState(ctx, GameStateId::MainMenu);
     }
     const char* Name() const override { return "AppFlowSystem"; }
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
+private:
+    static void SetState(SystemContext& ctx, GameStateId s) {
+        ctx.world.ModifySingleton<GameStateComponent>([&](GameStateComponent& g){ g.Current = s; });
+    }
 };
 
 } // namespace
@@ -337,7 +340,6 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<PlayerMovementSystem>());
     s->Register(std::make_unique<CameraZoomSystem>());          // before follow: sets distance same tick
     s->Register(std::make_unique<IsometricFollowCameraSystem>());
-    s->Register(std::make_unique<QuitRequestSystem>(KEY_ESCAPE));
 }
 
 static GameState* g_GameState = nullptr;
@@ -365,7 +367,7 @@ void GameUpdate(GameState* state) {
             [](ActionQueueComponent& q){ q.Events.clear(); });
 
     // Note: input/camera/quit/spawn + day/night + text rotation are now handled by
-    // systems (IsometricFollowCameraSystem / QuitRequestSystem / DebugSpawnSystem /
+    // systems (IsometricFollowCameraSystem / AppFlowSystem / DebugSpawnSystem /
     // DayNightSystem / TextRotationSystem) driven by the SystemScheduler.
 
     // One-time boot: seed singletons + the starting scene, then enter MainMenu. After this,
@@ -395,9 +397,25 @@ void GameUpdate(GameState* state) {
         if (!g_GameState->WorldLoaded) {
             SM_TRACE("[GAMEDLL] No world loaded — spawning default scene");
 
-            const auto textEntity = g_GameState->World.CreateEntity();
-            g_GameState->World.AddComponent(textEntity, TransformComponent{.Position = glm::vec3{740.f, 250.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
-            g_GameState->World.AddComponent(textEntity, TextComponent{.Text = "Hello, Game!", .Color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, .FontSize = 48});
+            // Fallback main menu (no world.json): title + Play/Quit buttons, scoped to MainMenu,
+            // so the menu is usable without authoring. Mirrors what you'd author in the editor.
+            const uint32_t menuScope = 1u << static_cast<uint32_t>(GameStateId::MainMenu);
+
+            const auto title = g_GameState->World.CreateEntity();
+            g_GameState->World.AddComponent(title, TransformComponent{.Position = glm::vec3{200.f, 140.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+            g_GameState->World.AddComponent(title, TextComponent{.Text = "My Game", .Color = glm::vec4{1.0f}, .FontSize = 64});
+            g_GameState->World.AddComponent(title, StateScopeComponent{ .StateMask = menuScope });
+
+            auto spawnButton = [&](float x, float y, const char* label, uint32_t action) {
+                const auto e = g_GameState->World.CreateEntity();
+                g_GameState->World.AddComponent(e, TransformComponent{.Position = glm::vec3{x, y, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+                g_GameState->World.AddComponent(e, UIRectComponent{ .Size = glm::vec2{220.f, 56.f} });
+                g_GameState->World.AddComponent(e, TextComponent{.Text = label, .Color = glm::vec4{1.0f}, .FontSize = 28});
+                g_GameState->World.AddComponent(e, MenuButtonComponent{ .ActionId = action });
+                g_GameState->World.AddComponent(e, StateScopeComponent{ .StateMask = menuScope });
+            };
+            spawnButton(200.f, 260.f, "Play", Actions::Play);
+            spawnButton(200.f, 330.f, "Quit", Actions::Quit);
 
             const auto sun = g_GameState->World.CreateEntity();
             g_GameState->World.AddComponent(sun, TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
