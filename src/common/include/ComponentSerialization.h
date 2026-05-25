@@ -141,6 +141,21 @@ inline void from_json(const nlohmann::json& j, StateScopeComponent& t) {
     j.at("StateMask").get_to(t.StateMask);
 }
 
+inline void to_json(nlohmann::json& j, const MenuButtonComponent& t) {
+    j = nlohmann::json{
+        {"ActionId", t.ActionId},
+        {"Normal", t.Normal},
+        {"Hover",  t.Hover},
+        {"Press",  t.Press}
+    };
+}
+inline void from_json(const nlohmann::json& j, MenuButtonComponent& t) {
+    j.at("ActionId").get_to(t.ActionId);
+    j.at("Normal").get_to(t.Normal);
+    j.at("Hover").get_to(t.Hover);
+    j.at("Press").get_to(t.Press);
+}
+
 // ----- Atmosphere components (new) -----
 
 inline void to_json(nlohmann::json& j, const FogComponent& t) {

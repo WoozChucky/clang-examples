@@ -50,5 +50,9 @@ private:
     EntityId            lastEditedScopeEntity = 0;
     bool                scopeModified = false;
 
+    MenuButtonComponent editMenuBtn{};
+    EntityId            lastEditedMenuBtnEntity = 0;
+    bool                menuBtnModified = false;
+
     GizmoController    m_Gizmo;
 };
