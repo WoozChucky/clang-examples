@@ -17,7 +17,7 @@
 // Bump every time GameState layout changes or any export signature changes.
 // Editor compares against the compiled-in value at load time; mismatch rejects
 // the reload and keeps the previous Game.dll active.
-#define GAME_API_VERSION 7u
+#define GAME_API_VERSION 8u
 
 enum class GameStateId : uint32_t {
     Uninitialized = 0,

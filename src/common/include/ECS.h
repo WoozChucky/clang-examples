@@ -123,15 +123,6 @@ struct UICameraComponent {
     glm::mat4 View{1.0f};
     glm::mat4 Projection{1.0f};
 };
-struct FreeLookControlComponent {
-    glm::vec3 Position{0.0f, 5.0f, 10.0f};
-    float Yaw = 0.0f;       // rotation.y
-    float Pitch = 0.0f;     // rotation.x
-    float Fov = glm::radians(80.0f);
-    float MoveSpeed = 7.5f;
-    float Sensitivity = 0.002f;
-    bool  MouseAimEnabled = false;
-};
 struct DayNightConfigComponent {
     float     CycleSeconds  = 60.0f;                 // full day length (was 10)
     float     DayBrightness = 1.0f;                  // peak sun brightness (cap <= 1.0, no blow-out)
@@ -195,7 +186,6 @@ struct PlayerComponent {
     X(InputStateComponent) \
     X(WorldCameraComponent) \
     X(UICameraComponent) \
-    X(FreeLookControlComponent) \
     X(DayNightConfigComponent) \
     X(AtmosphereStateComponent) \
     X(FogComponent) \

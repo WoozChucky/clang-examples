@@ -1,6 +1,7 @@
 #include "Game.h"
 #include "Systems.h"
 #include "PlayerMovement.h"
+#include "CameraFollow.h"
 
 #include <memory>
 #include <tuple>
@@ -88,58 +89,35 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 };
 
-// Free-look fly camera. Reads InputStateComponent + ViewportComponent, advances
-// FreeLookControlComponent, and writes the resolved WorldCameraComponent.
-// Behavior mirrors the old HandleCameraMovement/HandleFreeLook (now removed).
-class FreeLookCameraSystem final : public ISystem {
+// Fixed-angle isometric camera (PoE2-style) that follows the player. No controls:
+// it places WorldCameraComponent at a constant offset from the first PlayerComponent
+// entity and looks at it. No-op (camera holds) when no player exists.
+class IsometricFollowCameraSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
-        const auto* in = ctx.world.GetSingleton<InputStateComponent>();
-        const auto* vp = ctx.world.GetSingleton<ViewportComponent>();
-        if (!in || !ctx.world.GetSingleton<FreeLookControlComponent>()) return;
-        const float dt = static_cast<float>(ctx.dt);
-
-        ctx.world.ModifySingleton<FreeLookControlComponent>([&](FreeLookControlComponent& c) {
-            if (in->Pressed[KEY_T]) c.MouseAimEnabled = !c.MouseAimEnabled;
-            if (c.MouseAimEnabled) {
-                c.Yaw   -= static_cast<float>(in->MouseDX) * c.Sensitivity;
-                c.Pitch -= static_cast<float>(in->MouseDY) * c.Sensitivity;
-                const float lim = glm::radians(89.0f);
-                c.Pitch = glm::clamp(c.Pitch, -lim, lim);
-            }
-            const float cp = cosf(c.Pitch), sp = sinf(c.Pitch);
-            const float cy = cosf(c.Yaw),   sy = sinf(c.Yaw);
-            const glm::vec3 forward = glm::normalize(glm::vec3(-sy, sp*cy, -cp*cy));
-            const glm::vec3 right   = glm::normalize(glm::cross(forward, glm::vec3(0,1,0)));
-            const float spd = c.MoveSpeed * dt;
-            if (in->KeysDown[KEY_W]) c.Position += forward * spd;
-            if (in->KeysDown[KEY_S]) c.Position -= forward * spd;
-            if (in->KeysDown[KEY_A]) c.Position -= right   * spd;
-            if (in->KeysDown[KEY_D]) c.Position += right   * spd;
-            if (in->KeysDown[KEY_SPACE])      c.Position.y += spd;
-            if (in->KeysDown[KEY_LEFT_SHIFT]) c.Position.y -= spd;
-            const float yawSpeed = glm::radians(120.0f) * dt;
-            if (in->KeysDown[KEY_Q]) c.Yaw += yawSpeed;
-            if (in->KeysDown[KEY_E]) c.Yaw -= yawSpeed;
-            if (in->Wheel != 0) {
-                const float step = glm::radians(2.0f);
-                c.Fov = glm::clamp(c.Fov - step * static_cast<float>(in->Wheel),
-                                   glm::radians(20.0f), glm::radians(179.99f));
+        bool found = false;
+        glm::vec3 target(0.0f);
+        // EntityId-only callback (no live component refs) so ModifySingleton below is safe.
+        ctx.world.Each<PlayerComponent, TransformComponent>([&](EntityId e) {
+            if (found) return;
+            if (const auto* t = ctx.world.GetComponent<TransformComponent>(e)) {
+                target = t->Position;
+                found = true;
             }
         });
+        if (!found) return; // no player -> leave the camera where it is
 
-        const auto* c = ctx.world.GetSingleton<FreeLookControlComponent>();
-        const float aspect = (vp && vp->Height) ? float(vp->Width)/float(vp->Height) : 16.0f/9.0f;
-        const glm::mat4 T  = glm::translate(glm::mat4(1.0f), -c->Position);
-        const glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), -c->Pitch, {1,0,0});
-        const glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), -c->Yaw,   {0,1,0});
+        const auto* vp = ctx.world.GetSingleton<ViewportComponent>();
+        const float aspect = (vp && vp->Height) ? float(vp->Width) / float(vp->Height) : 16.0f / 9.0f;
+
+        const CameraView cam = ComputeFollowCamera(target, kPoE2Follow, aspect);
         ctx.world.ModifySingleton<WorldCameraComponent>([&](WorldCameraComponent& w) {
-            w.View       = (Ry * Rx) * T;
-            w.Projection = glm::perspectiveRH_ZO(c->Fov, aspect, 0.1f, 1000.0f);
-            w.Position   = c->Position;
+            w.View       = cam.View;
+            w.Projection = cam.Projection;
+            w.Position   = cam.Position;
         });
     }
-    const char* Name() const override { return "FreeLookCameraSystem"; }
+    const char* Name() const override { return "IsometricFollowCameraSystem"; }
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 };
 
@@ -197,11 +175,11 @@ public:
 
 void GameRegisterSystems(SystemScheduler* s) {
     if (!s) return;
-    s->Register(std::make_unique<FreeLookCameraSystem>());
     s->Register(std::make_unique<TextRotationSystem>());
     s->Register(std::make_unique<DayNightSystem>());
     s->Register(std::make_unique<DebugSpawnSystem>());
     s->Register(std::make_unique<PlayerMovementSystem>());
+    s->Register(std::make_unique<IsometricFollowCameraSystem>());
     s->Register(std::make_unique<QuitRequestSystem>(KEY_ESCAPE));
 }
 
@@ -220,7 +198,7 @@ void GameUpdate(GameState* state) {
     if (!g_GameState) return;
 
     // Note: input/camera/quit/spawn + day/night + text rotation are now handled by
-    // systems (FreeLookCameraSystem / QuitRequestSystem / DebugSpawnSystem /
+    // systems (IsometricFollowCameraSystem / QuitRequestSystem / DebugSpawnSystem /
     // DayNightSystem / TextRotationSystem) driven by the SystemScheduler.
 
     switch (g_GameState->StateId)
@@ -230,10 +208,7 @@ void GameUpdate(GameState* state) {
 	        SM_TRACE("[GAMEDLL] Initializing game...");
             g_GameState->StateId = GameStateId::MainMenu;
 
-	        // Seed game-owned singletons (camera control + resolved camera + app
-	        // control + day/night config). FreeLookControlComponent defaults include
-	        // Position {0,5,10} (was g_GameState->GameCamera.position).
-	        g_GameState->World.SetSingleton(FreeLookControlComponent{});
+	        // Seed game-owned singletons (resolved camera + app control + day/night state).
 	        g_GameState->World.SetSingleton(WorldCameraComponent{});
 	        g_GameState->World.SetSingleton(AppControlComponent{});
 	        g_GameState->World.SetSingleton(AtmosphereStateComponent{});
