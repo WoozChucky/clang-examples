@@ -34,10 +34,14 @@ void DrawRenderStatsPanel(bool* open)
     ImGui::TextDisabled("Shadows");
     ShadowSettings& sh = GetShadowSettings();
     changed |= ImGui::Checkbox("Shadows", &sh.Enabled);
-    changed |= ImGui::SliderFloat("Shadow bias", &sh.Bias, 0.0f, 0.01f, "%.4f");
+    // The slider mutates Bias live every drag frame, but only persist once the drag
+    // ends (IsItemDeactivatedAfterEdit) to avoid rewriting the file every frame.
+    ImGui::SliderFloat("Shadow bias", &sh.Bias, 0.0f, 0.01f, "%.4f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
 
-    // ImGui widgets return true only on the frame the value changes, so this writes
-    // editor_preferences.json on edits only — never per-frame.
+    // Checkboxes report change on their click frame; the bias slider is persisted on
+    // release (above). So editor_preferences.json is written only on completed edits,
+    // not every frame.
     if (changed)
         EditorPreferences::Save(EditorPreferences::DEFAULT_PREFERENCES_PATH);
 
