@@ -3,7 +3,6 @@
 #include "Renderer.h"
 #include "Sky.h"
 #include "CameraView.h"
-#include "lib.h"
 #include <nvrhi/utils.h>
 #include <glm/vec3.hpp>
 #include <glm/matrix.hpp>       // glm::inverse
@@ -139,15 +138,15 @@ void SkyRenderPass::Render(nvrhi::ICommandList* commandList,
 
     commandList->beginMarker("SkyRenderPass");
 
-    // Gather the directional (sun) light from the ECS, like LightingRenderPass.
-    glm::vec4 sunDir(0.0f, -1.0f, 0.0f, 0.0f); // default: straight down
+    // Track the tagged sun (SunMarker), defaulting to night when none exists, so
+    // the sky's day/night timing matches the Renderer's fog/horizon path exactly.
+    glm::vec3 sunDir(0.0f, 1.0f, 0.0f); // points up = below horizon = night default
     if (world)
     {
-        world->Each<TransformComponent, LightningComponent>(
-            [&](EntityId, const TransformComponent&, const LightningComponent& lightning)
+        world->Each<SunMarker, LightningComponent>(
+            [&](EntityId, const SunMarker&, const LightningComponent& l)
         {
-            if (lightning.Type == LightningType::Directional)
-                sunDir = lightning.Direction;
+            if (l.Type == LightningType::Directional) sunDir = glm::vec3(l.Direction);
         });
     }
 
@@ -156,7 +155,7 @@ void SkyRenderPass::Render(nvrhi::ICommandList* commandList,
     SkyFrameCB cb{};
     cb.InvViewProj  = glm::inverse(cam.Projection * cam.View);
     cb.CameraPos    = glm::vec4(cam.Position, 1.0f);
-    cb.SunDir       = sunDir;
+    cb.SunDir       = glm::vec4(sunDir, 0.0f);
     cb.DayZenith    = glm::vec4(s.DayZenith, 0.0f);
     cb.DayHorizon   = glm::vec4(s.DayHorizon, 0.0f);
     cb.NightZenith  = glm::vec4(s.NightZenith, 0.0f);
