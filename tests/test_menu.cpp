@@ -46,11 +46,23 @@ static void T03_to_ui_space() {
     EXPECT(c.x == -40.0f && c.y == -15.0f);
 }
 
+// Half-open rect [pos, pos+size): inside, on each edge, outside.
+static void T04_point_in_rect() {
+    const glm::vec2 pos(100.0f, 50.0f), size(40.0f, 20.0f);
+    EXPECT(PointInRect(glm::vec2(120.0f, 60.0f), pos, size));  // inside
+    EXPECT(PointInRect(glm::vec2(100.0f, 50.0f), pos, size));  // top-left inclusive
+    EXPECT(!PointInRect(glm::vec2(140.0f, 60.0f), pos, size)); // right edge exclusive (100+40)
+    EXPECT(!PointInRect(glm::vec2(120.0f, 70.0f), pos, size)); // bottom edge exclusive (50+20)
+    EXPECT(!PointInRect(glm::vec2(99.0f, 60.0f), pos, size));  // left of
+    EXPECT(!PointInRect(glm::vec2(120.0f, 49.0f), pos, size)); // above
+}
+
 int main() {
     T00_unscoped_is_always_on();
     T01_single_state();
     T02_multi_state();
     T03_to_ui_space();
+    T04_point_in_rect();
     if (g_Failures == 0) { std::printf("All menu tests passed.\n"); return 0; }
     std::printf("%d menu test(s) FAILED.\n", g_Failures);
     return 1;
