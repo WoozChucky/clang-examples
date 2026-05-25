@@ -8,8 +8,8 @@
 #include "RenderStats.h" // CullingSettings, DebugDrawSettings, ShadowSettings (+ ENGINE_API getters)
 #include "EditorCameraState.h"
 
-// Editor-only persistence of the RenderStats panel toggles. Saved next to the
-// executable as editor_preferences.json; the runtime never touches it.
+// Editor-only persistence of the RenderStats panel toggles + the editor camera pose.
+// Saved next to the executable as editor_preferences.json; the runtime never touches it.
 namespace EditorPreferences {
 
 constexpr auto     DEFAULT_PREFERENCES_PATH = "editor_preferences.json";
