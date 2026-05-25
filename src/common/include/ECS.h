@@ -119,6 +119,12 @@ struct WorldCameraComponent {
     glm::mat4 Projection{1.0f};
     glm::vec3 Position{0.0f};
 };
+// Persistent zoom state for the isometric follow camera (singleton). Mutated by the
+// zoom system from the mouse wheel; read by the follow system as its eye distance.
+// Lives here (not a file-static) so it survives game-DLL hot-reload and ECS Clear().
+struct CameraZoomComponent {
+    float Distance = 22.0f; // matches kPoE2Follow.Distance default; clamped by the zoom system
+};
 struct UICameraComponent {
     glm::mat4 View{1.0f};
     glm::mat4 Projection{1.0f};
@@ -192,7 +198,8 @@ struct PlayerComponent {
     X(SkyComponent) \
     X(AppControlComponent) \
     X(ViewportComponent) \
-    X(PlayerComponent)
+    X(PlayerComponent) \
+    X(CameraZoomComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

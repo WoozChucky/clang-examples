@@ -316,3 +316,23 @@ set_target_properties(test_followcam PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_settings
+    test_settings.cpp
+)
+
+target_link_libraries(test_settings PRIVATE
+    CommonHeaders
+    Engine
+    nlohmann_json::nlohmann_json
+)
+
+target_include_directories(test_settings PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/engine/src
+)
+
+set_target_properties(test_settings PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)

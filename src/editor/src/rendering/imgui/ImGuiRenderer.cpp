@@ -15,6 +15,7 @@
 #include "RenderStatsPanel.h"
 #include "RenderStats.h"
 #include "EditorPreferences.h"
+#include "utilities/SettingsManager.h"
 #include "EditorContext.h"
 #include "PerformancePanel.h"
 #include "SimulationPanel.h"
@@ -321,8 +322,19 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         DrawMemoryPanel(&s_ShowMemoryPanel, world);
 
         static bool s_ShowRenderStatsPanel = true;
-        if (DrawRenderStatsPanel(&s_ShowRenderStatsPanel))
+        if (DrawRenderStatsPanel(&s_ShowRenderStatsPanel)) {
+            // Debug-draw/shadow toggles persist in editor_preferences.json.
             EditorPreferences::Save(EditorPreferences::DEFAULT_PREFERENCES_PATH, m_EditorCamera.GetState());
+            // FXAA persists in engine_settings.json (engine tier). Only write when it
+            // actually changed so unrelated panel edits don't rewrite engine settings.
+            const bool fxaaNow = GetAntiAliasingSettings().FxaaEnabled;
+            if (m_AppContext && fxaaNow != m_AppContext->Settings.fxaaEnabled) {
+                m_AppContext->Settings.fxaaEnabled = fxaaNow;
+                if (!SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH, m_AppContext->Settings)) {
+                    SM_WARN("Failed to persist FXAA toggle to %s", SettingsManager::DEFAULT_SETTINGS_PATH);
+                }
+            }
+        }
 
         // Scene viewport: shows the offscreen scene RT. Zero padding so the image fills the panel.
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));

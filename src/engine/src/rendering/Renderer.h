@@ -18,6 +18,8 @@
 #include "MeshSystem.h"
 #include "MaterialSystem.h"
 
+#include "passes/FxaaRenderPass.h"
+
 struct GpuTimer
 {
     std::vector<nvrhi::TimerQueryHandle> m_Queries; // size = FramesInFlight (or >)
@@ -133,6 +135,11 @@ public:
     nvrhi::ITexture*     GetGBufferWorldPos()    const { return m_GBuffer.WorldPos; }
     nvrhi::IFramebuffer* GetGBufferFramebuffer() const { return m_GBuffer.Fb;       }
 
+    // Offscreen scene-color SRV the world passes render into when FXAA is enabled;
+    // the FXAA pass samples it and resolves into the final target. Null when FXAA
+    // has never been enabled (lazily allocated).
+    nvrhi::ITexture*     GetSceneColorTexture() const { return m_SceneColor.Color; }
+
     // Per-frame fog resolved at the top of Render() (like GetActiveCamera): drives
     // both the scene clear color and the mesh pass's distance fog.
     const FogFrame&      GetFrameFog() const           { return m_FrameFog; }
@@ -190,6 +197,29 @@ private:
     // No-op if already matching width/height/depth.
     void EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* sharedDepth);
     void ReleaseGBuffer();
+
+    // Offscreen scene-color render target for the FXAA path. Mirrors the G-buffer's
+    // depth-keyed framebuffer cache (editor uses one stable depth; the swapchain
+    // rotates depths across back-buffers). Lazily built only when FXAA is enabled.
+    struct SceneColorTarget {
+        nvrhi::TextureHandle     Color;  // matches the scene target's color format
+        nvrhi::FramebufferHandle Fb;     // current frame's framebuffer
+        std::vector<std::pair<nvrhi::ITexture*, nvrhi::FramebufferHandle>> FbCache;
+        uint32_t      Width  = 0;
+        uint32_t      Height = 0;
+        nvrhi::Format Format = nvrhi::Format::UNKNOWN;
+    };
+    SceneColorTarget m_SceneColor{};
+
+    // Builds m_SceneColor at the given size/format sharing the supplied depth.
+    // No-op if already matching. Used only on the FXAA-enabled path.
+    void EnsureSceneColor(uint32_t width, uint32_t height,
+                          nvrhi::ITexture* sharedDepth, nvrhi::Format colorFormat);
+    void ReleaseSceneColor();
+
+    // FXAA resolve pass. Owned here (not in m_RenderPasses) and invoked between the
+    // World and Overlay pass loops when FXAA is enabled.
+    std::unique_ptr<FxaaRenderPass> m_FxaaPass;
 
     RendererBackend*            m_Backend = nullptr;
     RendererBackendSettings     m_BackendSettings{};

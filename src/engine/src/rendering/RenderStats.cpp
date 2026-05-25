@@ -23,3 +23,9 @@ ShadowSettings& GetShadowSettings()
     static ShadowSettings s;
     return s;
 }
+
+AntiAliasingSettings& GetAntiAliasingSettings()
+{
+    static AntiAliasingSettings s;
+    return s;
+}

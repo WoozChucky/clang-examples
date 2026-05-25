@@ -38,6 +38,11 @@ bool DrawRenderStatsPanel(bool* open)
     ImGui::SliderFloat("Shadow bias", &sh.Bias, 0.0f, 0.01f, "%.4f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
 
+    ImGui::Separator();
+    ImGui::TextDisabled("Anti-Aliasing");
+    AntiAliasingSettings& aa = GetAntiAliasingSettings();
+    changed |= ImGui::Checkbox("FXAA", &aa.FxaaEnabled);
+
     ImGui::End();
     return changed;
 }

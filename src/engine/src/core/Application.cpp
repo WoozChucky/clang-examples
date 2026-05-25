@@ -2,6 +2,7 @@
 
 #include "lib.h"
 #include "utilities/SettingsManager.h"
+#include "RenderStats.h"
 
 bool Application::Init(std::optional<RendererAPI> backendOverride, OverlayFactory overlayFactory) {
     m_AppContext = std::make_shared<ApplicationContext>();
@@ -15,6 +16,10 @@ bool Application::Init(std::optional<RendererAPI> backendOverride, OverlayFactor
         SM_TRACE("Application: CLI override → backend=%s",
                  SettingsManager::BackendToString(*backendOverride));
     }
+
+    // Seed the live anti-aliasing toggle from the persisted setting (both exes
+    // boot through here; the RenderThread reads GetAntiAliasingSettings()).
+    GetAntiAliasingSettings().FxaaEnabled = m_AppContext->Settings.fxaaEnabled;
 
     if (m_AppContext->Settings.Backend == RendererAPI::Invalid) {
         SM_ERROR("Application: resolved backend is Invalid; aborting");
