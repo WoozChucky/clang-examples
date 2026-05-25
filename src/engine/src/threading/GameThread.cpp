@@ -522,6 +522,7 @@ void GameThread::DrainInputToSingleton(GameState& state) {
     state.World.ModifySingleton<InputStateComponent>([&](InputStateComponent& s) {
         std::memset(s.Pressed, 0, sizeof(s.Pressed));
         s.Wheel = 0;
+        std::memset(s.MousePressed, 0, sizeof(s.MousePressed));
         InputEvent ev{};
         while (m_AppContext->InputRing.Pop(ev)) {
             if (ev.Type == InputEventType::Key) {
@@ -536,6 +537,12 @@ void GameThread::DrainInputToSingleton(GameState& state) {
                 s.MouseY = ev.MouseMoveEvent.Y;
             } else if (ev.Type == InputEventType::MouseWheel) {
                 s.Wheel = static_cast<int32_t>(ev.MouseScrollEvent.OffsetY);
+            } else if (ev.Type == InputEventType::MouseButton) {
+                const int b = static_cast<int>(ev.MouseButtonEvent.Button);
+                if (b >= 0 && b <= MOUSE_BUTTON_LAST) {
+                    if (ev.MouseButtonEvent.Action == PRESS)   { s.MouseDown[b] = true; s.MousePressed[b] = true; }
+                    if (ev.MouseButtonEvent.Action == RELEASE) {  s.MouseDown[b] = false; }
+                }
             }
         }
         s.MouseDX = s.MouseX - prevX;

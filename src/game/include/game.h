@@ -17,7 +17,7 @@
 // Bump every time GameState layout changes or any export signature changes.
 // Editor compares against the compiled-in value at load time; mismatch rejects
 // the reload and keeps the previous Game.dll active.
-#define GAME_API_VERSION 9u
+#define GAME_API_VERSION 10u
 
 // GameStateId moved to src/common/include/GameStateId.h (included via ECS.h) so ECS
 // components + engine code can reference it.

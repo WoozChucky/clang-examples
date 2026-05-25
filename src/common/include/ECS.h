@@ -114,6 +114,8 @@ struct InputStateComponent {
     double  MouseX = 0.0, MouseY = 0.0;
     double  MouseDX = 0.0, MouseDY = 0.0;
     int32_t Wheel = 0;
+    bool    MouseDown[MOUSE_BUTTON_LAST + 1]    = {};   // held this tick
+    bool    MousePressed[MOUSE_BUTTON_LAST + 1] = {};   // pressed this tick (cleared each drain)
 };
 struct WorldCameraComponent {
     glm::mat4 View{1.0f};
