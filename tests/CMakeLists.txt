@@ -241,3 +241,29 @@ set_target_properties(test_worldserial PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_editorprefs
+    test_editorprefs.cpp
+)
+
+target_link_libraries(test_editorprefs PRIVATE
+    glm::glm
+    nlohmann_json::nlohmann_json
+)
+
+target_include_directories(test_editorprefs PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/engine/include
+    ${CMAKE_SOURCE_DIR}/src/engine/src/rendering
+    ${CMAKE_SOURCE_DIR}/src/editor/src
+)
+
+target_compile_definitions(test_editorprefs PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_editorprefs PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)

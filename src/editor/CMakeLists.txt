@@ -2,6 +2,7 @@ set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE
 
 add_executable(editor
     src/main.cpp
+    src/EditorPreferences.cpp
 
     # ImGui editor layer (editor-only; never compiled into Engine)
     src/rendering/imgui/ImGuiRenderer.cpp
@@ -51,6 +52,7 @@ target_link_libraries(editor PRIVATE
     CommonHeaders
     GameHeaders
     glm::glm
+    nlohmann_json::nlohmann_json
     glfw
     nvrhi
     nvrhi_d3d12
