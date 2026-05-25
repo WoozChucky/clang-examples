@@ -336,3 +336,16 @@ set_target_properties(test_settings PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_menu
+    test_menu.cpp
+)
+
+target_include_directories(test_menu PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+set_target_properties(test_menu PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
