@@ -32,8 +32,8 @@ cbuffer PerFrame : register(b0) {
     DirectionalLight uDir;
     float4 uCameraPos;
     float4 uFog;
-    uint  uPointLightCount; float uAmbient; int uShadowEnabled; float uShadowBias;
-    int   uFogEnabled; int3 _padL;
+    float4 uAmbientColor;
+    uint uPointLightCount; int uShadowEnabled; float uShadowBias; int uFogEnabled;
 };
 Texture2D uAlbedo   : register(t1);
 Texture2D uNormal   : register(t2);
@@ -65,8 +65,7 @@ float4 main_ps(PSIn i) : SV_Target {
     N = normalize(N);
     float3 lightDir = normalize(uDir.Direction.xyz);
     float diffuse = max(dot(N, -lightDir), 0.0);
-    float ambient = uAmbient;
-    float3 lighting = ambient * uDir.Color.rgb;
+    float3 lighting = uAmbientColor.rgb;
     lighting += diffuse * uDir.Color.rgb * ShadowFactor(wp, diffuse);
     [loop] for (uint idx=0; idx<uPointLightCount; ++idx){
         PointLight pl = gPointLights[idx];
@@ -229,7 +228,12 @@ void LightingRenderPass::Render(nvrhi::ICommandList* commandList,
     cb.Dir.Direction = lightningDirection;
     cb.Dir.Color = lightningColor;
     cb.PointLightCount = pointLightCount;
-    cb.Ambient = 0.1f; // hardcoded ambient for now (matches MeshRenderPass)
+    glm::vec4 ambientColor(0.08f, 0.08f, 0.08f, 1.0f); // fallback if the singleton isn't present yet
+    if (world) {
+        if (const auto* atm = world->GetSingleton<AtmosphereStateComponent>())
+            ambientColor = atm->AmbientColor;
+    }
+    cb.AmbientColor = ambientColor;
     const Renderer::ShadowView& sv = m_Renderer->GetShadowView();
     cb.LightVP = sv.LightVP;
     cb.ShadowEnabled = sv.Enabled;

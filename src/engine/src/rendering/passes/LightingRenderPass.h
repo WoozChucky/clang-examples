@@ -24,8 +24,8 @@ private:
         DirectionalLight Dir;
         glm::vec4 CameraPos;   // xyz
         glm::vec4 Fog;         // rgb=color, w=density
-        uint32_t  PointLightCount; float Ambient; int ShadowEnabled; float ShadowBias;
-        int       FogEnabled;  int _pad[3];
+        glm::vec4 AmbientColor; // rgb = omnidirectional ambient (replaces uAmbient*sunColor)
+        uint32_t  PointLightCount; int ShadowEnabled; float ShadowBias; int FogEnabled;
     };
     static_assert(sizeof(LightFrameCB) % 16 == 0, "LightFrameCB must be 16-byte aligned");
 
