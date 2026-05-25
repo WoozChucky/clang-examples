@@ -446,8 +446,22 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
                     glm::mat4 S = glm::scale(glm::mat4(1.0f), transform->Scale);
                     glm::mat4 entityTransform = T * R * S;
 
-                    // Start pen at origin (will be transformed by entity transform)
+                    // Start pen at origin (baseline-anchored, transformed by the entity transform).
                     glm::vec2 pen = glm::vec2(0.0f, 0.0f);
+
+                    // If the text shares its entity with a UIRectComponent (a button/panel),
+                    // center the label inside the rect instead of baseline-anchoring at origin.
+                    // Both share the same TransformComponent, so the rect occupies local [0,Size].
+                    if (const auto* rc = world->GetComponent<UIRectComponent>(entity)) {
+                        float textW = 0.0f;
+                        for (char ch : str) {
+                            const auto uc = static_cast<unsigned char>(ch);
+                            if (uc < 128u) textW += atlas->glyphs[uc].advance.x;
+                        }
+                        pen.x = (rc->Size.x - textW) * 0.5f;
+                        // Baseline at vertical center + ~half cap-height so glyphs straddle the middle.
+                        pen.y = rc->Size.y * 0.5f + static_cast<float>(fontSize) * 0.35f;
+                    }
 
                     // Iterate through each character
                     for (size_t k = 0; k < str.length() && out < glyphCount; ++k) {
