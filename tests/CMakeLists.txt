@@ -213,3 +213,31 @@ set_target_properties(test_shadowmath PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_worldserial
+    test_worldserial.cpp
+    ${CMAKE_SOURCE_DIR}/src/engine/src/rendering/Fog.cpp
+)
+
+target_link_libraries(test_worldserial PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+    nlohmann_json::nlohmann_json
+)
+
+target_include_directories(test_worldserial PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/engine/src/rendering
+)
+
+target_compile_definitions(test_worldserial PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_worldserial PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)

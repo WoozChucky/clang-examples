@@ -213,8 +213,16 @@ void GameUpdate(GameState* state) {
 	        g_GameState->World.SetSingleton(FreeLookControlComponent{});
 	        g_GameState->World.SetSingleton(WorldCameraComponent{});
 	        g_GameState->World.SetSingleton(AppControlComponent{});
-	        g_GameState->World.SetSingleton(DayNightConfigComponent{});
 	        g_GameState->World.SetSingleton(AtmosphereStateComponent{});
+	        // Persisted scene atmosphere: a startup world.json load (which runs before the
+	        // first GameUpdate) may have already set these from the "Environment" block.
+	        // Seed defaults only when absent so loaded values are not clobbered.
+	        if (!g_GameState->World.GetSingleton<DayNightConfigComponent>())
+	            g_GameState->World.SetSingleton(DayNightConfigComponent{});
+	        if (!g_GameState->World.GetSingleton<FogComponent>())
+	            g_GameState->World.SetSingleton(FogComponent{});
+	        if (!g_GameState->World.GetSingleton<SkyComponent>())
+	            g_GameState->World.SetSingleton(SkyComponent{});
 
 	        // World loaded from world.json is authoritative — skip default spawns
 	        // to prevent duplicates. Defaults exist only as a Unity-like fallback

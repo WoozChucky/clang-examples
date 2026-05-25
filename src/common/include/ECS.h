@@ -145,6 +145,32 @@ struct DayNightConfigComponent {
 struct AtmosphereStateComponent {
     glm::vec4 AmbientColor = glm::vec4(0.08f, 0.08f, 0.08f, 1.0f); // rgb = omnidirectional ambient
 };
+
+// Scene-authored fog. Singleton component (one per world), serialized in world.json.
+// Defaults reproduce the previous FogSettings values exactly.
+struct FogComponent {
+    bool      Enabled      = true;
+    float     DayDensity   = 0.0f;                            // no fog at full day
+    float     NightDensity = 0.09f;                           // noticeable at night
+    glm::vec3 DayColor     = glm::vec3(0.60f, 0.70f, 0.80f);  // hazy blue-grey
+    glm::vec3 NightColor   = glm::vec3(0.03f, 0.04f, 0.08f);  // dark blue
+};
+
+// Scene-authored procedural sky. Singleton component, serialized in world.json.
+// Defaults reproduce the previous SkySettings values exactly.
+struct SkyComponent {
+    bool      Enabled       = true;
+    glm::vec3 DayZenith     = glm::vec3(0.20f, 0.40f, 0.85f);
+    glm::vec3 DayHorizon    = glm::vec3(0.70f, 0.80f, 0.95f);
+    glm::vec3 NightZenith   = glm::vec3(0.01f, 0.02f, 0.06f);
+    glm::vec3 NightHorizon  = glm::vec3(0.04f, 0.05f, 0.12f);
+    glm::vec3 SunColor      = glm::vec3(1.00f, 0.95f, 0.80f);
+    float     SunRadiusDeg  = 3.0f;
+    float     SunGlow       = 64.0f;   // halo falloff exponent (higher = tighter)
+    glm::vec3 MoonColor     = glm::vec3(0.80f, 0.85f, 1.00f);
+    float     MoonRadiusDeg = 2.5f;
+    float     MoonGlow      = 128.0f;
+};
 struct AppControlComponent     { bool  QuitRequested = false; };
 struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; };
 
@@ -167,6 +193,8 @@ struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; 
     X(FreeLookControlComponent) \
     X(DayNightConfigComponent) \
     X(AtmosphereStateComponent) \
+    X(FogComponent) \
+    X(SkyComponent) \
     X(AppControlComponent) \
     X(ViewportComponent)
 

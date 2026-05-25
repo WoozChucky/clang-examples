@@ -241,7 +241,11 @@ void LightingRenderPass::Render(nvrhi::ICommandList* commandList,
     const FogFrame& fog = m_Renderer->GetFrameFog();
     cb.CameraPos = glm::vec4(cam.Position, 1.0f);
     cb.Fog = glm::vec4(fog.Color, fog.Density);
-    cb.FogEnabled = GetFogSettings().Enabled ? 1 : 0;
+    bool fogEnabled = true;
+    if (world) {
+        if (const auto* f = world->GetSingleton<FogComponent>()) fogEnabled = f->Enabled;
+    }
+    cb.FogEnabled = fogEnabled ? 1 : 0;
     commandList->writeBuffer(m_FrameCB, &cb, sizeof(cb));
 
     if (m_PointLightBuffer && pointLightCount > 0)

@@ -252,6 +252,14 @@ private:
             if (auto* cfg = componentData.Get<DayNightConfigComponent>()) {
                 world.AddComponent(entity, *cfg); // AddComponent updates if present
             }
+        } else if (componentData.Type == std::type_index(typeid(FogComponent))) {
+            if (auto* fog = componentData.Get<FogComponent>()) {
+                world.AddComponent(entity, *fog);
+            }
+        } else if (componentData.Type == std::type_index(typeid(SkyComponent))) {
+            if (auto* sky = componentData.Get<SkyComponent>()) {
+                world.AddComponent(entity, *sky);
+            }
         }
         // Add more component types as needed
     }
@@ -272,6 +280,10 @@ private:
             world.RemoveComponent<SunMarker>(entity);
         } else if (typeIndex == std::type_index(typeid(DayNightConfigComponent))) {
             world.RemoveComponent<DayNightConfigComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(FogComponent))) {
+            world.RemoveComponent<FogComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(SkyComponent))) {
+            world.RemoveComponent<SkyComponent>(entity);
         }
         // Add more component types as needed
     }

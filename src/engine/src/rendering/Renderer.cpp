@@ -252,11 +252,14 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                             if (l.Type == LightningType::Directional) sunDir = glm::vec3(l.Direction);
                         });
                 }
-                const FogSettings& fogSettings = GetFogSettings();
+                FogComponent fogComp{};
+                if (world) {
+                    if (const auto* f = world->GetSingleton<FogComponent>()) fogComp = *f;
+                }
                 // Always resolve fog: LightingRenderPass reads m_FrameFog regardless of Enabled.
-                m_FrameFog = ComputeFog(sunDir, fogSettings);
+                m_FrameFog = ComputeFog(sunDir, fogComp);
 
-                const auto sceneClear = fogSettings.Enabled
+                const auto sceneClear = fogComp.Enabled
                     ? nvrhi::Color(m_FrameFog.Color.r, m_FrameFog.Color.g, m_FrameFog.Color.b, 1.0f)
                     : nvrhi::Color(red, green, blue, 1.0f);
                 nvrhi::utils::ClearColorAttachment(m_CommandList, sceneBuffer, 0, sceneClear);
