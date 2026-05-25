@@ -162,7 +162,8 @@ public:
         ctx.world.Each<PlayerComponent, TransformComponent>([&](EntityId e) {
             float speed = 5.0f;
             if (const auto* p = ctx.world.GetComponent<PlayerComponent>(e)) speed = p->MoveSpeed;
-            const glm::vec3 delta = ComputePlanarMove(*in, speed, dt);
+            // Align movement to the isometric camera yaw so W = "up the screen".
+            const glm::vec3 delta = ComputePlanarMove(*in, speed, dt, glm::radians(kPoE2Follow.YawDeg));
             if (delta.x != 0.0f || delta.z != 0.0f)
                 ctx.world.Modify<TransformComponent>(e, [&](TransformComponent& t){ t.Position += delta; });
         });
