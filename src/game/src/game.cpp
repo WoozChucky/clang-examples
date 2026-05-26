@@ -321,8 +321,9 @@ public:
         // ESC returns to the menu while in-level (replaces the old always-quit ESC binding).
         const auto* in = ctx.world.GetSingleton<InputStateComponent>();
         const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
-        if (in && gs && gs->Current == GameStateId::InLevel && in->Pressed[KEY_ESCAPE])
-            SetState(ctx, GameStateId::MainMenu);
+        if (in && /*gs && gs->Current == GameStateId::InLevel &&*/ in->Pressed[KEY_ESCAPE])
+            ctx.world.ModifySingleton<AppControlComponent>([](AppControlComponent& a){ a.QuitRequested = true; });
+            // SetState(ctx, GameStateId::MainMenu);
     }
     const char* Name() const override { return "AppFlowSystem"; }
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
