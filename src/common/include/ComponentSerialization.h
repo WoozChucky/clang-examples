@@ -122,6 +122,40 @@ inline void from_json(const nlohmann::json& j, PlayerComponent& t) {
     j.at("MoveSpeed").get_to(t.MoveSpeed);
 }
 
+inline void to_json(nlohmann::json& j, const UIRectComponent& t) {
+    j = nlohmann::json{
+        {"Size", {{"X", t.Size.x}, {"Y", t.Size.y}}},
+        {"Color", t.Color}   // glm::vec4 round-trips via its registered nlohmann serializer
+    };
+}
+inline void from_json(const nlohmann::json& j, UIRectComponent& t) {
+    t.Size.x = j.at("Size").at("X").get<float>();
+    t.Size.y = j.at("Size").at("Y").get<float>();
+    j.at("Color").get_to(t.Color);
+}
+
+inline void to_json(nlohmann::json& j, const StateScopeComponent& t) {
+    j = nlohmann::json{{"StateMask", t.StateMask}};
+}
+inline void from_json(const nlohmann::json& j, StateScopeComponent& t) {
+    j.at("StateMask").get_to(t.StateMask);
+}
+
+inline void to_json(nlohmann::json& j, const MenuButtonComponent& t) {
+    j = nlohmann::json{
+        {"ActionId", t.ActionId},
+        {"Normal", t.Normal},
+        {"Hover",  t.Hover},
+        {"Press",  t.Press}
+    };
+}
+inline void from_json(const nlohmann::json& j, MenuButtonComponent& t) {
+    j.at("ActionId").get_to(t.ActionId);
+    j.at("Normal").get_to(t.Normal);
+    j.at("Hover").get_to(t.Hover);
+    j.at("Press").get_to(t.Press);
+}
+
 // ----- Atmosphere components (new) -----
 
 inline void to_json(nlohmann::json& j, const FogComponent& t) {

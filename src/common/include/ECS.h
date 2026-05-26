@@ -21,6 +21,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "input.h"
+#include "GameStateId.h"
 
 // Cross-DLL export annotation. Defined as dllexport in ecs.dll's TU,
 // dllimport everywhere else. Allow override (defining ECS_API empty
@@ -113,6 +114,8 @@ struct InputStateComponent {
     double  MouseX = 0.0, MouseY = 0.0;
     double  MouseDX = 0.0, MouseDY = 0.0;
     int32_t Wheel = 0;
+    bool    MouseDown[MOUSE_BUTTON_LAST + 1]    = {};   // held this tick
+    bool    MousePressed[MOUSE_BUTTON_LAST + 1] = {};   // pressed this tick (cleared each drain)
 };
 struct WorldCameraComponent {
     glm::mat4 View{1.0f};
@@ -169,11 +172,60 @@ struct SkyComponent {
     float     MoonGlow      = 128.0f;
 };
 struct AppControlComponent     { bool  QuitRequested = false; };
-struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; };
+struct ViewportComponent       { uint32_t Width = 1920; uint32_t Height = 1080; uint32_t OriginX = 0; uint32_t OriginY = 0; };
+
+// Solid screen-space UI quad (authorable). Positioned by TransformComponent (top-left, pixels);
+// rendered by UiRenderPass via the UI shader's solid-color path. Size is in pixels.
+struct UIRectComponent {
+    glm::vec2 Size{160.0f, 48.0f};
+    glm::vec4 Color{0.15f, 0.15f, 0.18f, 1.0f};
+};
+
+// Scopes an entity to one or more game states (bit i = GameStateId value i; 0 = always-on).
+// The UI renderer + menu interaction only act on entities whose scope allows the current state.
+struct StateScopeComponent {
+    uint32_t StateMask = 0;
+};
+
+// Marks a UI-rect entity as a clickable menu button (authored). ActionId is an Actions:: id
+// (data binding to behavior; 0 = none). The interaction system drives UIRectComponent.Color
+// between Normal/Hover/Press based on the pointer.
+struct MenuButtonComponent {
+    uint32_t  ActionId = 0;
+    glm::vec4 Normal{0.15f, 0.15f, 0.18f, 1.0f};
+    glm::vec4 Hover {0.25f, 0.25f, 0.30f, 1.0f};
+    glm::vec4 Press {0.35f, 0.35f, 0.42f, 1.0f};
+};
+
+// Runtime singleton: the button currently held under a left-press (click latch). 0 = none.
+// Not persisted, not authored (seeded in the boot block like ActionQueueComponent).
+struct MenuStateComponent {
+    EntityId ArmedButton = 0;
+};
 
 // Marks the player-controlled entity. Moved by PlayerMovementSystem (game) from input.
 struct PlayerComponent {
     float MoveSpeed = 5.0f; // world units / second
+};
+
+// Current game lifecycle state (singleton). Authoritative source of truth: AppFlowSystem
+// writes Current; systems + the renderer read it. Not persisted in world.json (runtime).
+struct GameStateComponent {
+    GameStateId Current = GameStateId::MainMenu;
+};
+
+// One queued UI/game action. Producers (menu interaction, Phase 4) push; owning systems
+// consume by ActionId. Param is a generic payload; Source is the emitting entity (0 = none).
+struct ActionEvent {
+    uint32_t ActionId = 0;
+    EntityId Source   = 0;
+    uint64_t Param    = 0;
+};
+
+// Per-tick action queue (singleton). Cleared at the top of each GameUpdate tick and drained
+// by consumer systems the same tick. Not persisted.
+struct ActionQueueComponent {
+    std::vector<ActionEvent> Events;
 };
 
 // X-macro: single source of truth for the set of component types that get
@@ -199,7 +251,13 @@ struct PlayerComponent {
     X(AppControlComponent) \
     X(ViewportComponent) \
     X(PlayerComponent) \
-    X(CameraZoomComponent)
+    X(CameraZoomComponent) \
+    X(GameStateComponent) \
+    X(ActionQueueComponent) \
+    X(UIRectComponent) \
+    X(StateScopeComponent) \
+    X(MenuButtonComponent) \
+    X(MenuStateComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

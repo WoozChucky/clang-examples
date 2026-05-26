@@ -11,6 +11,7 @@
 #include <glm/glm.hpp>
 
 #include "ApplicationContext.h"
+#include "Actions.h"
 #include "ECSCommands.h"
 #include "MeshSystem.h"
 #include "MaterialSystem.h"
@@ -176,6 +177,31 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                     }
                 }
 
+                if (!ctx.WorldSnapshot->HasComponent<UIRectComponent>(entity)) {
+                    if (ImGui::MenuItem("Add UI Rect Component")) {
+                        ECSCommand addCmd = ECSCommand::AddComponent(entity, UIRectComponent{});
+                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
+                            SM_WARN("ECS command queue full! Add component command dropped.");
+                        }
+                    }
+                }
+                if (!ctx.WorldSnapshot->HasComponent<StateScopeComponent>(entity)) {
+                    if (ImGui::MenuItem("Add State Scope Component")) {
+                        ECSCommand addCmd = ECSCommand::AddComponent(entity, StateScopeComponent{});
+                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
+                            SM_WARN("ECS command queue full! Add component command dropped.");
+                        }
+                    }
+                }
+                if (!ctx.WorldSnapshot->HasComponent<MenuButtonComponent>(entity)) {
+                    if (ImGui::MenuItem("Add Menu Button Component")) {
+                        ECSCommand addCmd = ECSCommand::AddComponent(entity, MenuButtonComponent{});
+                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
+                            SM_WARN("ECS command queue full! Add component command dropped.");
+                        }
+                    }
+                }
+
                 ImGui::Separator();
 
                 // Remove component options
@@ -236,6 +262,31 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                 if (ctx.WorldSnapshot->HasComponent<PlayerComponent>(entity)) {
                     if (ImGui::MenuItem("Remove Player Component")) {
                         ECSCommand removeCmd = ECSCommand::RemoveComponent<PlayerComponent>(entity);
+                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
+                            SM_WARN("ECS command queue full! Remove component command dropped.");
+                        }
+                    }
+                }
+
+                if (ctx.WorldSnapshot->HasComponent<UIRectComponent>(entity)) {
+                    if (ImGui::MenuItem("Remove UI Rect Component")) {
+                        ECSCommand removeCmd = ECSCommand::RemoveComponent<UIRectComponent>(entity);
+                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
+                            SM_WARN("ECS command queue full! Remove component command dropped.");
+                        }
+                    }
+                }
+                if (ctx.WorldSnapshot->HasComponent<StateScopeComponent>(entity)) {
+                    if (ImGui::MenuItem("Remove State Scope Component")) {
+                        ECSCommand removeCmd = ECSCommand::RemoveComponent<StateScopeComponent>(entity);
+                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
+                            SM_WARN("ECS command queue full! Remove component command dropped.");
+                        }
+                    }
+                }
+                if (ctx.WorldSnapshot->HasComponent<MenuButtonComponent>(entity)) {
+                    if (ImGui::MenuItem("Remove Menu Button Component")) {
+                        ECSCommand removeCmd = ECSCommand::RemoveComponent<MenuButtonComponent>(entity);
                         if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
                             SM_WARN("ECS command queue full! Remove component command dropped.");
                         }
@@ -664,6 +715,113 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                                 SM_WARN("ECS command queue full! Modify command dropped.");
                             }
                             playerModified = false;
+                        }
+                    }
+                }
+            }
+
+            // Edit UI Rect Component
+            if (ctx.WorldSnapshot->HasComponent<UIRectComponent>(selectedEntity)) {
+                if (ImGui::CollapsingHeader("UI Rect Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto* rect = ctx.WorldSnapshot->GetComponent<UIRectComponent>(selectedEntity);
+                    if (rect) {
+                        if (lastEditedUIRectEntity != selectedEntity) {
+                            editUIRect = *rect;
+                            lastEditedUIRectEntity = selectedEntity;
+                            uiRectModified = false;
+                        }
+                        if (!uiRectModified) {
+                            editUIRect = *rect;
+                        }
+                        if (ImGui::DragFloat2("Size (px)", &editUIRect.Size.x, 1.0f, 1.0f, 4096.0f, "%.0f")) {
+                            uiRectModified = true;
+                        }
+                        if (ImGui::ColorEdit4("Color##UIRect", &editUIRect.Color.x)) {
+                            uiRectModified = true;
+                        }
+                        ImGui::Spacing();
+                        if (uiRectModified) {
+                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editUIRect);
+                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
+                                SM_WARN("ECS command queue full! Modify command dropped.");
+                            }
+                            uiRectModified = false;
+                        }
+                    }
+                }
+            }
+
+            // Edit State Scope Component (one checkbox per state; mask bit i = GameStateId i)
+            if (ctx.WorldSnapshot->HasComponent<StateScopeComponent>(selectedEntity)) {
+                if (ImGui::CollapsingHeader("State Scope Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto* scope = ctx.WorldSnapshot->GetComponent<StateScopeComponent>(selectedEntity);
+                    if (scope) {
+                        if (lastEditedScopeEntity != selectedEntity) {
+                            editScope = *scope;
+                            lastEditedScopeEntity = selectedEntity;
+                            scopeModified = false;
+                        }
+                        if (!scopeModified) {
+                            editScope = *scope;
+                        }
+                        ImGui::TextDisabled("Active in states (none = always):");
+                        struct { const char* label; GameStateId id; } kStates[] = {
+                            {"Main Menu", GameStateId::MainMenu},
+                            {"In Level",  GameStateId::InLevel},
+                            {"In Editor", GameStateId::InEditor},
+                            {"Paused",    GameStateId::Paused},
+                        };
+                        for (const auto& s : kStates) {
+                            const uint32_t bit = 1u << static_cast<uint32_t>(s.id);
+                            bool on = (editScope.StateMask & bit) != 0u;
+                            if (ImGui::Checkbox(s.label, &on)) {
+                                if (on) editScope.StateMask |= bit; else editScope.StateMask &= ~bit;
+                                scopeModified = true;
+                            }
+                        }
+                        ImGui::Spacing();
+                        if (scopeModified) {
+                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editScope);
+                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
+                                SM_WARN("ECS command queue full! Modify command dropped.");
+                            }
+                            scopeModified = false;
+                        }
+                    }
+                }
+            }
+
+            // Edit Menu Button Component
+            if (ctx.WorldSnapshot->HasComponent<MenuButtonComponent>(selectedEntity)) {
+                if (ImGui::CollapsingHeader("Menu Button Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto* btn = ctx.WorldSnapshot->GetComponent<MenuButtonComponent>(selectedEntity);
+                    if (btn) {
+                        if (lastEditedMenuBtnEntity != selectedEntity) {
+                            editMenuBtn = *btn;
+                            lastEditedMenuBtnEntity = selectedEntity;
+                            menuBtnModified = false;
+                        }
+                        if (!menuBtnModified) {
+                            editMenuBtn = *btn;
+                        }
+                        static const char* kActionNames[] = { "None", "Play", "Quit", "Back" };
+                        static const uint32_t kActionIds[] = { Actions::None, Actions::Play, Actions::Quit, Actions::Back };
+                        int curIdx = 0;
+                        for (int i = 0; i < 4; ++i) if (editMenuBtn.ActionId == kActionIds[i]) curIdx = i;
+                        if (ImGui::Combo("Action", &curIdx, kActionNames, 4)) {
+                            editMenuBtn.ActionId = kActionIds[curIdx];
+                            menuBtnModified = true;
+                        }
+                        if (ImGui::ColorEdit4("Normal##MenuBtn", &editMenuBtn.Normal.x)) menuBtnModified = true;
+                        if (ImGui::ColorEdit4("Hover##MenuBtn",  &editMenuBtn.Hover.x))  menuBtnModified = true;
+                        if (ImGui::ColorEdit4("Press##MenuBtn",  &editMenuBtn.Press.x))  menuBtnModified = true;
+                        ImGui::Spacing();
+                        if (menuBtnModified) {
+                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editMenuBtn);
+                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
+                                SM_WARN("ECS command queue full! Modify command dropped.");
+                            }
+                            menuBtnModified = false;
                         }
                     }
                 }

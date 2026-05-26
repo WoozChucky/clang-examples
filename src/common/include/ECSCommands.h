@@ -212,15 +212,20 @@ public:
     }
 
 private:
-    // Copy the editor-facing per-entity components from src to dst (the same set ApplyComponentCommand
-    // handles). Deliberately excludes singletons (cameras/viewport/input) and hierarchy (Parent/Child).
+    // Copy the editor-facing per-entity components from src to dst. Deliberately excludes
+    // singletons (cameras/viewport/input/atmosphere/game-state/action-queue) and hierarchy
+    // (Parent/Child). Keep in sync when a new authorable per-entity component is added.
     static void DuplicateEntityComponents(ECS& world, EntityId src, EntityId dst) {
-        if (auto* c = world.GetComponent<TransformComponent>(src)) world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<LightningComponent>(src)) world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<MeshComponent>(src))      world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<MaterialComponent>(src))  world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<TextComponent>(src))      world.AddComponent(dst, *c);
-        if (world.HasComponent<SunMarker>(src))                    world.AddComponent(dst, SunMarker{});
+        if (auto* c = world.GetComponent<TransformComponent>(src))  world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<LightningComponent>(src))  world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<MeshComponent>(src))       world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<MaterialComponent>(src))   world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<TextComponent>(src))       world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<PlayerComponent>(src))     world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<UIRectComponent>(src))     world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<StateScopeComponent>(src)) world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<MenuButtonComponent>(src))  world.AddComponent(dst, *c);
+        if (world.HasComponent<SunMarker>(src))                     world.AddComponent(dst, SunMarker{});
     }
 
     // Apply a component command (add or modify)
@@ -264,6 +269,18 @@ private:
             if (auto* player = componentData.Get<PlayerComponent>()) {
                 world.AddComponent(entity, *player);
             }
+        } else if (componentData.Type == std::type_index(typeid(UIRectComponent))) {
+            if (auto* rect = componentData.Get<UIRectComponent>()) {
+                world.AddComponent(entity, *rect);
+            }
+        } else if (componentData.Type == std::type_index(typeid(StateScopeComponent))) {
+            if (auto* scope = componentData.Get<StateScopeComponent>()) {
+                world.AddComponent(entity, *scope);
+            }
+        } else if (componentData.Type == std::type_index(typeid(MenuButtonComponent))) {
+            if (auto* btn = componentData.Get<MenuButtonComponent>()) {
+                world.AddComponent(entity, *btn);
+            }
         }
         // Add more component types as needed
     }
@@ -290,6 +307,12 @@ private:
             world.RemoveComponent<SkyComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(PlayerComponent))) {
             world.RemoveComponent<PlayerComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(UIRectComponent))) {
+            world.RemoveComponent<UIRectComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(StateScopeComponent))) {
+            world.RemoveComponent<StateScopeComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(MenuButtonComponent))) {
+            world.RemoveComponent<MenuButtonComponent>(entity);
         }
         // Add more component types as needed
     }

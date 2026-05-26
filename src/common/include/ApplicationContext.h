@@ -146,6 +146,11 @@ struct ApplicationContext {
     // camera aspect + UI ortho. The runtime never writes it, so it keeps the full-window aspect.
     std::atomic<uint64_t> SceneViewportSize{0};
 
+    // Editor scene-viewport top-left in window coords, packed (originX<<32 | originY).
+    // Written by the editor overlay (RenderThread); read by the GameThread to map the
+    // window-space mouse into UI/viewport space. The runtime never writes it (stays 0).
+    std::atomic<uint64_t> SceneViewportOrigin{0};
+
     // Editor input routing (RenderThread writes, PlatformThread reads). Default true so the
     // runtime and the editor's first frame route all input to the game; the editor overlay
     // overwrites these every frame from the Viewport panel's hover/focus + ImGui capture state.

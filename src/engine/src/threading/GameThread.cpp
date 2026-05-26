@@ -392,7 +392,10 @@ void GameThread::RunLoop() {
 			const uint64_t sv = m_AppContext->SceneViewportSize.load(std::memory_order_relaxed);
 			const uint32_t vw = sv ? uint32_t(sv >> 32) : m_AppContext->Settings.windowWidth;
 			const uint32_t vh = sv ? uint32_t(sv & 0xffffffffu) : m_AppContext->Settings.windowHeight;
-			gameState.World.ModifySingleton<ViewportComponent>([&](ViewportComponent& v){ v.Width = vw; v.Height = vh; });
+			const uint64_t so = m_AppContext->SceneViewportOrigin.load(std::memory_order_relaxed);
+			const uint32_t ox = uint32_t(so >> 32);
+			const uint32_t oy = uint32_t(so & 0xffffffffu);
+			gameState.World.ModifySingleton<ViewportComponent>([&](ViewportComponent& v){ v.Width = vw; v.Height = vh; v.OriginX = ox; v.OriginY = oy; });
 			gameState.World.ModifySingleton<UICameraComponent>([&](UICameraComponent& ui){
 				ui.Projection = glm::orthoRH_ZO(0.0f, float(vw), float(vh), 0.0f, -1.0f, 1.0f);
 				ui.View = glm::mat4(1.0f);
@@ -522,6 +525,7 @@ void GameThread::DrainInputToSingleton(GameState& state) {
     state.World.ModifySingleton<InputStateComponent>([&](InputStateComponent& s) {
         std::memset(s.Pressed, 0, sizeof(s.Pressed));
         s.Wheel = 0;
+        std::memset(s.MousePressed, 0, sizeof(s.MousePressed));
         InputEvent ev{};
         while (m_AppContext->InputRing.Pop(ev)) {
             if (ev.Type == InputEventType::Key) {
@@ -536,6 +540,12 @@ void GameThread::DrainInputToSingleton(GameState& state) {
                 s.MouseY = ev.MouseMoveEvent.Y;
             } else if (ev.Type == InputEventType::MouseWheel) {
                 s.Wheel = static_cast<int32_t>(ev.MouseScrollEvent.OffsetY);
+            } else if (ev.Type == InputEventType::MouseButton) {
+                const int b = static_cast<int>(ev.MouseButtonEvent.Button);
+                if (b >= 0 && b <= MOUSE_BUTTON_LAST) {
+                    if (ev.MouseButtonEvent.Action == PRESS)   { s.MouseDown[b] = true; s.MousePressed[b] = true; }
+                    if (ev.MouseButtonEvent.Action == RELEASE) {  s.MouseDown[b] = false; }
+                }
             }
         }
         s.MouseDX = s.MouseX - prevX;

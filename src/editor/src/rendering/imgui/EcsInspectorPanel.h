@@ -42,5 +42,17 @@ private:
     EntityId           lastEditedPlayerEntity = INVALID_ENTITY;
     bool               playerModified = false;
 
+    UIRectComponent editUIRect{};
+    EntityId        lastEditedUIRectEntity = 0;
+    bool            uiRectModified = false;
+
+    StateScopeComponent editScope{};
+    EntityId            lastEditedScopeEntity = 0;
+    bool                scopeModified = false;
+
+    MenuButtonComponent editMenuBtn{};
+    EntityId            lastEditedMenuBtnEntity = 0;
+    bool                menuBtnModified = false;
+
     GizmoController    m_Gizmo;
 };

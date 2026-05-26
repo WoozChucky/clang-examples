@@ -427,15 +427,26 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         // Viewport pick: left-click selects the entity under the cursor (edit mode). Skip when
         // over/using a gizmo (that click manipulates the gizmo). Empty space -> deselect.
         if (m_ViewportHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
-            && !ImGuizmo::IsOver() && !ImGuizmo::IsUsing() && !io.KeyAlt) {
+            && !ImGuizmo::IsOver() && !ImGuizmo::IsUsing() && !io.KeyAlt && ctx.EditorCameraActive) {
             m_EcsInspector.SetSelectedEntity(PickEntity(ctx, io.MousePos.x, io.MousePos.y));
         }
 
         // Publish the panel size for the GameThread (camera aspect + UI ortho).
-        if (m_AppContext)
+        if (m_AppContext) {
             m_AppContext->SceneViewportSize.store(
                 (static_cast<uint64_t>(m_LastViewportW) << 32) | static_cast<uint64_t>(m_LastViewportH),
                 std::memory_order_relaxed);
+            // Scene-viewport image top-left (screen-space, same value the picker uses) so the
+            // GameThread can offset the window-space mouse into UI space.
+            // Clamp to >= 0 before the unsigned cast: a detached Viewport dragged off the
+            // top-left can yield a negative GetCursorScreenPos(), and float->uint32 of a
+            // negative value is UB.
+            const uint32_t originX = static_cast<uint32_t>(m_ViewportImageMinX > 0.0f ? m_ViewportImageMinX : 0.0f);
+            const uint32_t originY = static_cast<uint32_t>(m_ViewportImageMinY > 0.0f ? m_ViewportImageMinY : 0.0f);
+            m_AppContext->SceneViewportOrigin.store(
+                (static_cast<uint64_t>(originX) << 32) | static_cast<uint64_t>(originY),
+                std::memory_order_relaxed);
+        }
 
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::BeginFrame();

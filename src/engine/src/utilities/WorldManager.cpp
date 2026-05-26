@@ -51,6 +51,15 @@ bool WorldManager::SaveWorldSnapshot(const std::string& filepath, const ECS* wor
         if (world->HasComponent<PlayerComponent>(entity)) {
             jEntity["PlayerComponent"] = *(world->GetComponent<PlayerComponent>(entity));
         }
+        if (world->HasComponent<UIRectComponent>(entity)) {
+            jEntity["UIRectComponent"] = *(world->GetComponent<UIRectComponent>(entity));
+        }
+        if (world->HasComponent<StateScopeComponent>(entity)) {
+            jEntity["StateScopeComponent"] = *(world->GetComponent<StateScopeComponent>(entity));
+        }
+        if (world->HasComponent<MenuButtonComponent>(entity)) {
+            jEntity["MenuButtonComponent"] = *(world->GetComponent<MenuButtonComponent>(entity));
+        }
 
         j["Entities"].push_back(jEntity);
     }
@@ -108,6 +117,12 @@ bool WorldManager::LoadWorldSnapshot(const std::string& filepath, ECS* world) {
                 world->AddComponent(createdEntity, SunMarker{});
             if (jEntity.contains("PlayerComponent"))
                 world->AddComponent(createdEntity, jEntity["PlayerComponent"].get<PlayerComponent>());
+            if (jEntity.contains("UIRectComponent"))
+                world->AddComponent(createdEntity, jEntity["UIRectComponent"].get<UIRectComponent>());
+            if (jEntity.contains("StateScopeComponent"))
+                world->AddComponent(createdEntity, jEntity["StateScopeComponent"].get<StateScopeComponent>());
+            if (jEntity.contains("MenuButtonComponent"))
+                world->AddComponent(createdEntity, jEntity["MenuButtonComponent"].get<MenuButtonComponent>());
         }
 
         // Apply scene atmosphere if present. Singletons survive Clear(), so when the
