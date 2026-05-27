@@ -282,6 +282,28 @@ struct NavMeshConfigComponent {
     int   MaxObstacles   = 128;    // dtTileCache pre-alloc (unused in Spec 1; plumbed for Spec 2)
 };
 
+// Recast TileCache obstacle shapes. Distinct from ColliderShape because Recast has
+// no Sphere obstacle (Cylinder is the radial primitive) and obstacle/collision
+// footprints may diverge (e.g., gameplay buffer wider than visual collision).
+enum class NavObstacleShape : uint8_t {
+    Cylinder = 0,   // dtTileCache::addObstacle(pos, radius, height)
+    Box      = 1,   // dtTileCache::addBoxObstacle(bmin, bmax)
+};
+
+// Per-entity dynamic nav obstacle. Carves walkable area on the live navmesh via
+// dtTileCache. Sync system queues addObstacle when the component appears,
+// removeObstacle when it disappears, remove + re-add when Transform.Position
+// moves > epsilon. Persisted in world.json so authors can place permanent
+// obstacles in the editor.
+struct NavObstacleComponent {
+    NavObstacleShape Shape = NavObstacleShape::Cylinder;
+    // Cylinder: x = radius, y = height (z unused).
+    // Box:      half-extents.
+    glm::vec3 Size{0.5f, 1.0f, 0.5f};
+    // Local-space center offset from Transform.Position (mirrors ColliderComponent).
+    glm::vec3 Offset{0.0f};
+};
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -315,7 +337,8 @@ struct NavMeshConfigComponent {
     X(ColliderComponent) \
     X(MoveIntentComponent) \
     X(NavMeshSourceComponent) \
-    X(NavMeshConfigComponent)
+    X(NavMeshConfigComponent) \
+    X(NavObstacleComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)
