@@ -3,6 +3,12 @@
 
 #include <imgui.h>
 
+#include <chrono>
+#include <ctime>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+
 #include "ECS.h"
 #include "ECSCommands.h"
 #include "ApplicationContext.h" // ctx.App->ECSCommandRing
@@ -10,6 +16,8 @@
 
 #include "navigation/NavMeshSystem.h"
 #include "navigation/NavMesh.h"
+
+#include "WorldManager.h"  // DEFAULT_WORLD_SNAPSHOT_PATH (path hardcode source)
 
 namespace {
     // Push a singleton-component edit through the command ring (RenderThread ->
@@ -22,6 +30,59 @@ namespace {
         if (!ctx.App->ECSCommandRing.Push(cmd)) {
             SM_WARN("NavigationPanel: ECSCommandRing full, %s edit dropped", what);
         }
+    }
+
+    // Format a uint64 epoch-seconds as "YYYY-MM-DD HH:MM:SS UTC" string. Returns
+    // "(invalid)" on epoch == 0 or any time-conversion error.
+    std::string FormatEpochUtc(uint64_t epochSeconds) {
+        if (epochSeconds == 0) return "(invalid)";
+        std::time_t t = static_cast<std::time_t>(epochSeconds);
+        std::tm tm{};
+#ifdef _WIN32
+        if (gmtime_s(&tm, &t) != 0) return "(invalid)";
+#else
+        if (!gmtime_r(&t, &tm)) return "(invalid)";
+#endif
+        char buf[64];
+        if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S UTC", &tm) == 0) {
+            return "(invalid)";
+        }
+        return std::string(buf);
+    }
+
+    // Read just the bake-file header to extract BakeEpoch + WorldMtimeAtBakeTime.
+    // Returns false on missing file, bad magic, or short read. 24-byte read.
+    struct BakeHeaderInfo {
+        bool     Exists = false;
+        bool     ValidMagic = false;
+        uint32_t Version = 0;
+        uint64_t BakeEpoch = 0;
+        uint64_t WorldMtimeAtBake = 0;
+    };
+    BakeHeaderInfo PeekBakeHeader(const std::string& bakePath) {
+        BakeHeaderInfo out;
+        if (!std::filesystem::exists(bakePath)) return out;
+        out.Exists = true;
+        std::ifstream ifs(bakePath, std::ios::binary);
+        if (!ifs) return out;
+        uint32_t magic = 0;
+        ifs.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+        if (!ifs.good() || magic != 0x484D534Eu) return out;
+        out.ValidMagic = true;
+        ifs.read(reinterpret_cast<char*>(&out.Version), sizeof(out.Version));
+        ifs.read(reinterpret_cast<char*>(&out.BakeEpoch), sizeof(out.BakeEpoch));
+        ifs.read(reinterpret_cast<char*>(&out.WorldMtimeAtBake), sizeof(out.WorldMtimeAtBake));
+        return out;
+    }
+
+    uint64_t PanelFileMtimeEpoch(const std::string& path) {
+        std::error_code ec;
+        auto ftime = std::filesystem::last_write_time(path, ec);
+        if (ec) return 0;
+        const auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(ftime);
+        return static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::seconds>(
+                sysTime.time_since_epoch()).count());
     }
 }
 
@@ -51,12 +112,19 @@ void DrawNavigationPanel(const EditorContext& ctx, bool* open)
 
     if (changed) PushSingletonEdit(ctx, world, edited, "nav config");
 
-    // --- Build trigger ---
+    // --- Build / Bake ---
     ImGui::Spacing();
-    if (ImGui::Button("Rebuild NavMesh", ImVec2(-1, 0))) {
+    if (ImGui::Button("Rebuild NavMesh", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - 4.0f, 0))) {
         ECSCommand cmd = ECSCommand::RebuildNavMesh();
         if (!ctx.App->ECSCommandRing.Push(cmd)) {
             SM_WARN("NavigationPanel: ECSCommandRing full, RebuildNavMesh dropped");
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Bake to Disk", ImVec2(-1, 0))) {
+        ECSCommand cmd = ECSCommand::BakeNavMesh();
+        if (!ctx.App->ECSCommandRing.Push(cmd)) {
+            SM_WARN("NavigationPanel: ECSCommandRing full, BakeNavMesh dropped");
         }
     }
 
@@ -72,6 +140,37 @@ void DrawNavigationPanel(const EditorContext& ctx, bool* open)
         ImGui::Text("Polys: %d",       s.PolyCount);
         ImGui::Text("Vert count: %d",  s.VertCount);
         ImGui::Text("Memory: %d KB",   s.MemoryKB);
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("Disk bake");
+
+        const std::string worldPath = WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH;
+        const std::string bakePath = [&worldPath]() {
+            if (worldPath.size() >= 5 && worldPath.compare(worldPath.size() - 5, 5, ".json") == 0) {
+                return worldPath.substr(0, worldPath.size() - 5) + ".navmesh.bin";
+            }
+            return worldPath + ".navmesh.bin";
+        }();
+
+        const BakeHeaderInfo info = PeekBakeHeader(bakePath);
+        const uint64_t currentWorldMtime = PanelFileMtimeEpoch(worldPath);
+
+        ImGui::Text("Disk bake: %s", info.Exists ? "yes" : "no");
+        if (info.Exists) {
+            if (!info.ValidMagic) {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Header: invalid magic");
+            } else {
+                ImGui::Text("World.json mtime: %s", FormatEpochUtc(currentWorldMtime).c_str());
+                ImGui::Text("Last baked: %s", FormatEpochUtc(info.BakeEpoch).c_str());
+                const bool fresh = (info.WorldMtimeAtBake == currentWorldMtime);
+                if (fresh) {
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Fresh? yes");
+                } else {
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                       "Fresh? no (stale — Rebuild will fire on next load)");
+                }
+            }
+        }
     }
 
     ImGui::End();

@@ -20,6 +20,7 @@ enum class ECSCommandType : uint8_t {
     ModifyComponent = 4,
     DuplicateEntity = 5,
     RebuildNavMesh = 6,  // engine hook — dispatched via ECSCommandHooks::OnRebuildNavMesh
+    BakeNavMesh = 7,     // engine hook — dispatched via ECSCommandHooks::OnBakeNavMesh
 };
 
 // Type-erased component storage for commands
@@ -132,6 +133,10 @@ struct ECSCommand {
         return ECSCommand(ECSCommandType::RebuildNavMesh);
     }
 
+    static ECSCommand BakeNavMesh() {
+        return ECSCommand(ECSCommandType::BakeNavMesh);
+    }
+
     template<typename T>
     static ECSCommand AddComponent(EntityId entity, const T& component) {
         return ECSCommand(
@@ -171,6 +176,7 @@ struct ECSCommand {
 // dropped. GameThread populates this with NavMeshSystem::Rebuild for the rebuild case.
 struct ECSCommandHooks {
     std::function<void(ECS&)> OnRebuildNavMesh; // optional
+    std::function<void(ECS&)> OnBakeNavMesh;    // optional — Spec 4 disk bake trigger
 };
 
 class ECSCommandProcessor {
@@ -224,6 +230,11 @@ public:
 
                 case ECSCommandType::RebuildNavMesh: {
                     if (hooks.OnRebuildNavMesh) hooks.OnRebuildNavMesh(world);
+                    break;
+                }
+
+                case ECSCommandType::BakeNavMesh: {
+                    if (hooks.OnBakeNavMesh) hooks.OnBakeNavMesh(world);
                     break;
                 }
             }
