@@ -140,8 +140,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 endif()
 
 # Game.dll is loaded dynamically at runtime via GameLibrary; Engine must NOT
-# link it. Build-order dependency only so Game.dll exists before Engine runs.
-add_dependencies(Engine game)
+# link it. The Game DLL itself now links Engine.dll (for NavMeshSystem and
+# other engine-side services it calls), which means Engine cannot depend on
+# game without creating a CMake target cycle. Build-order is instead enforced
+# by each executable target (editor, runtime) via its own
+# add_dependencies(<exe> game).
 
 # Copy runtime DLLs into the shared output dir so any executable that loads
 # Engine.dll (editor or future runtime) finds them.

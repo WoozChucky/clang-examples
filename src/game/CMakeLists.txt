@@ -44,8 +44,11 @@ add_library(game SHARED
 )
 
 target_include_directories(game PUBLIC include)
+# Navigation system headers (NavMeshSystem.h) live under Engine's src tree.
+# NavObstacleSync.h pulls them in; game links Engine.dll for the imports.
+target_include_directories(game PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 
-target_link_libraries(game PRIVATE glm::glm CommonHeaders ecs)
+target_link_libraries(game PRIVATE glm::glm CommonHeaders ecs Engine)
 
 target_compile_definitions(game PRIVATE GAME_EXPORTS NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES})
 

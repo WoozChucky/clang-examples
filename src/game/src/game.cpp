@@ -3,6 +3,7 @@
 #include "PlayerMovement.h"
 #include "CameraFollow.h"
 #include "Collision.h"
+#include "NavObstacleSync.h"
 #include "MenuHitTest.h" // ToUiSpace + PointInRect
 #include "StateScope.h"  // ScopeAllows
 #include "Actions.h"     // ActionCategory / Actions::
@@ -400,6 +401,7 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<DebugSpawnSystem>());
     s->Register(std::make_unique<PlayerMovementSystem>());            // Simulation: writes MoveIntent
     s->Register(std::make_unique<KinematicMovementSystem>());         // Physics: resolves intent + applies Transform
+    s->Register(std::make_unique<NavObstacleSyncSystem>());           // Physics: syncs NavObstacleComponent → dtTileCache
     s->Register(std::make_unique<CameraZoomSystem>());                // PostSimulation: before follow (sets distance)
     s->Register(std::make_unique<IsometricFollowCameraSystem>());     // PostSimulation: reads post-resolution Transform
 }
