@@ -30,6 +30,7 @@ bool DrawRenderStatsPanel(bool* open)
     changed |= ImGui::Checkbox("Grid",           &dd.ShowGrid);
     changed |= ImGui::Checkbox("Colliders",      &dd.ShowColliders);
     changed |= ImGui::Checkbox("NavMesh",        &dd.ShowNavMesh);
+    changed |= ImGui::Checkbox("Obstacles",      &dd.ShowObstacles);
 
     ImGui::Separator();
     ImGui::TextDisabled("Shadows");

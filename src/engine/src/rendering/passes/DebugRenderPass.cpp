@@ -91,7 +91,7 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
         return;
 
     const DebugDrawSettings& s = GetDebugDrawSettings();
-    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid && !s.ShowColliders && !s.ShowNavMesh)
+    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid && !s.ShowColliders && !s.ShowNavMesh && !s.ShowObstacles)
         return;
 
     m_Verts.clear();
@@ -198,6 +198,22 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
                 DebugAppendLine(m_Verts, edges[i], edges[i + 1], col);
             }
         }
+    }
+
+    if (s.ShowObstacles) {
+        // Magenta — distinct from cyan (trigger), yellow (static), orange (dynamic),
+        // lime green (navmesh), white/grey (grid). Reads as "carved" without conflict.
+        const glm::vec4 col(1.0f, 0.3f, 0.9f, 1.0f);
+        world->Each<NavObstacleComponent, TransformComponent>(
+            [&](EntityId, const NavObstacleComponent& obs, const TransformComponent& tr) {
+                const glm::vec3 worldPos = tr.Position + obs.Offset;
+                if (obs.Shape == NavObstacleShape::Cylinder) {
+                    // Cylinder anchored at base; obs.Size.x = radius, obs.Size.y = height.
+                    DebugAppendCylinder(m_Verts, worldPos, obs.Size.x, obs.Size.y, col);
+                } else {  // Box: DebugAppendBox takes (mn, mx) — convert from (center, halfExtents).
+                    DebugAppendBox(m_Verts, worldPos - obs.Size, worldPos + obs.Size, col);
+                }
+            });
     }
 
     if (m_Verts.empty())
