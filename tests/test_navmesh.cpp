@@ -11,6 +11,7 @@
 #include "navigation/NavMesh.h"
 #include "navigation/NavMeshBuilder.h"
 #include "navigation/NavMeshSystem.h"
+#include "navigation/NavServicesImpl.h"
 
 #include "NavObstacleSync.h"
 #include "NavAgentSystem.h"
@@ -48,6 +49,19 @@ static EntityId SpawnNavBox(ECS& w, glm::vec3 pos, glm::vec3 halfExtents) {
 
 static NavMeshConfigComponent DefaultCfg() {
     return NavMeshConfigComponent{};
+}
+
+// Process-wide NavServices instance for tests that thread it through
+// SystemContext. Lazy-initialized on first call so tests don't pay the
+// init cost when they only test engine-internal NavMesh directly.
+static const NavServices* TestNavServices() {
+    static NavServices svc{};
+    static bool initialized = false;
+    if (!initialized) {
+        NavServicesImpl::Init(svc);
+        initialized = true;
+    }
+    return &svc;
 }
 
 static void T01_empty_world_yields_empty_navmesh() {
@@ -216,7 +230,7 @@ static EntityId SpawnBoxObstacle(ECS& w, const glm::vec3& pos, const glm::vec3& 
 }
 
 static void RunSync(ECS& w, NavObstacleSyncSystem& sync) {
-    SystemContext ctx{ w, 0.016 };
+    SystemContext ctx{ w, 0.016, 0.0, TestNavServices() };
     sync.Update(ctx);
 }
 
@@ -324,7 +338,7 @@ static EntityId SpawnAgent(ECS& w, const glm::vec3& pos, float speed = 3.0f) {
 }
 
 static void RunAgentSystem(ECS& w, NavAgentSystem& sys, double dt = 0.016) {
-    SystemContext ctx{ w, dt, 0.0 };
+    SystemContext ctx{ w, dt, 0.0, TestNavServices() };
     sys.Update(ctx);
 }
 
@@ -507,6 +521,45 @@ static void T23_try_load_from_disk_stale_returns_false() {
     fs::remove(bakePath);
 }
 
+// ---------- NavServices decoupling: T24-T25 ----------
+
+static void T24_navservices_table_forwards_to_navmeshsystem() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+
+    const NavServices* svc = TestNavServices();
+    EXPECT(svc != nullptr);
+    EXPECT(svc->HasMesh != nullptr);
+    EXPECT(svc->FindPath != nullptr);
+    EXPECT(svc->AddCylinderObstacle != nullptr);
+    EXPECT(svc->HasMesh());
+
+    std::vector<glm::vec3> path;
+    svc->FindPath(glm::vec3(-4, 0.5f, 0), glm::vec3(4, 0.5f, 0), 50.0f, &path);
+    EXPECT(path.size() >= 2);
+
+    const uint32_t h = svc->AddCylinderObstacle(glm::vec3(0, 0, 0), 1.0f, 2.0f);
+    EXPECT(h != 0);
+    svc->TrackObstacleForEntity(42, h);
+    EXPECT(svc->FindObstacleForEntity(42) == h);
+    svc->UntrackEntity(42);
+    EXPECT(svc->FindObstacleForEntity(42) == 0);
+    svc->RemoveObstacle(h);
+}
+
+static void T25_navservices_findpath_empty_when_no_mesh() {
+    ECS empty;
+    NavMeshSystem::Instance().Rebuild(empty, DefaultCfg(), nullptr);  // empty soup → null current
+
+    const NavServices* svc = TestNavServices();
+    EXPECT(!svc->HasMesh());
+
+    std::vector<glm::vec3> path;
+    svc->FindPath(glm::vec3(0), glm::vec3(1), 50.0f, &path);
+    EXPECT(path.empty());
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -531,6 +584,8 @@ int main() {
     T21_load_bad_version_returns_null();
     T22_load_missing_file_returns_null();
     T23_try_load_from_disk_stale_returns_false();
+    T24_navservices_table_forwards_to_navmeshsystem();
+    T25_navservices_findpath_empty_when_no_mesh();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);
