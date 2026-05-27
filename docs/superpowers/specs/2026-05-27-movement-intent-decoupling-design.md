@@ -26,6 +26,37 @@ Decouple intent from resolution via the standard ECS pattern: movement systems p
 
 The boundary is "what you want" (entity-local input/AI logic) vs "what the world permits" (collider-aware resolution). Same pattern as the menu's "intent (ActionEvent) vs handler (AppFlowSystem)" — applied to movement.
 
+## System phases (architectural seam for future physics)
+
+Introduce a dedicated `Physics` phase between `Simulation` and `PostSimulation` so phases gain meaning: **decide → resolve → react**. This is the seam where a future physics engine (Jolt / Bullet) plugs in — `KinematicMovementSystem` lives there today, a future `PhysicsStepSystem` (rigid bodies) lives there tomorrow. No bundling of two concerns into one phase.
+
+**`src/common/include/Systems.h`** — extend the enum:
+
+```cpp
+enum class SystemPhase : uint8_t {
+    Input          = 0,   // (future) input-derived state
+    Simulation     = 1,   // gameplay decisions / intent (PlayerMovement, AI, MenuInteraction, AppFlow, ...)
+    Physics        = 2,   // spatial resolution against the world (KinematicMovementSystem + future RigidBodyStep)
+    PostSimulation = 3,   // reactions to the resolved world (camera follow, animation triggers, audio cues)
+    PreRender      = 4,   // last-chance ECS prep before snapshot
+};
+```
+
+Numeric renumber (`PostSimulation` 2→3, `PreRender` 3→4) is safe: the scheduler sorts by (phase, registration index), so adjusting values just changes the sort, which is the intended effect.
+
+**Phase migrations driven by this change:**
+
+| System | Phase before | Phase after | Reason |
+|---|---|---|---|
+| `PlayerMovementSystem` | Simulation | **Simulation** (unchanged) | Decides intent. |
+| `KinematicMovementSystem` (new) | — | **Physics** | Resolves intent against colliders. |
+| `CameraZoomSystem` | Simulation | **PostSimulation** | Reacts to the post-resolved player position. |
+| `IsometricFollowCameraSystem` | Simulation | **PostSimulation** | Reacts to the post-resolved player position. |
+
+All other systems (TextRotation, DayNight, MenuInteraction, AppFlow, DebugSpawn) stay in Simulation — they're either gameplay decisions or ambient demo systems with no physics dependency. Bikeshedding their phase categorization is deferred until they have a concrete reason to move.
+
+**Correctness win** (camera migration): today the cameras read the post-Player Transform because of intra-`Simulation` registration order. Moving them to `PostSimulation` makes the dependency explicit at the phase level — they no longer rely on "we happen to register after Player." With `KinematicMovementSystem` now between them and Player, this distinction matters: camera must run **after** the resolved Transform, not just after the intent-writing PlayerMovement.
+
 ## Architecture
 
 ### 1. New component
@@ -76,11 +107,13 @@ public:
         });
     }
     const char* Name() const override { return "KinematicMovementSystem"; }
-    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+    SystemPhase Phase() const override { return SystemPhase::Physics; }
 };
 ```
 
 **Why ungated:** any entity with MoveIntent should resolve. In MainMenu, `PlayerMovementSystem` is gated off → never writes intent → KinematicMovementSystem iterates an empty set and no-ops. Free, and lets future non-player movers (e.g. cutscene-driven actors) work in any state without re-gating.
+
+**Why Physics phase:** the resolver is the "world's response to intent" — it lives one layer below gameplay decisions. When a real physics engine arrives, `PhysicsStepSystem` (rigid-body integration) joins the same phase, with `KinematicMovementSystem` skipping entities that have a `RigidBodyComponent` (physics owns their Transform). The phase becomes the single integration point for all spatial resolution.
 
 ### 3. PlayerMovementSystem after the refactor
 
@@ -117,22 +150,31 @@ void Update(SystemContext& ctx) override {
 
 Any system that wants to drive a kinematic entity does `if (!HasComponent<MoveIntent>) AddComponent(MoveIntent{}); Modify(...)`. One-time check then per-tick Modify. Self-contained — no boot-time seeding coupling, no editor authoring required, works identically for player + future AI/projectiles.
 
-### 5. Registration order (load-bearing)
+### 5. Registration + phase order (load-bearing)
+
+The scheduler sorts by **(phase, registration index)**. Phase ordering does the heavy lifting now; registration order is the tie-breaker within a phase.
 
 ```cpp
-s->Register(TextRotation);
-s->Register(DayNight);
-s->Register(MenuInteraction);
-s->Register(AppFlow);
-s->Register(DebugSpawn);
-s->Register(PlayerMovement);          // ← writes MoveIntent
-s->Register(KinematicMovement);       // ← resolves + applies; new, between Player and CameraZoom
-s->Register(CameraZoom);
-s->Register(IsometricFollowCamera);   // ← reads the post-resolution Transform
-s->Register(QuitRequest);             // (removed earlier; if present, stays last)
+// Simulation phase (gameplay decisions / intent):
+s->Register(TextRotation);          // Simulation
+s->Register(DayNight);              // Simulation
+s->Register(MenuInteraction);       // Simulation
+s->Register(AppFlow);               // Simulation
+s->Register(DebugSpawn);            // Simulation
+s->Register(PlayerMovement);        // Simulation  ← writes MoveIntent
+
+// Physics phase (spatial resolution): new system.
+s->Register(KinematicMovement);     // Physics     ← reads MoveIntent, resolves, applies Transform
+
+// PostSimulation phase (reactions): cameras migrated here from Simulation.
+s->Register(CameraZoom);            // PostSimulation
+s->Register(IsometricFollowCamera); // PostSimulation ← reads the post-resolution Transform
 ```
 
-Same-tick chain: input → intent → resolve+apply → camera follows resolved position. Camera continues to see the corrected player position the same frame, exactly as today.
+Same-tick chain (driven by phase, not registration order):
+**input → intent (Simulation) → resolve+apply (Physics) → camera follows resolved position (PostSimulation)** → snapshot.
+
+Camera continues to see the corrected player position the same frame; the dependency is now expressed at the phase level rather than relying on intra-phase registration order.
 
 ### 6. Clear-after-consume rationale
 
@@ -168,8 +210,9 @@ Velocity belongs to entities with momentum (projectiles, AI with cruise speed, d
 
 ## Touch list
 
+- `src/common/include/Systems.h` — add `SystemPhase::Physics = 2`; renumber `PostSimulation` → 3, `PreRender` → 4. Update the phase-purpose comments.
 - `src/common/include/ECS.h` — `MoveIntentComponent` struct + X-macro entry. **ECS.h layout change → editor rebuild + restart, `GAME_API_VERSION` bump 13u → 14u.**
-- `src/game/src/game.cpp` — new `KinematicMovementSystem`; trim `PlayerMovementSystem::Update`; register new system between PlayerMovement and CameraZoom.
+- `src/game/src/game.cpp` — new `KinematicMovementSystem` (Physics phase); trim `PlayerMovementSystem::Update`; change `CameraZoomSystem::Phase()` + `IsometricFollowCameraSystem::Phase()` from `Simulation` to `PostSimulation`; register `KinematicMovement` between PlayerMovement and the cameras (registration order doesn't matter across phases, but keep it readable).
 - `src/game/include/game.h` — `GAME_API_VERSION` 13u → 14u.
 - `tests/test_collision.cpp` — optional `T06_no_collider_full_delta` (1 case, ~15 LOC).
 
