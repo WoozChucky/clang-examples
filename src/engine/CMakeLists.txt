@@ -58,6 +58,7 @@ add_library(Engine SHARED
     # Navigation (Recast/Detour)
     src/navigation/NavMeshBuilder.cpp
     src/navigation/NavMesh.cpp
+    src/navigation/NavMeshSystem.cpp
 
     # Third-party
     src/tiny_obj_loader.cpp

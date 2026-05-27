@@ -1,0 +1,170 @@
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <thread>
+
+#include <glm/glm.hpp>
+
+#include "ECS.h"
+#include "navigation/NavMesh.h"
+#include "navigation/NavMeshBuilder.h"
+#include "navigation/NavMeshSystem.h"
+
+void platform_debug_break(const char* expr, const char* file, int line, const char* message)
+{
+    std::fprintf(stderr, "ASSERT FAIL %s:%d: %s (expr: %s)\n",
+                 (file ? file : "<unknown>"), line,
+                 (message ? message : "<no message>"),
+                 (expr ? expr : "<none>"));
+    std::abort();
+}
+
+static int g_Failures = 0;
+#define EXPECT(cond) do {                                              \
+    if (!(cond)) {                                                     \
+        std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        ++g_Failures;                                                  \
+    } } while (0)
+
+static EntityId SpawnNavBox(ECS& w, glm::vec3 pos, glm::vec3 halfExtents) {
+    const EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{ pos, glm::vec3(0.0f), glm::vec3(1.0f) });
+    ColliderComponent col{};
+    col.Shape   = ColliderShape::Box;
+    col.Size    = halfExtents;
+    col.IsStatic = true;
+    w.AddComponent(e, col);
+    NavMeshSourceComponent src{};
+    src.AreaId   = 63;
+    src.Geometry = NavMeshGeometrySource::Collider;
+    w.AddComponent(e, src);
+    return e;
+}
+
+static NavMeshConfigComponent DefaultCfg() {
+    return NavMeshConfigComponent{};
+}
+
+static void T01_empty_world_yields_empty_navmesh() {
+    ECS w;
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(!nm); // empty soup → null published
+}
+
+static void T02_flat_floor_path_is_straight() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (!nm) return;
+    auto path = nm->FindPath(glm::vec3(-4, 0.5f, -4), glm::vec3(4, 0.5f, 4));
+    EXPECT(path.size() >= 2);
+}
+
+static void T03_path_around_wall_is_curved() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    SpawnNavBox(w, glm::vec3(0,  1.0f, 0), glm::vec3(0.3f, 1.0f, 2.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (!nm) return;
+    auto path = nm->FindPath(glm::vec3(-4, 0.5f, 0), glm::vec3(4, 0.5f, 0));
+    EXPECT(path.size() > 2);
+}
+
+static void T04_unset_geometry_is_skipped() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    {
+        const EntityId e = w.CreateEntity();
+        w.AddComponent(e, TransformComponent{ glm::vec3(2, 0.5f, 0), glm::vec3(0), glm::vec3(1) });
+        ColliderComponent c{};
+        c.Shape = ColliderShape::Box;
+        c.Size  = glm::vec3(0.5f);
+        w.AddComponent(e, c);
+        NavMeshSourceComponent src{};
+        src.Geometry = NavMeshGeometrySource::Unset;
+        w.AddComponent(e, src);
+    }
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (nm) {
+        auto path = nm->FindPath(glm::vec3(-4, 0.5f, 0), glm::vec3(4, 0.5f, 0));
+        EXPECT(path.size() >= 2);
+    }
+}
+
+static void T05_mesh_geometry_without_meshcomponent_skipped() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    {
+        const EntityId e = w.CreateEntity();
+        w.AddComponent(e, TransformComponent{ glm::vec3(2, 0.5f, 0), glm::vec3(0), glm::vec3(1) });
+        NavMeshSourceComponent src{};
+        src.Geometry = NavMeshGeometrySource::Mesh;
+        w.AddComponent(e, src);
+    }
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (nm) {
+        auto path = nm->FindPath(glm::vec3(-4, 0.5f, 0), glm::vec3(4, 0.5f, 0));
+        EXPECT(path.size() >= 2);
+    }
+}
+
+static void T06_sphere_collider_routes_around() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    {
+        const EntityId e = w.CreateEntity();
+        w.AddComponent(e, TransformComponent{ glm::vec3(0, 1.0f, 0), glm::vec3(0), glm::vec3(1) });
+        ColliderComponent c{};
+        c.Shape = ColliderShape::Sphere;
+        c.Size  = glm::vec3(1.5f);
+        c.IsStatic = true;
+        w.AddComponent(e, c);
+        NavMeshSourceComponent src{};
+        src.Geometry = NavMeshGeometrySource::Collider;
+        w.AddComponent(e, src);
+    }
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (nm) {
+        auto path = nm->FindPath(glm::vec3(-4, 0.5f, 0), glm::vec3(4, 0.5f, 0));
+        EXPECT(path.size() > 2);
+    }
+}
+
+static void T07_current_shared_across_threads() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    auto p1 = NavMeshSystem::Instance().Current();
+    std::shared_ptr<const NavMesh> p2;
+    std::thread t([&]{ p2 = NavMeshSystem::Instance().Current(); });
+    t.join();
+    EXPECT(p1 == p2);
+}
+
+int main() {
+    T01_empty_world_yields_empty_navmesh();
+    T02_flat_floor_path_is_straight();
+    T03_path_around_wall_is_curved();
+    T04_unset_geometry_is_skipped();
+    T05_mesh_geometry_without_meshcomponent_skipped();
+    T06_sphere_collider_routes_around();
+    T07_current_shared_across_threads();
+
+    if (g_Failures) {
+        std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);
+        return 1;
+    }
+    std::printf("All navmesh tests passed.\n");
+    return 0;
+}

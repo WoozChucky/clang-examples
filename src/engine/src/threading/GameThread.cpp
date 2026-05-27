@@ -25,6 +25,7 @@
 #include "Timing.h"
 #include "assimp/scene.h"
 #include "WorldManager.h"
+#include "navigation/NavMeshSystem.h"
 
 using namespace std::chrono_literals;
 
@@ -204,7 +205,17 @@ void GameThread::RunLoop() {
             // Process ECS commands from RenderThread (ImGui modifications)
             {
                 ZoneScopedN("Game:ProcessECSCommands");
-                ECSCommandProcessor::ProcessCommands(gameState.World, m_AppContext->ECSCommandRing);
+                // Engine-side hook: ECSCommandType::RebuildNavMesh dispatches here.
+                // MeshSystem is currently not reachable from GameThread (lives on
+                // RenderThread inside Renderer); capture nullptr so Geometry=Mesh
+                // entities SM_WARN + skip. Spec 1 scenes only use Geometry=Collider.
+                ECSCommandHooks hooks;
+                hooks.OnRebuildNavMesh = [](ECS& w) {
+                    const auto* cfg = w.GetSingleton<NavMeshConfigComponent>();
+                    NavMeshConfigComponent defaultCfg{};
+                    NavMeshSystem::Instance().Rebuild(w, cfg ? *cfg : defaultCfg, nullptr);
+                };
+                ECSCommandProcessor::ProcessCommands(gameState.World, m_AppContext->ECSCommandRing, hooks);
             }
 
             // Editor scene-file requests (fire-and-forget atomics from the File menu).

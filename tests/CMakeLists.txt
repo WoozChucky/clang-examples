@@ -385,3 +385,30 @@ set_target_properties(test_menu PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_navmesh
+    test_navmesh.cpp
+)
+
+target_link_libraries(test_navmesh PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+    Engine
+)
+
+target_include_directories(test_navmesh PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/engine/src
+)
+
+target_compile_definitions(test_navmesh PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_navmesh PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
