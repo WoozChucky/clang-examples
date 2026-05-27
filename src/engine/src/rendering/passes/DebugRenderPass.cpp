@@ -217,25 +217,17 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
     }
 
     if (s.ShowNavPaths) {
-        const auto nav = NavMeshSystem::Instance().Current();
-        if (nav) {
-            const glm::vec4 pathCol(1.0f, 1.0f, 0.3f, 1.0f);  // yellow — path lines
-            const glm::vec4 destCol(1.0f, 1.0f, 1.0f, 1.0f);  // white  — destination markers
-            std::vector<NavMesh::PathPoint> path;
-            world->Each<NavAgentComponent, NavTargetComponent, TransformComponent>(
-                [&](EntityId, const NavAgentComponent&,
-                    const NavTargetComponent& target, const TransformComponent& tr) {
-                    // Viz does its own FindPath — matches the stateless agent design.
-                    // v2: agent caches path; viz reads cached vector instead.
-                    path = nav->FindPath(tr.Position, target.Destination);
-                    if (path.size() >= 2) {
-                        for (size_t i = 0; i + 1 < path.size(); ++i) {
-                            DebugAppendLine(m_Verts, path[i].Position, path[i+1].Position, pathCol);
-                        }
-                    }
-                    DebugAppendSphere(m_Verts, target.Destination, 0.25f, destCol, 12);
-                });
-        }
+        // v1: destination markers only. Path-line rendering is deferred to v2 (cached
+        // path on NavAgentComponent) — NavMesh::FindPath asserts on GameThread owner,
+        // but DebugRenderPass runs on RenderThread. Once v2 caches the path on the
+        // agent, viz reads the cached vector instead of querying (consistent with the
+        // stateless-v1 / cached-v2 framework documented in navigation-agents-design.md).
+        const glm::vec4 destCol(1.0f, 1.0f, 1.0f, 1.0f);  // white — destination markers
+        world->Each<NavAgentComponent, NavTargetComponent, TransformComponent>(
+            [&](EntityId, const NavAgentComponent&,
+                const NavTargetComponent& target, const TransformComponent&) {
+                DebugAppendSphere(m_Verts, target.Destination, 0.25f, destCol, 12);
+            });
     }
 
     if (m_Verts.empty())
