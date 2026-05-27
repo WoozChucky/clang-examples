@@ -122,8 +122,9 @@ public:
         const auto* vp = ctx.world.GetSingleton<ViewportComponent>();
         const float aspect = (vp && vp->Height) ? float(vp->Width) / float(vp->Height) : 16.0f / 9.0f;
 
-        // Eye distance: the zoom singleton when present, else the static default. The
-        // zoom system runs first (registered before this) so the wheel takes effect
+        // Eye distance: the zoom singleton when present, else the static default. Both
+        // CameraZoom and IsometricFollow live in the PostSimulation phase; within that
+        // phase, CameraZoom is registered before this system, so the wheel takes effect
         // the same tick. Copy the constant params and override only Distance.
         FollowCameraParams params = kPoE2Follow;
         if (const auto* z = ctx.world.GetSingleton<CameraZoomComponent>())
@@ -244,6 +245,9 @@ public:
 // (PlayerMovement today, AI/projectiles later) only write the intent. Clears DesiredDelta
 // after consume so a stale value can't re-fire next tick if the producer stops running.
 // Physics phase: runs after Simulation (producers) and before PostSimulation (cameras).
+// Ungated by GameStateId on purpose: gating belongs in the PRODUCERS (they own when to
+// emit intent); the resolver runs every tick and no-ops when no entity has MoveIntent.
+// Do NOT add a Current-state gate here, or paused/menu states will leak stale intent.
 class KinematicMovementSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
