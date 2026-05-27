@@ -28,6 +28,7 @@ bool DrawRenderStatsPanel(bool* open)
     changed |= ImGui::Checkbox("Selected AABB",  &dd.ShowSelectedAABB);
     changed |= ImGui::Checkbox("Wireframe",      &dd.Wireframe);
     changed |= ImGui::Checkbox("Grid",           &dd.ShowGrid);
+    changed |= ImGui::Checkbox("Colliders",      &dd.ShowColliders);
 
     ImGui::Separator();
     ImGui::TextDisabled("Shadows");

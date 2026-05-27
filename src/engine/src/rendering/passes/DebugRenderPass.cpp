@@ -89,7 +89,7 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
         return;
 
     const DebugDrawSettings& s = GetDebugDrawSettings();
-    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid)
+    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid && !s.ShowColliders)
         return;
 
     m_Verts.clear();
@@ -146,6 +146,44 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
                 }
             }
         }
+    }
+
+    if (s.ShowColliders) {
+        // Mirrors src/game/src/Collision.h math (center = Position + Offset*Scale;
+        // extents per shape). Inlined here so the engine debug pass doesn't depend on the
+        // game header.
+        world->Each<TransformComponent, ColliderComponent>(
+            [&](EntityId, const TransformComponent& t, const ColliderComponent& c) {
+                const glm::vec3 absScale = glm::abs(t.Scale);
+                const glm::vec3 center   = t.Position + c.Offset * t.Scale;
+
+                const glm::vec4 color =
+                      c.IsTrigger ? glm::vec4(0.20f, 0.85f, 1.00f, 1.0f)   // cyan: trigger
+                    : !c.IsStatic ? glm::vec4(1.00f, 0.55f, 0.10f, 1.0f)   // orange: dynamic
+                                  : glm::vec4(1.00f, 0.85f, 0.10f, 1.0f);  // yellow: static blocker
+
+                switch (c.Shape) {
+                    case ColliderShape::Box: {
+                        const glm::vec3 ext = glm::max(glm::abs(c.Size) * absScale, glm::vec3(0.0001f));
+                        DebugAppendBox(m_Verts, center - ext, center + ext, color);
+                        break;
+                    }
+                    case ColliderShape::Sphere: {
+                        const float r = std::max({ c.Size.x * absScale.x,
+                                                   c.Size.x * absScale.y,
+                                                   c.Size.x * absScale.z, 0.0f });
+                        DebugAppendSphere(m_Verts, center, r, color);
+                        break;
+                    }
+                    case ColliderShape::Capsule: {
+                        const float r  = std::max({ c.Size.x * absScale.x,
+                                                    c.Size.x * absScale.z, 0.0f });
+                        const float hh = std::max(c.Size.y * absScale.y, 0.0f);
+                        DebugAppendCapsule(m_Verts, center, r, hh, color);
+                        break;
+                    }
+                }
+            });
     }
 
     if (m_Verts.empty())

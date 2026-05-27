@@ -2,6 +2,7 @@
 #include "Systems.h"
 #include "PlayerMovement.h"
 #include "CameraFollow.h"
+#include "Collision.h"
 #include "MenuHitTest.h" // ToUiSpace + PointInRect
 #include "StateScope.h"  // ScopeAllows
 #include "Actions.h"     // ActionCategory / Actions::
@@ -200,7 +201,8 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 };
 
-// Moves entities tagged with PlayerComponent on the XZ plane from WASD input.
+// Moves entities tagged with PlayerComponent on the XZ plane from WASD input and
+// resolves the desired delta against editor-authored static colliders.
 class PlayerMovementSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
@@ -217,9 +219,19 @@ public:
             float speed = 5.0f;
             if (const auto* p = ctx.world.GetComponent<PlayerComponent>(e)) speed = p->MoveSpeed;
             // Align movement to the isometric camera yaw so W = "up the screen".
-            const glm::vec3 delta = ComputePlanarMove(*in, speed, dt, glm::radians(kPoE2Follow.YawDeg));
-            if (delta.x != 0.0f || delta.z != 0.0f)
-                ctx.world.Modify<TransformComponent>(e, [&](TransformComponent& t){ t.Position += delta; });
+            const glm::vec3 desiredDelta = ComputePlanarMove(*in, speed, dt, glm::radians(kPoE2Follow.YawDeg));
+            if (desiredDelta.x == 0.0f && desiredDelta.y == 0.0f && desiredDelta.z == 0.0f)
+                return;
+
+            glm::vec3 appliedDelta = desiredDelta;
+            if (const auto* transform = ctx.world.GetComponent<TransformComponent>(e)) {
+                if (const auto* collider = ctx.world.GetComponent<ColliderComponent>(e)) {
+                    appliedDelta = ResolveKinematicMove(ctx.world, e, *transform, *collider, desiredDelta).AppliedDelta;
+                }
+            }
+
+            if (appliedDelta.x != 0.0f || appliedDelta.y != 0.0f || appliedDelta.z != 0.0f)
+                ctx.world.Modify<TransformComponent>(e, [&](TransformComponent& t){ t.Position += appliedDelta; });
         });
     }
     const char* Name() const override { return "PlayerMovementSystem"; }

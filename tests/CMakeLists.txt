@@ -293,6 +293,32 @@ set_target_properties(test_playermove PROPERTIES
     FOLDER Tests
 )
 
+add_executable(test_collision
+    test_collision.cpp
+)
+
+target_link_libraries(test_collision PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+)
+
+target_include_directories(test_collision PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/game/src
+)
+
+target_compile_definitions(test_collision PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_collision PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
+
 add_executable(test_followcam
     test_followcam.cpp
 )

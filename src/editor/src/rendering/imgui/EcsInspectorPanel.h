@@ -43,16 +43,20 @@ private:
     bool               playerModified = false;
 
     UIRectComponent editUIRect{};
-    EntityId        lastEditedUIRectEntity = 0;
+    EntityId        lastEditedUIRectEntity = INVALID_ENTITY;
     bool            uiRectModified = false;
 
     StateScopeComponent editScope{};
-    EntityId            lastEditedScopeEntity = 0;
+    EntityId            lastEditedScopeEntity = INVALID_ENTITY;
     bool                scopeModified = false;
 
     MenuButtonComponent editMenuBtn{};
-    EntityId            lastEditedMenuBtnEntity = 0;
+    EntityId            lastEditedMenuBtnEntity = INVALID_ENTITY;
     bool                menuBtnModified = false;
+
+    ColliderComponent editCollider{};
+    EntityId          lastEditedColliderEntity = INVALID_ENTITY;
+    bool              colliderModified = false;
 
     GizmoController    m_Gizmo;
 };

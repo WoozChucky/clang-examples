@@ -228,6 +228,22 @@ struct ActionQueueComponent {
     std::vector<ActionEvent> Events;
 };
 
+enum class ColliderShape : uint8_t {
+    Box,
+    Sphere,
+    Capsule,
+};
+
+struct ColliderComponent {
+    ColliderShape Shape = ColliderShape::Box;
+    glm::vec3 Size{1.0f};   // Box: half-extents; Sphere: radius in x; Capsule: radius in x + half-height in y.
+    glm::vec3 Offset{0.0f}; // Local-space center offset from TransformComponent::Position (rotation ignored by v1 collision).
+    bool IsTrigger = false; // Triggers participate in queries/filters but do not block v1 kinematic movement.
+    bool IsStatic  = true;  // Static colliders are treated as world blockers by the v1 player collision pass.
+    uint32_t Layer = 1u;          // Membership bits for future filtering.
+    uint32_t Mask  = 0xffffffffu; // Which layers this collider interacts with.
+};
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -257,7 +273,8 @@ struct ActionQueueComponent {
     X(UIRectComponent) \
     X(StateScopeComponent) \
     X(MenuButtonComponent) \
-    X(MenuStateComponent)
+    X(MenuStateComponent) \
+    X(ColliderComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)
@@ -843,81 +860,3 @@ private:
 ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_EXTERN_ECS_METHODS)
 #undef ECS_EXTERN_ECS_METHODS
 #endif
-
-// #############################################################################
-//                           Example Usage (in comments)
-// #############################################################################
-
-/*
-// Create ECS world
-ECS world;
-
-// Create entities
-EntityId player = world.CreateEntity();
-EntityId enemy = world.CreateEntity();
-
-// Add components
-world.AddComponent(player, TransformComponent{{0, 0, 0}, {0, 0, 0}, {1, 1, 1}});
-world.AddComponent(player, MeshComponent{1, 0, true});
-
-world.AddComponent(enemy, TransformComponent{{10, 0, 0}, {0, 0, 0}, {1, 1, 1}});
-world.AddComponent(enemy, MeshComponent{2, 1, true});
-
-// Read a single component (const — snapshot-safe)
-if (const auto* transform = world.GetComponent<TransformComponent>(player)) {
-    float x = transform->Position.x; // read only
-}
-
-// Mutate a single component via Modify (COW-safe, GameThread only)
-world.Modify<TransformComponent>(player, [](TransformComponent& t) {
-    t.Position.x += 1.0f; // Move player
-});
-
-world.Modify<MeshComponent>(player, [](MeshComponent& m) {
-    m.Visible = false; // Hide mesh
-});
-
-// Read multiple components at once (C++17 structured bindings)
-if (auto [transform, mesh] = world.GetComponents<TransformComponent, MeshComponent>(player); transform && mesh) {
-    float x = transform->Position.x; // read only
-    bool vis = mesh->Visible;        // read only
-}
-
-// Check if entity has component
-if (world.HasComponent<MeshComponent>(player)) {
-    // Render player
-}
-
-// Multi-component query (existence check)
-if (world.HasComponents<TransformComponent, MeshComponent>(player)) {
-    // Entity has both components
-}
-
-// Iterate all entities with specific components (read-only)
-world.Each<TransformComponent, MeshComponent>(
-    [](EntityId entity, const TransformComponent& transform, const MeshComponent& mesh) {
-        // Render mesh at transform position (read only)
-    });
-
-// Bulk-mutate all transforms in a system (COW-safe, one clone per tick)
-{
-    ComponentArray<TransformComponent>& transforms = world.MutateArray<TransformComponent>();
-    for (size_t i = 0; i < transforms.Size(); ++i) {
-        TransformComponent& transform = transforms.GetComponents()[i];
-        EntityId entity = transforms.GetEntity(i);
-        transform.Position.y += 0.1f; // write
-    }
-}
-
-// Read-only dense iteration via GetArray (snapshot-safe)
-if (const auto* transforms = world.GetArray<TransformComponent>()) {
-    for (size_t i = 0; i < transforms->Size(); ++i) {
-        const TransformComponent& transform = transforms->GetComponents()[i];
-        EntityId entity = transforms->GetEntity(i);
-        // read transform
-    }
-}
-
-// Destroy entity (removes all components automatically)
-world.DestroyEntity(enemy);
-*/
