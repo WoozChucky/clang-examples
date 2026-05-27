@@ -32,6 +32,7 @@ inline nlohmann::json PrefsToJson(const CullingSettings& culling,
             {"selectedAABB",  debug.ShowSelectedAABB},
             {"wireframe",     debug.Wireframe},
             {"grid",          debug.ShowGrid},
+            {"colliders",     debug.ShowColliders},
         }},
         {"shadows", {
             {"enabled", shadows.Enabled},
@@ -65,6 +66,7 @@ inline void PrefsFromJson(const nlohmann::json& j,
         if (d.contains("selectedAABB")  && d["selectedAABB"].is_boolean())  debug.ShowSelectedAABB  = d["selectedAABB"].get<bool>();
         if (d.contains("wireframe")     && d["wireframe"].is_boolean())     debug.Wireframe         = d["wireframe"].get<bool>();
         if (d.contains("grid")          && d["grid"].is_boolean())          debug.ShowGrid          = d["grid"].get<bool>();
+        if (d.contains("colliders")     && d["colliders"].is_boolean())     debug.ShowColliders     = d["colliders"].get<bool>();
     }
     if (j.contains("shadows") && j["shadows"].is_object()) {
         const auto& s = j["shadows"];
