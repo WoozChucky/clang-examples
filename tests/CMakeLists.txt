@@ -400,6 +400,7 @@ target_link_libraries(test_navmesh PRIVATE
 target_include_directories(test_navmesh PRIVATE
     ${CMAKE_SOURCE_DIR}/src/common/include
     ${CMAKE_SOURCE_DIR}/src/engine/src
+    ${CMAKE_SOURCE_DIR}/src/game/src
 )
 
 target_compile_definitions(test_navmesh PRIVATE
