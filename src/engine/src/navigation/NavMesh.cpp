@@ -141,8 +141,17 @@ std::unique_ptr<NavMesh> NavMesh::Build(const NavMeshTriangleSoup& soup,
     rcc.detailSampleDist       = (rcc.cs * 6.0f);
     rcc.detailSampleMaxError   = (rcc.ch * 1.0f);
 
+    // Headroom above the highest walkable surface so rcFilterWalkableLowHeightSpans
+    // can verify clearance for an AgentHeight-tall agent on the topmost walkable
+    // span. Without padding, a flat-only scene whose highest geometry sits at the
+    // heightfield ceiling is fine (filter shortcuts to ceiling=MAX_HEIGHTFIELD), but
+    // a scene with a low ceiling close to the floor (within walkableHeight voxels)
+    // would have every walkable span clipped. Slack (+1m) covers numerical edge
+    // cases at exact voxel boundaries.
     const float bmin[3] = { soup.AabbMin.x, soup.AabbMin.y, soup.AabbMin.z };
-    const float bmax[3] = { soup.AabbMax.x, soup.AabbMax.y, soup.AabbMax.z };
+    const float bmax[3] = { soup.AabbMax.x,
+                            soup.AabbMax.y + cfg.AgentHeight + 1.0f,
+                            soup.AabbMax.z };
     int gw = 0, gh = 0;
     rcCalcGridSize(bmin, bmax, rcc.cs, &gw, &gh);
     const int tw = (gw + rcc.tileSize - 1) / rcc.tileSize;

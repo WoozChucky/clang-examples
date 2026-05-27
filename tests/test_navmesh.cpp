@@ -152,6 +152,32 @@ static void T07_current_shared_across_threads() {
     EXPECT(p1 == p2);
 }
 
+static void T08_flat_floor_only_box_builds_walkable_navmesh() {
+    // Regression: a single flat floor box (no walls, no ceiling — Y range = box thickness)
+    // used to produce zero polys. Root cause: NavMeshBuilder::TriangulateBox emitted
+    // INWARD-facing quad windings, so the +Y face had normal=-Y and
+    // rcClearUnwalkableTriangles flagged it NULL (only the inverted -Y face passed as
+    // "walkable"). With a thick box, the bottom-face span (walkable, voxel 0) sat just
+    // below the top-face span (NULL, voxel 5), and rcFilterWalkableLowHeightSpans
+    // killed it because the gap (4 voxels) was less than walkableHeight (9 voxels).
+    // T02..T07 worked before because their boxes were 0.2 m thick (1 voxel) — the two
+    // inverted face spans merged into one column and the bug was invisible.
+    // NavMesh::Build also pads bmax.y by AgentHeight + 1 m as defence-in-depth for
+    // future scenes with a low ceiling close to the floor.
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, 0, 0), glm::vec3(2.0f, 0.5f, 2.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (!nm) return;
+    auto stats = nm->GetStats();
+    EXPECT(stats.PolyCount > 0);   // would be 0 before the fix
+    EXPECT(stats.TilesBuilt > 0);
+    // Sanity: agent can path across the box top.
+    auto path = nm->FindPath(glm::vec3(-1.5f, 1.0f, 0.0f), glm::vec3(1.5f, 1.0f, 0.0f));
+    EXPECT(path.size() >= 2);
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -160,6 +186,7 @@ int main() {
     T05_mesh_geometry_without_meshcomponent_skipped();
     T06_sphere_collider_routes_around();
     T07_current_shared_across_threads();
+    T08_flat_floor_only_box_builds_walkable_navmesh();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

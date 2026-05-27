@@ -72,12 +72,19 @@ void TriangulateBox(const glm::vec3& he, const glm::mat4& xf, uint8_t area, NavM
         EmitTri(out, idx[a], idx[b], idx[c], area);
         EmitTri(out, idx[a], idx[c], idx[d], area);
     };
-    Q(0,1,2,3); // -Z
-    Q(5,4,7,6); // +Z
-    Q(4,0,3,7); // -X
-    Q(1,5,6,2); // +X
-    Q(4,5,1,0); // -Y
-    Q(3,2,6,7); // +Y
+    // Wind each quad so its triangle normal points OUT of the box. Recast keys
+    // walkability off normal.y vs cos(slope): the +Y face MUST have normal=+Y or
+    // rcClearUnwalkableTriangles flags the box top NULL, then a flat-only scene
+    // ends up with the (inverted) -Y face as the only walkable span, which the
+    // overhead-clearance filter promptly kills (top-of-box NULL span sits a few
+    // voxels above, gap < walkableHeight). Pin order: top (3,7,6,2), bottom
+    // (0,1,5,4); sides match. Verified via cross-product (see test T08).
+    Q(3,2,1,0); // -Z (normal -Z)
+    Q(4,5,6,7); // +Z (normal +Z)
+    Q(0,4,7,3); // -X (normal -X)
+    Q(2,6,5,1); // +X (normal +X)
+    Q(0,1,5,4); // -Y (normal -Y, bottom face)
+    Q(3,7,6,2); // +Y (normal +Y, top face — must be walkable)
 }
 
 void TriangulateSphere(float r, const glm::mat4& xf, uint8_t area, int segs, NavMeshTriangleSoup& out)
