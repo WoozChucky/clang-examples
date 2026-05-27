@@ -1,6 +1,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <thread>
 
 #include <glm/glm.hpp>
@@ -404,6 +406,78 @@ static void T18_agent_routes_around_obstacle() {
     }
 }
 
+// ---------- Spec 4: bake (T19-T22 file-format + load behavior) ----------
+
+static std::string TempBakePath(const char* suffix = "test_navmesh_bake.bin") {
+    auto tmp = std::filesystem::temp_directory_path() / suffix;
+    return tmp.string();
+}
+
+static void T19_save_and_load_roundtrip_produces_equivalent_navmesh() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    auto built = NavMeshSystem::Instance().Current();
+    EXPECT(built != nullptr);
+    if (!built) return;
+
+    const auto builtStats = built->GetStats();
+    const std::string path = TempBakePath("test_navmesh_T19.bin");
+    EXPECT(built->SaveToFile(path, /*worldMtime*/ 12345ULL));
+
+    uint64_t storedMtime = 0;
+    auto loaded = NavMesh::LoadFromFile(path, &storedMtime);
+    EXPECT(loaded != nullptr);
+    EXPECT(storedMtime == 12345ULL);
+    if (!loaded) { std::filesystem::remove(path); return; }
+
+    const auto loadedStats = loaded->GetStats();
+    EXPECT(loadedStats.TilesBuilt == builtStats.TilesBuilt);
+    EXPECT(loadedStats.PolyCount  == builtStats.PolyCount);
+    EXPECT(loadedStats.VertCount  == builtStats.VertCount);
+
+    // Smoke: FindPath on loaded navmesh works same as built.
+    auto pathBuilt  = built->FindPath(glm::vec3(-4, 0.5f, 0), glm::vec3(4, 0.5f, 0));
+    auto pathLoaded = loaded->FindPath(glm::vec3(-4, 0.5f, 0), glm::vec3(4, 0.5f, 0));
+    EXPECT(pathBuilt.size() == pathLoaded.size());
+
+    std::filesystem::remove(path);
+}
+
+static void T20_load_bad_magic_returns_null() {
+    const std::string path = TempBakePath("test_navmesh_T20.bin");
+    {
+        std::ofstream ofs(path, std::ios::binary);
+        const uint32_t badMagic = 0xDEADBEEF;
+        ofs.write(reinterpret_cast<const char*>(&badMagic), 4);
+    }
+    uint64_t unused = 0;
+    auto loaded = NavMesh::LoadFromFile(path, &unused);
+    EXPECT(loaded == nullptr);
+    std::filesystem::remove(path);
+}
+
+static void T21_load_bad_version_returns_null() {
+    const std::string path = TempBakePath("test_navmesh_T21.bin");
+    {
+        std::ofstream ofs(path, std::ios::binary);
+        const uint32_t kMagic = 0x484D534E;
+        const uint32_t badVer = 999;
+        ofs.write(reinterpret_cast<const char*>(&kMagic), 4);
+        ofs.write(reinterpret_cast<const char*>(&badVer), 4);
+    }
+    uint64_t unused = 0;
+    auto loaded = NavMesh::LoadFromFile(path, &unused);
+    EXPECT(loaded == nullptr);
+    std::filesystem::remove(path);
+}
+
+static void T22_load_missing_file_returns_null() {
+    uint64_t unused = 0;
+    auto loaded = NavMesh::LoadFromFile("Z:/definitely_does_not_exist_navmesh.bin", &unused);
+    EXPECT(loaded == nullptr);
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -423,6 +497,10 @@ int main() {
     T16_agent_reached_target_stops_emitting();
     T17_agent_unreachable_target_no_intent();
     T18_agent_routes_around_obstacle();
+    T19_save_and_load_roundtrip_produces_equivalent_navmesh();
+    T20_load_bad_magic_returns_null();
+    T21_load_bad_version_returns_null();
+    T22_load_missing_file_returns_null();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);
