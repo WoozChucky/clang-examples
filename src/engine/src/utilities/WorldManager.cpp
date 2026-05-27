@@ -63,20 +63,24 @@ bool WorldManager::SaveWorldSnapshot(const std::string& filepath, const ECS* wor
         if (world->HasComponent<ColliderComponent>(entity)) {
             jEntity["ColliderComponent"] = *(world->GetComponent<ColliderComponent>(entity));
         }
+        if (world->HasComponent<NavMeshSourceComponent>(entity)) {
+            jEntity["NavMeshSourceComponent"] = *(world->GetComponent<NavMeshSourceComponent>(entity));
+        }
 
         j["Entities"].push_back(jEntity);
     }
 
-    // Top-level scene atmosphere (singletons live on the hidden reserved entity, so
-    // they are not in the Entities array). Defaults if a singleton is somehow absent.
+    // Top-level scene atmosphere + nav config (singletons live on the hidden reserved entity).
     {
         FogComponent fog{};
         SkyComponent sky{};
         DayNightConfigComponent dayNight{};
-        if (const auto* f = world->GetSingleton<FogComponent>())            fog = *f;
-        if (const auto* s = world->GetSingleton<SkyComponent>())            sky = *s;
+        NavMeshConfigComponent navmesh{};
+        if (const auto* f = world->GetSingleton<FogComponent>())            fog      = *f;
+        if (const auto* s = world->GetSingleton<SkyComponent>())            sky      = *s;
         if (const auto* d = world->GetSingleton<DayNightConfigComponent>()) dayNight = *d;
-        j["Environment"] = BuildEnvironmentJson(fog, sky, dayNight);
+        if (const auto* n = world->GetSingleton<NavMeshConfigComponent>())  navmesh  = *n;
+        j["Environment"] = BuildEnvironmentJson(fog, sky, dayNight, navmesh);
     }
 
     ofs << j.dump(4); // Pretty-print with 4-space indentation
@@ -128,14 +132,17 @@ bool WorldManager::LoadWorldSnapshot(const std::string& filepath, ECS* world) {
                 world->AddComponent(createdEntity, jEntity["MenuButtonComponent"].get<MenuButtonComponent>());
             if (jEntity.contains("ColliderComponent"))
                 world->AddComponent(createdEntity, jEntity["ColliderComponent"].get<ColliderComponent>());
+            if (jEntity.contains("NavMeshSourceComponent"))
+                world->AddComponent(createdEntity, jEntity["NavMeshSourceComponent"].get<NavMeshSourceComponent>());
         }
 
-        // Apply scene atmosphere if present. Singletons survive Clear(), so when the
-        // block is absent (old world.json) the seeded defaults are left untouched.
+        // Apply scene atmosphere + nav config if present. Singletons survive Clear(), so when
+        // the block is absent (old world.json) the seeded defaults are left untouched.
         const EnvironmentData env = ParseEnvironmentJson(j);
-        if (env.HasFog)      world->SetSingleton(env.Fog);
-        if (env.HasSky)      world->SetSingleton(env.Sky);
-        if (env.HasDayNight) world->SetSingleton(env.DayNight);
+        if (env.HasFog)            world->SetSingleton(env.Fog);
+        if (env.HasSky)            world->SetSingleton(env.Sky);
+        if (env.HasDayNight)       world->SetSingleton(env.DayNight);
+        if (env.HasNavMeshConfig)  world->SetSingleton(env.NavMeshConfig);
     } catch (const std::exception& e) {
         SM_WARN("Failed to load world snapshot '%s': %s", filepath.c_str(), e.what());
         return false;

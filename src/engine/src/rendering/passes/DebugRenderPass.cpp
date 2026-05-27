@@ -10,6 +10,8 @@
 #include "ECS.h"
 #include "TransformMath.h"
 #include "Frustum.h"     // TransformAABB
+#include "navigation/NavMeshSystem.h"
+#include "navigation/NavMesh.h"
 #include "lib.h"
 
 namespace {
@@ -89,7 +91,7 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
         return;
 
     const DebugDrawSettings& s = GetDebugDrawSettings();
-    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid && !s.ShowColliders)
+    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid && !s.ShowColliders && !s.ShowNavMesh)
         return;
 
     m_Verts.clear();
@@ -184,6 +186,18 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
                     }
                 }
             });
+    }
+
+    if (s.ShowNavMesh) {
+        auto nm = NavMeshSystem::Instance().Current();
+        if (nm) {
+            std::vector<glm::vec3> edges;
+            nm->CollectPolyEdges(edges);
+            const glm::vec4 col(0.4f, 1.0f, 0.3f, 1.0f); // lime green: walkable surface
+            for (size_t i = 0; i + 1 < edges.size(); i += 2) {
+                DebugAppendLine(m_Verts, edges[i], edges[i + 1], col);
+            }
+        }
     }
 
     if (m_Verts.empty())

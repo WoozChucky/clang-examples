@@ -25,6 +25,7 @@
 #include "Timing.h"
 #include "assimp/scene.h"
 #include "WorldManager.h"
+#include "navigation/NavMeshSystem.h"
 
 using namespace std::chrono_literals;
 
@@ -63,6 +64,13 @@ void GameThread::RunLoop() {
         if (WorldManager::LoadWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, &gameState.World)) {
             gameState.WorldLoaded = true;
             SM_TRACE("GameThread: default world loaded from '%s'", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
+            // Trigger initial navmesh build now that the world is populated. The hook
+            // installed below drains this on the next tick's ECSCommandRing pass and
+            // calls NavMeshSystem::Rebuild. Single trigger path — Spec 2 (obstacles)
+            // will reuse it.
+            if (!m_AppContext->ECSCommandRing.Push(ECSCommand::RebuildNavMesh())) {
+                SM_WARN("GameThread: ECSCommandRing full when posting initial RebuildNavMesh");
+            }
         } else {
             SM_WARN("GameThread: default world '%s' not loaded (file missing or invalid)", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
         }
@@ -204,7 +212,17 @@ void GameThread::RunLoop() {
             // Process ECS commands from RenderThread (ImGui modifications)
             {
                 ZoneScopedN("Game:ProcessECSCommands");
-                ECSCommandProcessor::ProcessCommands(gameState.World, m_AppContext->ECSCommandRing);
+                // Engine-side hook: ECSCommandType::RebuildNavMesh dispatches here.
+                // MeshSystem is currently not reachable from GameThread (lives on
+                // RenderThread inside Renderer); capture nullptr so Geometry=Mesh
+                // entities SM_WARN + skip. Spec 1 scenes only use Geometry=Collider.
+                ECSCommandHooks hooks;
+                hooks.OnRebuildNavMesh = [](ECS& w) {
+                    const auto* cfg = w.GetSingleton<NavMeshConfigComponent>();
+                    NavMeshConfigComponent defaultCfg{};
+                    NavMeshSystem::Instance().Rebuild(w, cfg ? *cfg : defaultCfg, nullptr);
+                };
+                ECSCommandProcessor::ProcessCommands(gameState.World, m_AppContext->ECSCommandRing, hooks);
             }
 
             // Editor scene-file requests (fire-and-forget atomics from the File menu).

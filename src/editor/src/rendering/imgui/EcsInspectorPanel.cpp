@@ -211,6 +211,15 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                     }
                 }
 
+                if (!ctx.WorldSnapshot->HasComponent<NavMeshSourceComponent>(entity)) {
+                    if (ImGui::MenuItem("Add NavMesh Source Component")) {
+                        ECSCommand addCmd = ECSCommand::AddComponent(entity, NavMeshSourceComponent{});
+                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
+                            SM_WARN("ECS command queue full! Add component command dropped.");
+                        }
+                    }
+                }
+
                 ImGui::Separator();
 
                 // Remove component options
@@ -305,6 +314,15 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                 if (ctx.WorldSnapshot->HasComponent<ColliderComponent>(entity)) {
                     if (ImGui::MenuItem("Remove Collider Component")) {
                         ECSCommand removeCmd = ECSCommand::RemoveComponent<ColliderComponent>(entity);
+                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
+                            SM_WARN("ECS command queue full! Remove component command dropped.");
+                        }
+                    }
+                }
+
+                if (ctx.WorldSnapshot->HasComponent<NavMeshSourceComponent>(entity)) {
+                    if (ImGui::MenuItem("Remove NavMesh Source Component")) {
+                        ECSCommand removeCmd = ECSCommand::RemoveComponent<NavMeshSourceComponent>(entity);
                         if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
                             SM_WARN("ECS command queue full! Remove component command dropped.");
                         }
@@ -882,6 +900,55 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                                 SM_WARN("ECS command queue full! Modify command dropped.");
                             }
                             colliderModified = false;
+                        }
+                    }
+                }
+            }
+
+            // Edit NavMesh Source Component
+            if (ctx.WorldSnapshot->HasComponent<NavMeshSourceComponent>(selectedEntity)) {
+                if (ImGui::CollapsingHeader("NavMesh Source Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto* src = ctx.WorldSnapshot->GetComponent<NavMeshSourceComponent>(selectedEntity);
+                    if (src) {
+                        if (lastEditedNavSourceEntity != selectedEntity) {
+                            editNavSource = *src;
+                            lastEditedNavSourceEntity = selectedEntity;
+                            navSourceModified = false;
+                        }
+                        if (!navSourceModified) {
+                            editNavSource = *src;
+                        }
+                        // AreaId: 0-63, Recast convention (63 == RC_WALKABLE_AREA default).
+                        int areaId = static_cast<int>(editNavSource.AreaId);
+                        if (ImGui::SliderInt("Area ID", &areaId, 0, 63)) {
+                            editNavSource.AreaId = static_cast<uint8_t>(areaId);
+                            navSourceModified = true;
+                        }
+                        // Geometry: Unset sentinel forces explicit author choice. "-- choose --" entry
+                        // surfaces the unselected state loudly so authors don't ship Unset accidentally.
+                        static const char* kGeomNames[]   = { "-- choose --", "Collider", "Mesh" };
+                        static const NavMeshGeometrySource kGeoms[] = {
+                            NavMeshGeometrySource::Unset,
+                            NavMeshGeometrySource::Collider,
+                            NavMeshGeometrySource::Mesh,
+                        };
+                        int geomIdx = 0;
+                        for (int i = 0; i < 3; ++i) if (editNavSource.Geometry == kGeoms[i]) geomIdx = i;
+                        if (ImGui::Combo("Geometry", &geomIdx, kGeomNames, 3)) {
+                            editNavSource.Geometry = kGeoms[geomIdx];
+                            navSourceModified = true;
+                        }
+                        if (editNavSource.Geometry == NavMeshGeometrySource::Unset) {
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                                               "Unset: SM_WARN + skip at build. Pick a geometry source.");
+                        }
+                        ImGui::Spacing();
+                        if (navSourceModified) {
+                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editNavSource);
+                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
+                                SM_WARN("ECS command queue full! Modify command dropped.");
+                            }
+                            navSourceModified = false;
                         }
                     }
                 }

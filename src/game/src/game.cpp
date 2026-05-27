@@ -453,6 +453,8 @@ void GameUpdate(GameState* state) {
             g_GameState->World.SetSingleton(FogComponent{});
         if (!g_GameState->World.GetSingleton<SkyComponent>())
             g_GameState->World.SetSingleton(SkyComponent{});
+        if (!g_GameState->World.GetSingleton<NavMeshConfigComponent>())
+            g_GameState->World.SetSingleton(NavMeshConfigComponent{});
 
         // World loaded from world.json is authoritative — skip default spawns to avoid
         // duplicates. Defaults are a fallback scene when no world is present.

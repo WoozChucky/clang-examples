@@ -23,6 +23,7 @@
 #include "MeshManagerPanel.h"
 #include "EcsInspectorPanel.h"
 #include "DayNightPanel.h"
+#include "NavigationPanel.h"
 #include "ViewportPicker.h"
 #include "MainMenuBar.h"
 #include "TransformMath.h"   // ModelMatrix
@@ -458,6 +459,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         static bool s_ShowDayNightPanel = true;
         DrawDayNightPanel(ctx, &s_ShowDayNightPanel);
+
+        static bool s_ShowNavigationPanel = true;
+        DrawNavigationPanel(ctx, &s_ShowNavigationPanel);
 
         if (m_AppContext)
             m_AppContext->SelectedEntity.store(m_EcsInspector.GetSelectedEntity(), std::memory_order_relaxed);

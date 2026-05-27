@@ -198,6 +198,18 @@ MeshSystem::MeshResources MeshSystem::GetMeshResources(uint32_t meshId) const
     return resources;
 }
 
+MeshSystem::MeshCpuData MeshSystem::GetMeshCpuData(uint32_t meshId) const
+{
+    MeshCpuData out{};
+    if (meshId >= m_Meshes.size()) return out;
+    const auto& e = m_Meshes[meshId];
+    if (e.cpuVertices.empty() || e.cpuIndices.empty()) return out;
+    out.vertices = std::span<const MeshVertex>(e.cpuVertices.data(), e.cpuVertices.size());
+    out.indices  = std::span<const uint32_t>(e.cpuIndices.data(), e.cpuIndices.size());
+    out.valid    = true;
+    return out;
+}
+
 uint32_t MeshSystem::GetMeshCount() const
 {
     return static_cast<uint32_t>(m_Meshes.size());

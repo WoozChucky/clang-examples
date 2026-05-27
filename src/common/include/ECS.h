@@ -253,6 +253,35 @@ struct MoveIntentComponent {
     glm::vec3 DesiredDelta{0.0f};
 };
 
+// Author-driven choice: which geometry source feeds the navmesh voxelizer for this entity.
+// Unset is the sentinel — the build pipeline SM_WARNs + skips entities that forgot to pick.
+// Forces authoring intent at scene-construction time (no silent fallback).
+enum class NavMeshGeometrySource : uint8_t {
+    Unset    = 0,  // sentinel: author forgot to pick → SM_WARN + skip at build
+    Collider = 1,  // voxelize ColliderComponent triangles
+    Mesh     = 2,  // voxelize MeshComponent triangles (CPU-side verts via MeshSystem)
+};
+
+// Per-entity opt-in. Tagging an entity = it contributes triangles to the navmesh build.
+// AreaId is Recast's per-triangle classification (0-63); default 63 == RC_WALKABLE_AREA.
+struct NavMeshSourceComponent {
+    uint8_t                AreaId   = 63;
+    NavMeshGeometrySource  Geometry = NavMeshGeometrySource::Unset;
+};
+
+// Singleton (one per scene, persisted in world.json Environment block). Recast/Detour
+// build knobs — tune per scene. Indoor/outdoor scenes want very different cell sizes.
+struct NavMeshConfigComponent {
+    float CellSize       = 0.3f;   // voxel XZ size (m)
+    float CellHeight     = 0.2f;   // voxel Y size (m)
+    float AgentRadius    = 0.5f;   // agent capsule radius (m)
+    float AgentHeight    = 1.8f;   // agent capsule height (m)
+    float AgentMaxClimb  = 0.4f;   // step-up height (m)
+    float AgentMaxSlope  = 45.0f;  // max walkable slope (degrees)
+    float TileSize       = 32.0f;  // tile XZ size (voxels per tile edge)
+    int   MaxObstacles   = 128;    // dtTileCache pre-alloc (unused in Spec 1; plumbed for Spec 2)
+};
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -284,7 +313,9 @@ struct MoveIntentComponent {
     X(MenuButtonComponent) \
     X(MenuStateComponent) \
     X(ColliderComponent) \
-    X(MoveIntentComponent)
+    X(MoveIntentComponent) \
+    X(NavMeshSourceComponent) \
+    X(NavMeshConfigComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

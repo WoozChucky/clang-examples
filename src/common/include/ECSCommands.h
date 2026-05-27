@@ -3,6 +3,7 @@
 #include <typeindex>
 #include <memory>
 #include <cstdint>
+#include <functional>
 
 #include "ECS.h"
 #include "SpscRing.h"
@@ -18,6 +19,7 @@ enum class ECSCommandType : uint8_t {
     RemoveComponent = 3,
     ModifyComponent = 4,
     DuplicateEntity = 5,
+    RebuildNavMesh = 6,  // engine hook — dispatched via ECSCommandHooks::OnRebuildNavMesh
 };
 
 // Type-erased component storage for commands
@@ -126,6 +128,10 @@ struct ECSCommand {
         return ECSCommand(ECSCommandType::DuplicateEntity, entity);
     }
 
+    static ECSCommand RebuildNavMesh() {
+        return ECSCommand(ECSCommandType::RebuildNavMesh);
+    }
+
     template<typename T>
     static ECSCommand AddComponent(EntityId entity, const T& component) {
         return ECSCommand(
@@ -159,10 +165,19 @@ struct ECSCommand {
 //                           ECS Command Processing (GameThread)
 // #############################################################################
 
+// Engine-side handlers for commands that can't be processed in pure-ECS-land
+// (e.g., RebuildNavMesh needs to call NavMeshSystem::Rebuild, which is engine-private).
+// Default-constructed hooks struct means "no engine-side handlers" — commands are silently
+// dropped. GameThread populates this with NavMeshSystem::Rebuild for the rebuild case.
+struct ECSCommandHooks {
+    std::function<void(ECS&)> OnRebuildNavMesh; // optional
+};
+
 class ECSCommandProcessor {
 public:
     // Process all pending ECS commands from the command ring
-    static void ProcessCommands(ECS& world, SpscRing<ECSCommand, 128>& commandRing) {
+    static void ProcessCommands(ECS& world, SpscRing<ECSCommand, 128>& commandRing,
+                                const ECSCommandHooks& hooks = {}) {
         ECSCommand cmd; // Use default constructor explicitly (not aggregate init {})
         while (commandRing.Pop(cmd)) {
             switch (cmd.Type) {
@@ -206,6 +221,11 @@ public:
                     }
                     break;
                 }
+
+                case ECSCommandType::RebuildNavMesh: {
+                    if (hooks.OnRebuildNavMesh) hooks.OnRebuildNavMesh(world);
+                    break;
+                }
             }
         }
     }
@@ -225,6 +245,7 @@ private:
         if (auto* c = world.GetComponent<StateScopeComponent>(src)) world.AddComponent(dst, *c);
         if (auto* c = world.GetComponent<MenuButtonComponent>(src))  world.AddComponent(dst, *c);
         if (auto* c = world.GetComponent<ColliderComponent>(src))        world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<NavMeshSourceComponent>(src))   world.AddComponent(dst, *c);
         if (world.HasComponent<SunMarker>(src))                     world.AddComponent(dst, SunMarker{});
     }
 
@@ -285,6 +306,14 @@ private:
             if (auto* btn = componentData.Get<ColliderComponent>()) {
                 world.AddComponent(entity, *btn);
             }
+        } else if (componentData.Type == std::type_index(typeid(NavMeshSourceComponent))) {
+            if (auto* src = componentData.Get<NavMeshSourceComponent>()) {
+                world.AddComponent(entity, *src);
+            }
+        } else if (componentData.Type == std::type_index(typeid(NavMeshConfigComponent))) {
+            if (auto* cfg = componentData.Get<NavMeshConfigComponent>()) {
+                world.AddComponent(entity, *cfg); // AddComponent updates if present (singleton edit)
+            }
         }
         // Add more component types as needed
     }
@@ -319,6 +348,10 @@ private:
             world.RemoveComponent<MenuButtonComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(ColliderComponent))) {
             world.RemoveComponent<ColliderComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(NavMeshSourceComponent))) {
+            world.RemoveComponent<NavMeshSourceComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(NavMeshConfigComponent))) {
+            world.RemoveComponent<NavMeshConfigComponent>(entity);
         }
         // Add more component types as needed
     }

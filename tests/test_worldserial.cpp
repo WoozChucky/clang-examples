@@ -98,7 +98,8 @@ static void T03_environment_roundtrip()
 
     nlohmann::json root;
     root["Entities"] = nlohmann::json::array();
-    root["Environment"] = BuildEnvironmentJson(fog, sky, dn);
+    NavMeshConfigComponent cfg{};
+    root["Environment"] = BuildEnvironmentJson(fog, sky, dn, cfg);
 
     const EnvironmentData env = ParseEnvironmentJson(root);
     EXPECT(env.HasFog && env.HasSky && env.HasDayNight);
@@ -220,6 +221,65 @@ static void T11_collider_backward_compatible_defaults()
     EXPECT(out.Mask == 0xffffffffu);
 }
 
+// ---------- T20-T22: navigation serialization ----------
+static void Test_Navigation() {
+    using json = nlohmann::json;
+
+    // T20: NavMeshConfigComponent round-trip with custom values
+    {
+        FogComponent fog{};                              // default — irrelevant here
+        SkyComponent sky{};                              // default — irrelevant here
+        DayNightConfigComponent dn{};                    // default — irrelevant here
+        NavMeshConfigComponent cfg{};
+        cfg.CellSize      = 0.42f;
+        cfg.CellHeight    = 0.17f;
+        cfg.AgentRadius   = 0.66f;
+        cfg.AgentHeight   = 2.10f;
+        cfg.AgentMaxClimb = 0.55f;
+        cfg.AgentMaxSlope = 50.0f;
+        cfg.TileSize      = 48.0f;
+        cfg.MaxObstacles  = 256;
+
+        json root;
+        root["Environment"] = BuildEnvironmentJson(fog, sky, dn, cfg);
+        const EnvironmentData parsed = ParseEnvironmentJson(root);
+        EXPECT(parsed.HasNavMeshConfig);
+        EXPECT(near(parsed.NavMeshConfig.CellSize,      0.42f));
+        EXPECT(near(parsed.NavMeshConfig.CellHeight,    0.17f));
+        EXPECT(near(parsed.NavMeshConfig.AgentRadius,   0.66f));
+        EXPECT(near(parsed.NavMeshConfig.AgentHeight,   2.10f));
+        EXPECT(near(parsed.NavMeshConfig.AgentMaxClimb, 0.55f));
+        EXPECT(near(parsed.NavMeshConfig.AgentMaxSlope, 50.0f));
+        EXPECT(near(parsed.NavMeshConfig.TileSize,      48.0f));
+        EXPECT(parsed.NavMeshConfig.MaxObstacles == 256);
+    }
+
+    // T21: NavMeshSourceComponent per-entity round-trip
+    {
+        NavMeshSourceComponent src{};
+        src.AreaId   = 12;
+        src.Geometry = NavMeshGeometrySource::Mesh;
+        json j = src;
+        NavMeshSourceComponent back = j.get<NavMeshSourceComponent>();
+        EXPECT(back.AreaId == 12);
+        EXPECT(back.Geometry == NavMeshGeometrySource::Mesh);
+    }
+
+    // T22: backward-compat — old world.json without NavMeshConfig still loads, fields default
+    {
+        json root;
+        // Build an Environment with ONLY Fog/Sky/DayNight (no NavMeshConfig key).
+        FogComponent fog{};  SkyComponent sky{};  DayNightConfigComponent dn{};
+        root["Environment"] = nlohmann::json{
+            {"Fog", fog}, {"Sky", sky}, {"DayNight", dn}
+        };
+        const EnvironmentData parsed = ParseEnvironmentJson(root);
+        EXPECT(!parsed.HasNavMeshConfig);   // absent
+        // parsed.NavMeshConfig was default-initialized; verify a sentinel default survived.
+        EXPECT(near(parsed.NavMeshConfig.CellSize, 0.3f));
+    }
+}
+
 int main()
 {
     T00_fog_roundtrip();
@@ -234,6 +294,7 @@ int main()
     T09_menubutton_roundtrip();
     T10_collider_roundtrip();
     T11_collider_backward_compatible_defaults();
+    Test_Navigation();
 
     if (g_Failures == 0) { std::printf("All world-serialization tests passed.\n"); return 0; }
     std::printf("%d world-serialization test(s) FAILED.\n", g_Failures);

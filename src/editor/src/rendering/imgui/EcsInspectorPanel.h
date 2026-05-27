@@ -58,5 +58,9 @@ private:
     EntityId          lastEditedColliderEntity = INVALID_ENTITY;
     bool              colliderModified = false;
 
+    NavMeshSourceComponent editNavSource{};
+    EntityId               lastEditedNavSourceEntity = INVALID_ENTITY;
+    bool                   navSourceModified = false;
+
     GizmoController    m_Gizmo;
 };

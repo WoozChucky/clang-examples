@@ -179,6 +179,18 @@ inline void from_json(const nlohmann::json& j, ColliderComponent& t) {
     if (j.contains("Mask"))      j.at("Mask").get_to(t.Mask);
 }
 
+inline void to_json(nlohmann::json& j, const NavMeshSourceComponent& t) {
+    j = nlohmann::json{
+        {"AreaId",   t.AreaId},
+        // Geometry as uint8_t for JSON stability (matches ColliderShape pattern).
+        {"Geometry", static_cast<uint8_t>(t.Geometry)}
+    };
+}
+inline void from_json(const nlohmann::json& j, NavMeshSourceComponent& t) {
+    if (j.contains("AreaId"))   j.at("AreaId").get_to(t.AreaId);
+    if (j.contains("Geometry")) t.Geometry = static_cast<NavMeshGeometrySource>(j.at("Geometry").get<uint8_t>());
+}
+
 // ----- Atmosphere components (new) -----
 
 inline void to_json(nlohmann::json& j, const FogComponent& t) {
@@ -243,16 +255,41 @@ inline void from_json(const nlohmann::json& j, DayNightConfigComponent& t) {
     j.at("MoonColor").get_to(t.MoonColor);
 }
 
+inline void to_json(nlohmann::json& j, const NavMeshConfigComponent& t) {
+    j = nlohmann::json{
+        {"CellSize",      t.CellSize},
+        {"CellHeight",    t.CellHeight},
+        {"AgentRadius",   t.AgentRadius},
+        {"AgentHeight",   t.AgentHeight},
+        {"AgentMaxClimb", t.AgentMaxClimb},
+        {"AgentMaxSlope", t.AgentMaxSlope},
+        {"TileSize",      t.TileSize},
+        {"MaxObstacles",  t.MaxObstacles}
+    };
+}
+inline void from_json(const nlohmann::json& j, NavMeshConfigComponent& t) {
+    if (j.contains("CellSize"))      j.at("CellSize").get_to(t.CellSize);
+    if (j.contains("CellHeight"))    j.at("CellHeight").get_to(t.CellHeight);
+    if (j.contains("AgentRadius"))   j.at("AgentRadius").get_to(t.AgentRadius);
+    if (j.contains("AgentHeight"))   j.at("AgentHeight").get_to(t.AgentHeight);
+    if (j.contains("AgentMaxClimb")) j.at("AgentMaxClimb").get_to(t.AgentMaxClimb);
+    if (j.contains("AgentMaxSlope")) j.at("AgentMaxSlope").get_to(t.AgentMaxSlope);
+    if (j.contains("TileSize"))      j.at("TileSize").get_to(t.TileSize);
+    if (j.contains("MaxObstacles"))  j.at("MaxObstacles").get_to(t.MaxObstacles);
+}
+
 // ----- world.json top-level "Environment" block -----
 
 // Build the "Environment" object value (NOT wrapped — assign to root["Environment"]).
 inline nlohmann::json BuildEnvironmentJson(const FogComponent& fog,
                                            const SkyComponent& sky,
-                                           const DayNightConfigComponent& dayNight) {
+                                           const DayNightConfigComponent& dayNight,
+                                           const NavMeshConfigComponent& navmesh) {
     return nlohmann::json{
         {"Fog", fog},
         {"Sky", sky},
-        {"DayNight", dayNight}};
+        {"DayNight", dayNight},
+        {"NavMeshConfig", navmesh}};
 }
 
 // Parsed result of a root document's "Environment" block. Each Has* flag is true
@@ -262,17 +299,20 @@ struct EnvironmentData {
     bool HasFog = false;
     bool HasSky = false;
     bool HasDayNight = false;
+    bool HasNavMeshConfig = false;
     FogComponent Fog;
     SkyComponent Sky;
     DayNightConfigComponent DayNight;
+    NavMeshConfigComponent NavMeshConfig;
 };
 
 inline EnvironmentData ParseEnvironmentJson(const nlohmann::json& root) {
     EnvironmentData e;
     if (!root.contains("Environment")) return e;
     const auto& env = root.at("Environment");
-    if (env.contains("Fog"))      { e.Fog      = env.at("Fog").get<FogComponent>();             e.HasFog = true; }
-    if (env.contains("Sky"))      { e.Sky      = env.at("Sky").get<SkyComponent>();             e.HasSky = true; }
-    if (env.contains("DayNight")) { e.DayNight = env.at("DayNight").get<DayNightConfigComponent>(); e.HasDayNight = true; }
+    if (env.contains("Fog"))           { e.Fog           = env.at("Fog").get<FogComponent>();                  e.HasFog = true; }
+    if (env.contains("Sky"))           { e.Sky           = env.at("Sky").get<SkyComponent>();                  e.HasSky = true; }
+    if (env.contains("DayNight"))      { e.DayNight      = env.at("DayNight").get<DayNightConfigComponent>();  e.HasDayNight = true; }
+    if (env.contains("NavMeshConfig")) { e.NavMeshConfig = env.at("NavMeshConfig").get<NavMeshConfigComponent>(); e.HasNavMeshConfig = true; }
     return e;
 }
