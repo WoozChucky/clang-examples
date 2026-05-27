@@ -41,6 +41,15 @@ public:
 
     MeshResources GetMeshResources(uint32_t meshId) const;
 
+    // CPU-side vertex/index view for nav build, mesh decimation, picking, etc.
+    // Span is valid until the MeshSystem is mutated (AddMesh / Shutdown / RecreateGpuResources).
+    struct MeshCpuData {
+        std::span<const MeshVertex> vertices;
+        std::span<const uint32_t>   indices;
+        bool                        valid = false;
+    };
+    MeshCpuData GetMeshCpuData(uint32_t meshId) const;
+
     // Query mesh count and validity (for UI/editor purposes)
     uint32_t GetMeshCount() const;
     bool IsValidMeshId(uint32_t meshId) const;

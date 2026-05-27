@@ -1,0 +1,210 @@
+#include "navigation/NavMeshBuilder.h"
+
+#include <algorithm>
+#include <cmath>
+
+#include <glm/gtc/matrix_transform.hpp>
+
+#include "ECS.h"
+#include "MeshSystem.h"
+#include "lib.h"          // SM_WARN
+#include "Engine.h"
+
+namespace {
+
+inline void EmitTri(NavMeshTriangleSoup& out, int i0, int i1, int i2, uint8_t areaId) {
+    out.Tris.push_back(i0);
+    out.Tris.push_back(i1);
+    out.Tris.push_back(i2);
+    out.Areas.push_back(areaId);
+}
+
+inline int EmitVert(NavMeshTriangleSoup& out, const glm::vec3& v) {
+    const int idx = static_cast<int>(out.Verts.size() / 3);
+    out.Verts.push_back(v.x);
+    out.Verts.push_back(v.y);
+    out.Verts.push_back(v.z);
+    return idx;
+}
+
+inline void GrowAabb(NavMeshTriangleSoup& out, const glm::vec3& v) {
+    if (out.Empty) {
+        out.AabbMin = out.AabbMax = v;
+        out.Empty = false;
+    } else {
+        out.AabbMin = glm::min(out.AabbMin, v);
+        out.AabbMax = glm::max(out.AabbMax, v);
+    }
+}
+
+inline glm::vec3 Xform(const glm::mat4& m, const glm::vec3& p) {
+    const glm::vec4 r = m * glm::vec4(p, 1.0f);
+    return glm::vec3(r.x, r.y, r.z);
+}
+
+inline glm::mat4 BuildWorld(const TransformComponent& t) {
+    glm::mat4 m(1.0f);
+    m = glm::translate(m, t.Position);
+    m = glm::rotate(m, glm::radians(t.Rotation.y), glm::vec3(0,1,0));
+    m = glm::rotate(m, glm::radians(t.Rotation.x), glm::vec3(1,0,0));
+    m = glm::rotate(m, glm::radians(t.Rotation.z), glm::vec3(0,0,1));
+    m = glm::scale(m, t.Scale);
+    return m;
+}
+
+} // namespace
+
+namespace NavMeshBuilder {
+
+void TriangulateBox(const glm::vec3& he, const glm::mat4& xf, uint8_t area, NavMeshTriangleSoup& out)
+{
+    const glm::vec3 corners[8] = {
+        {-he.x, -he.y, -he.z}, { he.x, -he.y, -he.z}, { he.x,  he.y, -he.z}, {-he.x,  he.y, -he.z},
+        {-he.x, -he.y,  he.z}, { he.x, -he.y,  he.z}, { he.x,  he.y,  he.z}, {-he.x,  he.y,  he.z},
+    };
+    int idx[8];
+    for (int i = 0; i < 8; ++i) {
+        const glm::vec3 w = Xform(xf, corners[i]);
+        idx[i] = EmitVert(out, w);
+        GrowAabb(out, w);
+    }
+    auto Q = [&](int a, int b, int c, int d) {
+        EmitTri(out, idx[a], idx[b], idx[c], area);
+        EmitTri(out, idx[a], idx[c], idx[d], area);
+    };
+    Q(0,1,2,3); // -Z
+    Q(5,4,7,6); // +Z
+    Q(4,0,3,7); // -X
+    Q(1,5,6,2); // +X
+    Q(4,5,1,0); // -Y
+    Q(3,2,6,7); // +Y
+}
+
+void TriangulateSphere(float r, const glm::mat4& xf, uint8_t area, int segs, NavMeshTriangleSoup& out)
+{
+    if (segs < 4) segs = 4;
+    const int rings = segs / 2;
+    std::vector<int> idx((rings + 1) * (segs + 1), 0);
+    for (int ring = 0; ring <= rings; ++ring) {
+        const float v = static_cast<float>(ring) / static_cast<float>(rings);
+        const float phi = v * 3.14159265358979f;
+        const float y = std::cos(phi);
+        const float rr = std::sin(phi);
+        for (int s = 0; s <= segs; ++s) {
+            const float u = static_cast<float>(s) / static_cast<float>(segs);
+            const float theta = u * 6.28318530717958f;
+            const glm::vec3 local{ rr * std::cos(theta) * r, y * r, rr * std::sin(theta) * r };
+            const glm::vec3 w = Xform(xf, local);
+            const int i = EmitVert(out, w);
+            GrowAabb(out, w);
+            idx[ring * (segs + 1) + s] = i;
+        }
+    }
+    for (int ring = 0; ring < rings; ++ring) {
+        for (int s = 0; s < segs; ++s) {
+            const int a = idx[ring * (segs + 1) + s];
+            const int b = idx[ring * (segs + 1) + s + 1];
+            const int c = idx[(ring + 1) * (segs + 1) + s + 1];
+            const int d = idx[(ring + 1) * (segs + 1) + s];
+            EmitTri(out, a, b, c, area);
+            EmitTri(out, a, c, d, area);
+        }
+    }
+}
+
+void TriangulateCapsule(float r, float halfH, const glm::mat4& xf, uint8_t area, int segs, NavMeshTriangleSoup& out)
+{
+    if (segs < 4) segs = 4;
+    std::vector<int> bot(segs + 1), top(segs + 1);
+    for (int s = 0; s <= segs; ++s) {
+        const float u = static_cast<float>(s) / static_cast<float>(segs);
+        const float theta = u * 6.28318530717958f;
+        const glm::vec3 lb{ r * std::cos(theta), -halfH, r * std::sin(theta) };
+        const glm::vec3 lt{ r * std::cos(theta),  halfH, r * std::sin(theta) };
+        const glm::vec3 wb = Xform(xf, lb); GrowAabb(out, wb);
+        const glm::vec3 wt = Xform(xf, lt); GrowAabb(out, wt);
+        bot[s] = EmitVert(out, wb);
+        top[s] = EmitVert(out, wt);
+    }
+    for (int s = 0; s < segs; ++s) {
+        EmitTri(out, bot[s], bot[s+1], top[s+1], area);
+        EmitTri(out, bot[s], top[s+1], top[s],   area);
+    }
+    const glm::mat4 topCap = xf * glm::translate(glm::mat4(1.0f), glm::vec3(0,  halfH, 0));
+    const glm::mat4 botCap = xf * glm::translate(glm::mat4(1.0f), glm::vec3(0, -halfH, 0));
+    TriangulateSphere(r, topCap, area, segs, out);
+    TriangulateSphere(r, botCap, area, segs, out);
+}
+
+NavMeshTriangleSoup CollectTriangles(const ECS& world, const MeshSystem* meshSystem)
+{
+    NavMeshTriangleSoup soup;
+
+    world.Each<NavMeshSourceComponent>([&](EntityId e, const NavMeshSourceComponent& src) {
+        const auto* tr = world.GetComponent<TransformComponent>(e);
+        if (!tr) {
+            SM_WARN("NavMeshSource entity %llu missing TransformComponent; skipped", e);
+            return;
+        }
+        if (src.Geometry == NavMeshGeometrySource::Unset) {
+            SM_WARN("NavMeshSource entity %llu Geometry=Unset; pick Collider or Mesh", e);
+            return;
+        }
+        const glm::mat4 worldXform = BuildWorld(*tr);
+
+        if (src.Geometry == NavMeshGeometrySource::Collider) {
+            const auto* col = world.GetComponent<ColliderComponent>(e);
+            if (!col) {
+                SM_WARN("NavMeshSource entity %llu Geometry=Collider but no ColliderComponent; skipped", e);
+                return;
+            }
+            const glm::mat4 xfWithOffset = glm::translate(worldXform, col->Offset);
+            switch (col->Shape) {
+                case ColliderShape::Box:
+                    TriangulateBox(col->Size, xfWithOffset, src.AreaId, soup);
+                    break;
+                case ColliderShape::Sphere:
+                    TriangulateSphere(col->Size.x, xfWithOffset, src.AreaId, 8, soup);
+                    break;
+                case ColliderShape::Capsule:
+                    TriangulateCapsule(col->Size.x, col->Size.y, xfWithOffset, src.AreaId, 8, soup);
+                    break;
+            }
+        } else { // NavMeshGeometrySource::Mesh
+            const auto* mc = world.GetComponent<MeshComponent>(e);
+            if (!mc) {
+                SM_WARN("NavMeshSource entity %llu Geometry=Mesh but no MeshComponent; skipped", e);
+                return;
+            }
+            if (!meshSystem) {
+                SM_WARN("NavMeshSource entity %llu Geometry=Mesh but no MeshSystem available; skipped", e);
+                return;
+            }
+            const auto cpu = meshSystem->GetMeshCpuData(mc->MeshId);
+            if (!cpu.valid) {
+                SM_WARN("NavMeshSource entity %llu MeshId %u has no CPU data; skipped", e, mc->MeshId);
+                return;
+            }
+            const int baseVert = static_cast<int>(soup.Verts.size() / 3);
+            // MeshVertex layout: float px,py,pz; float nx,ny,nz; float u,v;  (ApplicationContext.h:57-62)
+            for (const auto& v : cpu.vertices) {
+                const glm::vec3 w = Xform(worldXform, glm::vec3(v.px, v.py, v.pz));
+                soup.Verts.push_back(w.x);
+                soup.Verts.push_back(w.y);
+                soup.Verts.push_back(w.z);
+                GrowAabb(soup, w);
+            }
+            for (size_t i = 0; i + 2 < cpu.indices.size(); i += 3) {
+                EmitTri(soup,
+                        baseVert + static_cast<int>(cpu.indices[i + 0]),
+                        baseVert + static_cast<int>(cpu.indices[i + 1]),
+                        baseVert + static_cast<int>(cpu.indices[i + 2]),
+                        src.AreaId);
+            }
+        }
+    });
+
+    return soup;
+}
+
+} // namespace NavMeshBuilder

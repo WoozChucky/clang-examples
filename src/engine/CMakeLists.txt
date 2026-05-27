@@ -55,6 +55,9 @@ add_library(Engine SHARED
     src/utilities/WorldManager.cpp
     src/utilities/SettingsManager.cpp
 
+    # Navigation (Recast/Detour)
+    src/navigation/NavMeshBuilder.cpp
+
     # Third-party
     src/tiny_obj_loader.cpp
 )
@@ -70,6 +73,7 @@ target_include_directories(Engine PUBLIC
     src/rendering/shader
     src/plugins
     src/utilities
+    src/navigation
     ${CMAKE_SOURCE_DIR}/third_party/dotnet/include
 )
 
@@ -103,6 +107,10 @@ target_link_libraries(Engine PUBLIC
     dxcompiler
     assimp::assimp
     nlohmann_json::nlohmann_json
+    Recast
+    Detour
+    DetourTileCache
+    DebugUtils
     ${CMAKE_SOURCE_DIR}/third_party/dotnet/lib/nethost.lib
 )
 if (TARGET Vulkan-Headers)
