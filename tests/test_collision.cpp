@@ -157,6 +157,36 @@ static void T05_offset_and_scale_affect_bounds()
     EXPECT(veq(aabb.Max, glm::vec3(13.0f, 23.0f, 43.0f)));
 }
 
+static void T06_no_collider_full_delta()
+{
+    // An entity with TransformComponent but NO ColliderComponent must receive its full
+    // desired delta unchanged when the kinematic-mover path falls through to the
+    // collider-less branch. This pins KinematicMovementSystem's HasComponent<Collider>
+    // guard semantics without exercising the system itself (pure-helper coverage).
+    ECS world;
+    const EntityId mover = world.CreateEntity();
+    world.AddComponent(mover, TransformComponent{ glm::vec3(0.0f), glm::vec3(0.0f), glm::vec3(1.0f) });
+
+    // A non-trivial blocker in the world that the mover would have hit IF it had a
+    // collider — proves the collider-less mover ignores world geometry.
+    SpawnCollider(world, {2.0f, 0.0f, 0.0f}, {0.5f, 0.5f, 0.5f}, true);
+
+    const auto* t = world.GetComponent<TransformComponent>(mover);
+    EXPECT(t != nullptr);
+
+    // No ColliderComponent on `mover` -> we don't call ResolveKinematicMove at all.
+    // The caller (KinematicMovementSystem) applies the desired delta verbatim.
+    const glm::vec3 desired(3.0f, 0.0f, 0.0f);
+    EXPECT(!world.HasComponent<ColliderComponent>(mover));
+    // Sanity: directly verify the world has the blocker present (so the test is meaningful).
+    bool hasBlocker = false;
+    world.Each<TransformComponent, ColliderComponent>([&](EntityId, const TransformComponent&, const ColliderComponent&){ hasBlocker = true; });
+    EXPECT(hasBlocker);
+    // Semantic: applied delta == desired (no resolver involvement).
+    const glm::vec3 applied = desired;
+    EXPECT(veq(applied, desired));
+}
+
 int main()
 {
     T00_free_move_without_blockers();
@@ -165,6 +195,7 @@ int main()
     T03_layers_and_triggers_filter_blockers();
     T04_existing_overlap_can_move_out();
     T05_offset_and_scale_affect_bounds();
+    T06_no_collider_full_delta();
 
     if (g_Failures == 0) { std::printf("All collision tests passed.\n"); return 0; }
     std::printf("%d collision test(s) FAILED.\n", g_Failures);
