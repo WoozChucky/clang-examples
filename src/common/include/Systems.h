@@ -5,12 +5,14 @@
 #include <vector>
 
 #include "ECS.h"   // ECS + ECS_API
+#include "NavServices.h"   // pulls full struct + std::vector/glm dependencies
 
 // Minimal per-tick context handed to every system.
 struct SystemContext {
     ECS&   world;
     double dt;        // seconds since last tick (clamped by GameThread)
     double gameTime;  // absolute time
+    const NavServices* Nav = nullptr;  // engine-provided nav table; nullptr in test harness or pre-init
 };
 
 // Coarse run-order buckets. Systems sort by (phase, registration index).
