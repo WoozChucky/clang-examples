@@ -504,18 +504,20 @@ bool NavMesh::SaveToFile(const std::string& path, uint64_t worldMtimeAtBake) con
     int tileCount = 0;
     for (int i = 0; i < tileCap; ++i) {
         const dtCompressedTile* tile = m_TileCache->getTile(i);
-        if (tile && tile->header && tile->compressed && tile->compressedSize > 0) {
+        if (tile && tile->header && tile->data && tile->dataSize > 0) {
             ++tileCount;
         }
     }
     ofs.write(reinterpret_cast<const char*>(&tileCount), sizeof(tileCount));
 
-    // Per-tile: compressedSize + compressed bytes (this is what addTile takes back).
+    // Per-tile: dataSize + full blob (header + compressed payload). dtTileCache::addTile
+    // expects the whole blob — header is parsed in-place from the first bytes, then
+    // `compressed` is set to `data + sizeof(dtTileCacheLayerHeader)` internally.
     for (int i = 0; i < tileCap; ++i) {
         const dtCompressedTile* tile = m_TileCache->getTile(i);
-        if (!tile || !tile->header || !tile->compressed || tile->compressedSize <= 0) continue;
-        ofs.write(reinterpret_cast<const char*>(&tile->compressedSize), sizeof(int));
-        ofs.write(reinterpret_cast<const char*>(tile->compressed), tile->compressedSize);
+        if (!tile || !tile->header || !tile->data || tile->dataSize <= 0) continue;
+        ofs.write(reinterpret_cast<const char*>(&tile->dataSize), sizeof(int));
+        ofs.write(reinterpret_cast<const char*>(tile->data), tile->dataSize);
     }
 
     return ofs.good();
@@ -531,21 +533,27 @@ std::unique_ptr<NavMesh> NavMesh::LoadFromFile(const std::string& path, uint64_t
         return nullptr;
     }
 
-    // Header
+    // Header — read + validate each field separately so a short file reports the
+    // actual failure (truncation) rather than a confusing "bad magic" with matching
+    // values (which happens when magic reads OK but EOF hits during a later field).
     uint32_t magic = 0, version = 0;
     uint64_t bakeEpoch = 0, worldMtime = 0;
     ifs.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-    ifs.read(reinterpret_cast<char*>(&version), sizeof(version));
-    ifs.read(reinterpret_cast<char*>(&bakeEpoch), sizeof(bakeEpoch));
-    ifs.read(reinterpret_cast<char*>(&worldMtime), sizeof(worldMtime));
     if (!ifs.good() || magic != kNavMeshBakeMagic) {
         SM_WARN("NavMesh::LoadFromFile: '%s' bad magic (got 0x%08x, expected 0x%08x)",
                 path.c_str(), magic, kNavMeshBakeMagic);
         return nullptr;
     }
-    if (version != kNavMeshBakeVersion) {
+    ifs.read(reinterpret_cast<char*>(&version), sizeof(version));
+    if (!ifs.good() || version != kNavMeshBakeVersion) {
         SM_WARN("NavMesh::LoadFromFile: '%s' unsupported format version %u (expected %u)",
                 path.c_str(), version, kNavMeshBakeVersion);
+        return nullptr;
+    }
+    ifs.read(reinterpret_cast<char*>(&bakeEpoch), sizeof(bakeEpoch));
+    ifs.read(reinterpret_cast<char*>(&worldMtime), sizeof(worldMtime));
+    if (!ifs.good()) {
+        SM_WARN("NavMesh::LoadFromFile: '%s' truncated reading header", path.c_str());
         return nullptr;
     }
     if (outWorldMtime) *outWorldMtime = worldMtime;
