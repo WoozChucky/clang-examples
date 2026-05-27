@@ -60,6 +60,9 @@ bool WorldManager::SaveWorldSnapshot(const std::string& filepath, const ECS* wor
         if (world->HasComponent<MenuButtonComponent>(entity)) {
             jEntity["MenuButtonComponent"] = *(world->GetComponent<MenuButtonComponent>(entity));
         }
+        if (world->HasComponent<ColliderComponent>(entity)) {
+            jEntity["ColliderComponent"] = *(world->GetComponent<ColliderComponent>(entity));
+        }
 
         j["Entities"].push_back(jEntity);
     }
@@ -123,6 +126,8 @@ bool WorldManager::LoadWorldSnapshot(const std::string& filepath, ECS* world) {
                 world->AddComponent(createdEntity, jEntity["StateScopeComponent"].get<StateScopeComponent>());
             if (jEntity.contains("MenuButtonComponent"))
                 world->AddComponent(createdEntity, jEntity["MenuButtonComponent"].get<MenuButtonComponent>());
+            if (jEntity.contains("ColliderComponent"))
+                world->AddComponent(createdEntity, jEntity["ColliderComponent"].get<ColliderComponent>());
         }
 
         // Apply scene atmosphere if present. Singletons survive Clear(), so when the

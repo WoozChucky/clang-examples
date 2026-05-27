@@ -167,8 +167,7 @@ public:
         while (commandRing.Pop(cmd)) {
             switch (cmd.Type) {
                 case ECSCommandType::CreateEntity: {
-                    EntityId newEntity = world.CreateEntity();
-                    // Could store newEntity somewhere if needed for response
+                    world.CreateEntity();
                     break;
                 }
 
@@ -225,6 +224,7 @@ private:
         if (auto* c = world.GetComponent<UIRectComponent>(src))     world.AddComponent(dst, *c);
         if (auto* c = world.GetComponent<StateScopeComponent>(src)) world.AddComponent(dst, *c);
         if (auto* c = world.GetComponent<MenuButtonComponent>(src))  world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<ColliderComponent>(src))        world.AddComponent(dst, *c);
         if (world.HasComponent<SunMarker>(src))                     world.AddComponent(dst, SunMarker{});
     }
 
@@ -281,6 +281,10 @@ private:
             if (auto* btn = componentData.Get<MenuButtonComponent>()) {
                 world.AddComponent(entity, *btn);
             }
+        } else if (componentData.Type == std::type_index(typeid(ColliderComponent))) {
+            if (auto* btn = componentData.Get<ColliderComponent>()) {
+                world.AddComponent(entity, *btn);
+            }
         }
         // Add more component types as needed
     }
@@ -313,6 +317,8 @@ private:
             world.RemoveComponent<StateScopeComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(MenuButtonComponent))) {
             world.RemoveComponent<MenuButtonComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(ColliderComponent))) {
+            world.RemoveComponent<ColliderComponent>(entity);
         }
         // Add more component types as needed
     }

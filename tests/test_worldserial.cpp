@@ -181,6 +181,45 @@ static void T09_menubutton_roundtrip()
     EXPECT(veq(glm::vec3(out.Press),  glm::vec3(in.Press)));
 }
 
+static void T10_collider_roundtrip()
+{
+    ColliderComponent in;
+    in.Shape = ColliderShape::Capsule;
+    in.Size = glm::vec3(0.5f, 1.25f, 0.0f);
+    in.Offset = glm::vec3(1.0f, 2.0f, 3.0f);
+    in.IsTrigger = true;
+    in.IsStatic = false;
+    in.Layer = 0x12u;
+    in.Mask = 0x34u;
+
+    const nlohmann::json j = in;
+    const auto out = j.get<ColliderComponent>();
+    EXPECT(out.Shape == in.Shape);
+    EXPECT(veq(out.Size, in.Size));
+    EXPECT(veq(out.Offset, in.Offset));
+    EXPECT(out.IsTrigger == in.IsTrigger);
+    EXPECT(out.IsStatic == in.IsStatic);
+    EXPECT(out.Layer == in.Layer);
+    EXPECT(out.Mask == in.Mask);
+}
+
+static void T11_collider_backward_compatible_defaults()
+{
+    const nlohmann::json j = {
+        {"Shape", ColliderShape::Sphere},
+        {"Size", glm::vec3(2.0f, 0.0f, 0.0f)}
+    };
+
+    const auto out = j.get<ColliderComponent>();
+    EXPECT(out.Shape == ColliderShape::Sphere);
+    EXPECT(veq(out.Size, glm::vec3(2.0f, 0.0f, 0.0f)));
+    EXPECT(veq(out.Offset, glm::vec3(0.0f)));
+    EXPECT(out.IsTrigger == false);
+    EXPECT(out.IsStatic == true);
+    EXPECT(out.Layer == 1u);
+    EXPECT(out.Mask == 0xffffffffu);
+}
+
 int main()
 {
     T00_fog_roundtrip();
@@ -193,6 +232,8 @@ int main()
     T07_uirect_roundtrip();
     T08_statescope_roundtrip();
     T09_menubutton_roundtrip();
+    T10_collider_roundtrip();
+    T11_collider_backward_compatible_defaults();
 
     if (g_Failures == 0) { std::printf("All world-serialization tests passed.\n"); return 0; }
     std::printf("%d world-serialization test(s) FAILED.\n", g_Failures);

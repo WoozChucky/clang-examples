@@ -202,6 +202,15 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                     }
                 }
 
+                if (!ctx.WorldSnapshot->HasComponent<ColliderComponent>(entity)) {
+                    if (ImGui::MenuItem("Add Collider Component")) {
+                        ECSCommand addCmd = ECSCommand::AddComponent(entity, ColliderComponent{});
+                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
+                            SM_WARN("ECS command queue full! Add component command dropped.");
+                        }
+                    }
+                }
+
                 ImGui::Separator();
 
                 // Remove component options
@@ -287,6 +296,15 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                 if (ctx.WorldSnapshot->HasComponent<MenuButtonComponent>(entity)) {
                     if (ImGui::MenuItem("Remove Menu Button Component")) {
                         ECSCommand removeCmd = ECSCommand::RemoveComponent<MenuButtonComponent>(entity);
+                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
+                            SM_WARN("ECS command queue full! Remove component command dropped.");
+                        }
+                    }
+                }
+
+                if (ctx.WorldSnapshot->HasComponent<ColliderComponent>(entity)) {
+                    if (ImGui::MenuItem("Remove Collider Component")) {
+                        ECSCommand removeCmd = ECSCommand::RemoveComponent<ColliderComponent>(entity);
                         if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
                             SM_WARN("ECS command queue full! Remove component command dropped.");
                         }
@@ -827,12 +845,48 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                 }
             }
 
-            // Show if entity has no components
-            if (!ctx.WorldSnapshot->HasComponents<TransformComponent, LightningComponent, MeshComponent, MaterialComponent, TextComponent>(selectedEntity)
-                && !ctx.WorldSnapshot->HasComponent<SunMarker>(selectedEntity)) {
-                ImGui::TextDisabled("Entity has no components.");
-                ImGui::TextDisabled("Right-click the entity to add components.");
+            // Edit Collider Component
+            if (ctx.WorldSnapshot->HasComponent<ColliderComponent>(selectedEntity)) {
+                if (ImGui::CollapsingHeader("Collider Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto* collider = ctx.WorldSnapshot->GetComponent<ColliderComponent>(selectedEntity);
+                    if (collider) {
+                        if (lastEditedColliderEntity != selectedEntity) {
+                            editCollider = *collider;
+                            lastEditedColliderEntity = selectedEntity;
+                            colliderModified = false;
+                        }
+                        if (!colliderModified) {
+                            editCollider = *collider;
+                        }
+                        static const char* kShapeNames[] = { "Box", "Sphere", "Capsule" };
+                        static const ColliderShape kShapes[] = { ColliderShape::Box, ColliderShape::Sphere, ColliderShape::Capsule };
+                        int curIdx = 0;
+                        for (int i = 0; i < 3; ++i) if (editCollider.Shape == kShapes[i]) curIdx = i;
+                        if (ImGui::Combo("Shape", &curIdx, kShapeNames, 3)) {
+                            editCollider.Shape = kShapes[curIdx];
+                            colliderModified = true;
+                        }
+                        const char* sizeLabel = "Size (half extents / radius-height)";
+                        if (editCollider.Shape == ColliderShape::Sphere) sizeLabel = "Size (radius in X)";
+                        else if (editCollider.Shape == ColliderShape::Capsule) sizeLabel = "Size (radius X, half-height Y)";
+                        if (ImGui::InputFloat3(sizeLabel, &editCollider.Size.x)) colliderModified = true;
+                        if (ImGui::InputFloat3("Offset", &editCollider.Offset.x)) colliderModified = true;
+                        if (ImGui::Checkbox("Trigger", &editCollider.IsTrigger)) colliderModified = true;
+                        if (ImGui::Checkbox("Static", &editCollider.IsStatic)) colliderModified = true;
+                        if (ImGui::InputScalar("Layer", ImGuiDataType_U32, &editCollider.Layer)) colliderModified = true;
+                        if (ImGui::InputScalar("Mask", ImGuiDataType_U32, &editCollider.Mask)) colliderModified = true;
+                        ImGui::Spacing();
+                        if (colliderModified) {
+                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editCollider);
+                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
+                                SM_WARN("ECS command queue full! Modify command dropped.");
+                            }
+                            colliderModified = false;
+                        }
+                    }
+                }
             }
+
         } else if (selectedEntity != INVALID_ENTITY) {
             ImGui::TextDisabled("Selected entity no longer exists.");
             if (ImGui::Button("Clear Selection")) {

@@ -156,6 +156,29 @@ inline void from_json(const nlohmann::json& j, MenuButtonComponent& t) {
     j.at("Press").get_to(t.Press);
 }
 
+inline void to_json(nlohmann::json& j, const ColliderComponent& t) {
+    j = nlohmann::json{
+        // Shape goes through its underlying int so the JSON format stays the same
+        // after switching to enum class (any existing world.json still loads).
+        {"Shape", static_cast<uint8_t>(t.Shape)},
+        {"Size", t.Size},
+        {"Offset", t.Offset},
+        {"IsTrigger", t.IsTrigger},
+        {"IsStatic", t.IsStatic},
+        {"Layer", t.Layer},
+        {"Mask", t.Mask}
+    };
+}
+inline void from_json(const nlohmann::json& j, ColliderComponent& t) {
+    t.Shape = static_cast<ColliderShape>(j.at("Shape").get<uint8_t>());
+    j.at("Size").get_to(t.Size);
+    if (j.contains("Offset"))    j.at("Offset").get_to(t.Offset);
+    if (j.contains("IsTrigger")) j.at("IsTrigger").get_to(t.IsTrigger);
+    if (j.contains("IsStatic"))  j.at("IsStatic").get_to(t.IsStatic);
+    if (j.contains("Layer"))     j.at("Layer").get_to(t.Layer);
+    if (j.contains("Mask"))      j.at("Mask").get_to(t.Mask);
+}
+
 // ----- Atmosphere components (new) -----
 
 inline void to_json(nlohmann::json& j, const FogComponent& t) {
