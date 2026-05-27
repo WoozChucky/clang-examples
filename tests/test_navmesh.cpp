@@ -478,6 +478,35 @@ static void T22_load_missing_file_returns_null() {
     EXPECT(loaded == nullptr);
 }
 
+static void T23_try_load_from_disk_stale_returns_false() {
+    namespace fs = std::filesystem;
+    auto worldPath = fs::temp_directory_path() / "test_navmesh_T23_world.json";
+    auto bakePath  = fs::temp_directory_path() / "test_navmesh_T23_world.navmesh.bin";
+
+    // Initial world.json.
+    { std::ofstream wf(worldPath); wf << "{}\n"; }
+
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    auto built = NavMeshSystem::Instance().Current();
+    EXPECT(built != nullptr);
+    if (built) {
+        // Save with a deliberately-stale worldMtime (much older than the file's actual mtime).
+        EXPECT(built->SaveToFile(bakePath.string(), /*stale*/ 100ULL));
+    }
+
+    // Touch world.json forward so fs::mtime is well above stored 100.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    { std::ofstream wf(worldPath); wf << "{\"changed\":true}\n"; }
+
+    const bool loaded = NavMeshSystem::Instance().TryLoadFromDisk(worldPath.string());
+    EXPECT(!loaded);  // stale → returns false; caller falls back to Rebuild
+
+    fs::remove(worldPath);
+    fs::remove(bakePath);
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -501,6 +530,7 @@ int main() {
     T20_load_bad_magic_returns_null();
     T21_load_bad_version_returns_null();
     T22_load_missing_file_returns_null();
+    T23_try_load_from_disk_stale_returns_false();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);
