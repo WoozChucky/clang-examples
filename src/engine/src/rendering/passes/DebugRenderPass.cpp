@@ -193,7 +193,7 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
         if (nm) {
             std::vector<glm::vec3> edges;
             nm->CollectPolyEdges(edges);
-            const glm::vec4 col(0.2f, 0.85f, 1.0f, 1.0f); // cyan
+            const glm::vec4 col(0.4f, 1.0f, 0.3f, 1.0f); // lime green: walkable surface
             for (size_t i = 0; i + 1 < edges.size(); i += 2) {
                 DebugAppendLine(m_Verts, edges[i], edges[i + 1], col);
             }
