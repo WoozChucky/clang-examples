@@ -278,6 +278,23 @@ static void Test_Navigation() {
         // parsed.NavMeshConfig was default-initialized; verify a sentinel default survived.
         EXPECT(near(parsed.NavMeshConfig.CellSize, 0.3f));
     }
+
+    // T23: NavObstacleComponent per-entity round-trip
+    {
+        NavObstacleComponent obs{};
+        obs.Shape  = NavObstacleShape::Box;
+        obs.Size   = glm::vec3(2.5f, 1.0f, 0.8f);
+        obs.Offset = glm::vec3(0.1f, 0.0f, -0.2f);
+        json j = obs;
+        NavObstacleComponent back = j.get<NavObstacleComponent>();
+        EXPECT(back.Shape == NavObstacleShape::Box);
+        EXPECT(near(back.Size.x, 2.5f));
+        EXPECT(near(back.Size.y, 1.0f));
+        EXPECT(near(back.Size.z, 0.8f));
+        EXPECT(near(back.Offset.x,  0.1f));
+        EXPECT(near(back.Offset.y,  0.0f));
+        EXPECT(near(back.Offset.z, -0.2f));
+    }
 }
 
 int main()

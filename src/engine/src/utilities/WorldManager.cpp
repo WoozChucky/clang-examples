@@ -66,6 +66,9 @@ bool WorldManager::SaveWorldSnapshot(const std::string& filepath, const ECS* wor
         if (world->HasComponent<NavMeshSourceComponent>(entity)) {
             jEntity["NavMeshSourceComponent"] = *(world->GetComponent<NavMeshSourceComponent>(entity));
         }
+        if (world->HasComponent<NavObstacleComponent>(entity)) {
+            jEntity["NavObstacleComponent"] = *(world->GetComponent<NavObstacleComponent>(entity));
+        }
 
         j["Entities"].push_back(jEntity);
     }
@@ -134,6 +137,8 @@ bool WorldManager::LoadWorldSnapshot(const std::string& filepath, ECS* world) {
                 world->AddComponent(createdEntity, jEntity["ColliderComponent"].get<ColliderComponent>());
             if (jEntity.contains("NavMeshSourceComponent"))
                 world->AddComponent(createdEntity, jEntity["NavMeshSourceComponent"].get<NavMeshSourceComponent>());
+            if (jEntity.contains("NavObstacleComponent"))
+                world->AddComponent(createdEntity, jEntity["NavObstacleComponent"].get<NavObstacleComponent>());
         }
 
         // Apply scene atmosphere + nav config if present. Singletons survive Clear(), so when
