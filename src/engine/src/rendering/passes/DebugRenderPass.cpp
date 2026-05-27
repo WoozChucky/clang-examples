@@ -91,7 +91,7 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
         return;
 
     const DebugDrawSettings& s = GetDebugDrawSettings();
-    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid && !s.ShowColliders && !s.ShowNavMesh && !s.ShowObstacles)
+    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid && !s.ShowColliders && !s.ShowNavMesh && !s.ShowObstacles && !s.ShowNavPaths)
         return;
 
     m_Verts.clear();
@@ -213,6 +213,20 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
                 } else {  // Box: DebugAppendBox takes (mn, mx) — convert from (center, halfExtents).
                     DebugAppendBox(m_Verts, worldPos - obs.Size, worldPos + obs.Size, col);
                 }
+            });
+    }
+
+    if (s.ShowNavPaths) {
+        // v1: destination markers only. Path-line rendering is deferred to v2 (cached
+        // path on NavAgentComponent) — NavMesh::FindPath asserts on GameThread owner,
+        // but DebugRenderPass runs on RenderThread. Once v2 caches the path on the
+        // agent, viz reads the cached vector instead of querying (consistent with the
+        // stateless-v1 / cached-v2 framework documented in navigation-agents-design.md).
+        const glm::vec4 destCol(1.0f, 1.0f, 1.0f, 1.0f);  // white — destination markers
+        world->Each<NavAgentComponent, NavTargetComponent, TransformComponent>(
+            [&](EntityId, const NavAgentComponent&,
+                const NavTargetComponent& target, const TransformComponent&) {
+                DebugAppendSphere(m_Verts, target.Destination, 0.25f, destCol, 12);
             });
     }
 

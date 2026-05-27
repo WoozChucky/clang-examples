@@ -205,6 +205,28 @@ inline void from_json(const nlohmann::json& j, NavObstacleComponent& t) {
     if (j.contains("Offset")) j.at("Offset").get_to(t.Offset);
 }
 
+inline void to_json(nlohmann::json& j, const NavAgentComponent& t) {
+    j = nlohmann::json{
+        {"MoveSpeed",      t.MoveSpeed},
+        {"Radius",         t.Radius},
+        {"ReachedEpsilon", t.ReachedEpsilon}
+    };
+}
+inline void from_json(const nlohmann::json& j, NavAgentComponent& t) {
+    if (j.contains("MoveSpeed"))      j.at("MoveSpeed").get_to(t.MoveSpeed);
+    if (j.contains("Radius"))         j.at("Radius").get_to(t.Radius);
+    if (j.contains("ReachedEpsilon")) j.at("ReachedEpsilon").get_to(t.ReachedEpsilon);
+}
+
+inline void to_json(nlohmann::json& j, const NavTargetComponent& t) {
+    j = nlohmann::json{
+        {"Destination", t.Destination}
+    };
+}
+inline void from_json(const nlohmann::json& j, NavTargetComponent& t) {
+    if (j.contains("Destination")) j.at("Destination").get_to(t.Destination);
+}
+
 // ----- Atmosphere components (new) -----
 
 inline void to_json(nlohmann::json& j, const FogComponent& t) {

@@ -229,6 +229,24 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                     }
                 }
 
+                if (!ctx.WorldSnapshot->HasComponent<NavAgentComponent>(entity)) {
+                    if (ImGui::MenuItem("Add NavMesh Agent Component")) {
+                        ECSCommand addCmd = ECSCommand::AddComponent(entity, NavAgentComponent{});
+                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
+                            SM_WARN("ECS command queue full! Add component command dropped.");
+                        }
+                    }
+                }
+
+                if (!ctx.WorldSnapshot->HasComponent<NavTargetComponent>(entity)) {
+                    if (ImGui::MenuItem("Add NavMesh Target Component")) {
+                        ECSCommand addCmd = ECSCommand::AddComponent(entity, NavTargetComponent{});
+                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
+                            SM_WARN("ECS command queue full! Add component command dropped.");
+                        }
+                    }
+                }
+
                 ImGui::Separator();
 
                 // Remove component options
@@ -341,6 +359,24 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                 if (ctx.WorldSnapshot->HasComponent<NavObstacleComponent>(entity)) {
                     if (ImGui::MenuItem("Remove NavMesh Obstacle Component")) {
                         ECSCommand removeCmd = ECSCommand::RemoveComponent<NavObstacleComponent>(entity);
+                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
+                            SM_WARN("ECS command queue full! Remove component command dropped.");
+                        }
+                    }
+                }
+
+                if (ctx.WorldSnapshot->HasComponent<NavAgentComponent>(entity)) {
+                    if (ImGui::MenuItem("Remove NavMesh Agent Component")) {
+                        ECSCommand removeCmd = ECSCommand::RemoveComponent<NavAgentComponent>(entity);
+                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
+                            SM_WARN("ECS command queue full! Remove component command dropped.");
+                        }
+                    }
+                }
+
+                if (ctx.WorldSnapshot->HasComponent<NavTargetComponent>(entity)) {
+                    if (ImGui::MenuItem("Remove NavMesh Target Component")) {
+                        ECSCommand removeCmd = ECSCommand::RemoveComponent<NavTargetComponent>(entity);
                         if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
                             SM_WARN("ECS command queue full! Remove component command dropped.");
                         }
@@ -1007,6 +1043,60 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                                 SM_WARN("ECS command queue full! Modify command dropped.");
                             }
                             navObstacleModified = false;
+                        }
+                    }
+                }
+            }
+
+            // Edit NavMesh Agent Component
+            if (ctx.WorldSnapshot->HasComponent<NavAgentComponent>(selectedEntity)) {
+                if (ImGui::CollapsingHeader("NavMesh Agent Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto* a = ctx.WorldSnapshot->GetComponent<NavAgentComponent>(selectedEntity);
+                    if (a) {
+                        if (lastEditedNavAgentEntity != selectedEntity) {
+                            editNavAgent = *a;
+                            lastEditedNavAgentEntity = selectedEntity;
+                            navAgentModified = false;
+                        }
+                        if (!navAgentModified) {
+                            editNavAgent = *a;
+                        }
+                        if (ImGui::DragFloat("Move Speed",      &editNavAgent.MoveSpeed,      0.05f, 0.0f, 50.0f, "%.2f m/s")) navAgentModified = true;
+                        if (ImGui::DragFloat("Radius",          &editNavAgent.Radius,         0.01f, 0.05f, 5.0f, "%.2f m"))   navAgentModified = true;
+                        if (ImGui::DragFloat("Reached Epsilon", &editNavAgent.ReachedEpsilon, 0.01f, 0.01f, 2.0f, "%.2f m"))   navAgentModified = true;
+                        ImGui::Spacing();
+                        if (navAgentModified) {
+                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editNavAgent);
+                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
+                                SM_WARN("ECS command queue full! Modify command dropped.");
+                            }
+                            navAgentModified = false;
+                        }
+                    }
+                }
+            }
+
+            // Edit NavMesh Target Component
+            if (ctx.WorldSnapshot->HasComponent<NavTargetComponent>(selectedEntity)) {
+                if (ImGui::CollapsingHeader("NavMesh Target Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto* t = ctx.WorldSnapshot->GetComponent<NavTargetComponent>(selectedEntity);
+                    if (t) {
+                        if (lastEditedNavTargetEntity != selectedEntity) {
+                            editNavTarget = *t;
+                            lastEditedNavTargetEntity = selectedEntity;
+                            navTargetModified = false;
+                        }
+                        if (!navTargetModified) {
+                            editNavTarget = *t;
+                        }
+                        if (ImGui::InputFloat3("Destination", &editNavTarget.Destination.x)) navTargetModified = true;
+                        ImGui::Spacing();
+                        if (navTargetModified) {
+                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editNavTarget);
+                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
+                                SM_WARN("ECS command queue full! Modify command dropped.");
+                            }
+                            navTargetModified = false;
                         }
                     }
                 }

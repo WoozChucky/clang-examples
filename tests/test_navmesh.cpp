@@ -11,6 +11,7 @@
 #include "navigation/NavMeshSystem.h"
 
 #include "NavObstacleSync.h"
+#include "NavAgentSystem.h"
 
 void platform_debug_break(const char* expr, const char* file, int line, const char* message)
 {
@@ -309,6 +310,100 @@ static void T13_rebuild_clears_obstacle_map() {
     EXPECT(NavMeshSystem::Instance().ObstacleCount() == 1);
 }
 
+// ---------- Spec 3: NavAgent helpers + tests ----------
+
+static EntityId SpawnAgent(ECS& w, const glm::vec3& pos, float speed = 3.0f) {
+    const EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{ pos, glm::vec3(0.0f), glm::vec3(1.0f) });
+    NavAgentComponent agent{};
+    agent.MoveSpeed = speed;
+    w.AddComponent(e, agent);
+    return e;
+}
+
+static void RunAgentSystem(ECS& w, NavAgentSystem& sys, double dt = 0.016) {
+    SystemContext ctx{ w, dt, 0.0 };
+    sys.Update(ctx);
+}
+
+static void T14_agent_with_no_target_does_not_emit_intent() {
+    ECS w;
+    SpawnFloorAndBuild(w);
+    SpawnAgent(w, glm::vec3(-2, 0.5f, 0));
+    NavAgentSystem sys;
+    RunAgentSystem(w, sys);
+    // The Each gate requires NavTarget — no entity has MoveIntent.
+    int intentCount = 0;
+    w.Each<MoveIntentComponent>([&](EntityId){ ++intentCount; });
+    EXPECT(intentCount == 0);
+}
+
+static void T15_agent_writes_intent_toward_path_waypoint() {
+    ECS w;
+    SpawnFloorAndBuild(w);
+    const EntityId e = SpawnAgent(w, glm::vec3(-3, 0.5f, 0));
+    w.AddComponent(e, NavTargetComponent{ glm::vec3(3, 0.5f, 0) });
+    NavAgentSystem sys;
+    RunAgentSystem(w, sys);
+
+    auto* mi = w.GetComponent<MoveIntentComponent>(e);
+    EXPECT(mi != nullptr);
+    if (mi) {
+        // Intent points roughly toward +X (target direction across open floor).
+        EXPECT(mi->DesiredDelta.x > 0.0f);
+        // Magnitude capped at MoveSpeed * dt = 3.0 * 0.016 = 0.048.
+        const float mag = glm::length(mi->DesiredDelta);
+        EXPECT(mag <= 3.0f * 0.016f + 1e-4f);
+        EXPECT(mag > 0.0f);
+    }
+}
+
+static void T16_agent_reached_target_stops_emitting() {
+    ECS w;
+    SpawnFloorAndBuild(w);
+    const EntityId e = SpawnAgent(w, glm::vec3(0, 0.5f, 0));
+    // Target within ReachedEpsilon (default 0.10) of position.
+    w.AddComponent(e, NavTargetComponent{ glm::vec3(0.05f, 0.5f, 0) });
+    NavAgentSystem sys;
+    RunAgentSystem(w, sys);
+    // No MoveIntent component should have been added (agent never emitted).
+    EXPECT(!w.HasComponent<MoveIntentComponent>(e));
+}
+
+static void T17_agent_unreachable_target_no_intent() {
+    ECS w;
+    SpawnFloorAndBuild(w);
+    const EntityId e = SpawnAgent(w, glm::vec3(0, 0.5f, 0));
+    // Target way off the navmesh (far above floor).
+    w.AddComponent(e, NavTargetComponent{ glm::vec3(0, 100.0f, 0) });
+    NavAgentSystem sys;
+    RunAgentSystem(w, sys);
+    EXPECT(!w.HasComponent<MoveIntentComponent>(e));
+}
+
+static void T18_agent_routes_around_obstacle() {
+    ECS w;
+    SpawnFloorAndBuild(w);
+    SpawnCylinderObstacle(w, glm::vec3(0, 0, 0), 1.5f, 2.0f);
+    NavObstacleSyncSystem obsSync;
+    RunSync(w, obsSync);
+    DrainTileCache(NavMeshSystem::Instance());
+
+    const EntityId e = SpawnAgent(w, glm::vec3(-3, 0.5f, 0));
+    w.AddComponent(e, NavTargetComponent{ glm::vec3(3, 0.5f, 0) });
+    NavAgentSystem sys;
+    RunAgentSystem(w, sys);
+
+    auto* mi = w.GetComponent<MoveIntentComponent>(e);
+    EXPECT(mi != nullptr);
+    if (mi) {
+        // Path curves around the obstacle. First waypoint should NOT be straight
+        // along +X (would mean walking into the cylinder). Z component should be
+        // non-trivial (steering around).
+        EXPECT(std::abs(mi->DesiredDelta.z) > 0.001f);
+    }
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -323,6 +418,11 @@ int main() {
     T11_remove_obstacle_restores_path();
     T12_obstacle_position_change_triggers_rebind();
     T13_rebuild_clears_obstacle_map();
+    T14_agent_with_no_target_does_not_emit_intent();
+    T15_agent_writes_intent_toward_path_waypoint();
+    T16_agent_reached_target_stops_emitting();
+    T17_agent_unreachable_target_no_intent();
+    T18_agent_routes_around_obstacle();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

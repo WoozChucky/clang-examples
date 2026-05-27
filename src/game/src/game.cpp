@@ -4,6 +4,7 @@
 #include "CameraFollow.h"
 #include "Collision.h"
 #include "NavObstacleSync.h"
+#include "NavAgentSystem.h"
 #include "MenuHitTest.h" // ToUiSpace + PointInRect
 #include "StateScope.h"  // ScopeAllows
 #include "Actions.h"     // ActionCategory / Actions::
@@ -399,7 +400,8 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<MenuInteractionSystem>());  // emits actions; before AppFlow
     s->Register(std::make_unique<AppFlowSystem>());   // owns transitions; runs before gameplay
     s->Register(std::make_unique<DebugSpawnSystem>());
-    s->Register(std::make_unique<PlayerMovementSystem>());            // Simulation: writes MoveIntent
+    s->Register(std::make_unique<PlayerMovementSystem>());            // Simulation: writes MoveIntent from input
+    s->Register(std::make_unique<NavAgentSystem>());                  // Simulation: writes MoveIntent from navmesh path
     s->Register(std::make_unique<KinematicMovementSystem>());         // Physics: resolves intent + applies Transform
     s->Register(std::make_unique<NavObstacleSyncSystem>());           // Physics: syncs NavObstacleComponent → dtTileCache
     s->Register(std::make_unique<CameraZoomSystem>());                // PostSimulation: before follow (sets distance)

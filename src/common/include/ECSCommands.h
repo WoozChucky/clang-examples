@@ -247,6 +247,8 @@ private:
         if (auto* c = world.GetComponent<ColliderComponent>(src))        world.AddComponent(dst, *c);
         if (auto* c = world.GetComponent<NavMeshSourceComponent>(src))   world.AddComponent(dst, *c);
         if (auto* c = world.GetComponent<NavObstacleComponent>(src))     world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<NavAgentComponent>(src))        world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<NavTargetComponent>(src))       world.AddComponent(dst, *c);
         if (world.HasComponent<SunMarker>(src))                     world.AddComponent(dst, SunMarker{});
     }
 
@@ -319,6 +321,14 @@ private:
             if (auto* obs = componentData.Get<NavObstacleComponent>()) {
                 world.AddComponent(entity, *obs);
             }
+        } else if (componentData.Type == std::type_index(typeid(NavAgentComponent))) {
+            if (auto* a = componentData.Get<NavAgentComponent>()) {
+                world.AddComponent(entity, *a);
+            }
+        } else if (componentData.Type == std::type_index(typeid(NavTargetComponent))) {
+            if (auto* t = componentData.Get<NavTargetComponent>()) {
+                world.AddComponent(entity, *t);
+            }
         }
         // Add more component types as needed
     }
@@ -359,6 +369,10 @@ private:
             world.RemoveComponent<NavMeshConfigComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(NavObstacleComponent))) {
             world.RemoveComponent<NavObstacleComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(NavAgentComponent))) {
+            world.RemoveComponent<NavAgentComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(NavTargetComponent))) {
+            world.RemoveComponent<NavTargetComponent>(entity);
         }
         // Add more component types as needed
     }

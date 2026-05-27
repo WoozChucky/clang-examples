@@ -295,6 +295,30 @@ static void Test_Navigation() {
         EXPECT(near(back.Offset.y,  0.0f));
         EXPECT(near(back.Offset.z, -0.2f));
     }
+
+    // T24: NavAgentComponent per-entity round-trip
+    {
+        NavAgentComponent agent{};
+        agent.MoveSpeed      = 4.25f;
+        agent.Radius         = 0.75f;
+        agent.ReachedEpsilon = 0.20f;
+        json j = agent;
+        NavAgentComponent back = j.get<NavAgentComponent>();
+        EXPECT(near(back.MoveSpeed,      4.25f));
+        EXPECT(near(back.Radius,         0.75f));
+        EXPECT(near(back.ReachedEpsilon, 0.20f));
+    }
+
+    // T25: NavTargetComponent per-entity round-trip
+    {
+        NavTargetComponent target{};
+        target.Destination = glm::vec3(12.5f, 0.0f, -7.25f);
+        json j = target;
+        NavTargetComponent back = j.get<NavTargetComponent>();
+        EXPECT(near(back.Destination.x,  12.5f));
+        EXPECT(near(back.Destination.y,   0.0f));
+        EXPECT(near(back.Destination.z, -7.25f));
+    }
 }
 
 int main()

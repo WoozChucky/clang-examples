@@ -304,6 +304,24 @@ struct NavObstacleComponent {
     glm::vec3 Offset{0.0f};
 };
 
+// Per-entity nav agent. Pairs with NavTargetComponent to drive intent-based
+// movement: NavAgentSystem queries NavMesh::FindPath each tick, writes
+// MoveIntent toward the next path waypoint at MoveSpeed * dt. Pure reader —
+// system doesn't mutate this component.
+struct NavAgentComponent {
+    float MoveSpeed      = 3.0f;   // world units / second
+    float Radius         = 0.5f;   // agent footprint; matches NavMeshConfigComponent::AgentRadius authoring
+    float ReachedEpsilon = 0.10f;  // distance at which target is considered reached; stop emitting MoveIntent
+};
+
+// Per-entity destination. When attached to a NavAgent entity, system pathfinds
+// toward Destination and writes MoveIntent. Game code sets/removes this to
+// command the agent. Reaching the destination does NOT remove this component —
+// gameplay decides (patrol systems keep it, single-move AI removes it).
+struct NavTargetComponent {
+    glm::vec3 Destination{0.0f};
+};
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -338,7 +356,9 @@ struct NavObstacleComponent {
     X(MoveIntentComponent) \
     X(NavMeshSourceComponent) \
     X(NavMeshConfigComponent) \
-    X(NavObstacleComponent)
+    X(NavObstacleComponent) \
+    X(NavAgentComponent) \
+    X(NavTargetComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)
