@@ -62,5 +62,9 @@ private:
     EntityId               lastEditedNavSourceEntity = INVALID_ENTITY;
     bool                   navSourceModified = false;
 
+    NavObstacleComponent editNavObstacle{};
+    EntityId             lastEditedNavObstacleEntity = INVALID_ENTITY;
+    bool                 navObstacleModified = false;
+
     GizmoController    m_Gizmo;
 };

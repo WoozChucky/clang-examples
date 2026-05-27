@@ -220,6 +220,15 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                     }
                 }
 
+                if (!ctx.WorldSnapshot->HasComponent<NavObstacleComponent>(entity)) {
+                    if (ImGui::MenuItem("Add NavMesh Obstacle Component")) {
+                        ECSCommand addCmd = ECSCommand::AddComponent(entity, NavObstacleComponent{});
+                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
+                            SM_WARN("ECS command queue full! Add component command dropped.");
+                        }
+                    }
+                }
+
                 ImGui::Separator();
 
                 // Remove component options
@@ -323,6 +332,15 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                 if (ctx.WorldSnapshot->HasComponent<NavMeshSourceComponent>(entity)) {
                     if (ImGui::MenuItem("Remove NavMesh Source Component")) {
                         ECSCommand removeCmd = ECSCommand::RemoveComponent<NavMeshSourceComponent>(entity);
+                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
+                            SM_WARN("ECS command queue full! Remove component command dropped.");
+                        }
+                    }
+                }
+
+                if (ctx.WorldSnapshot->HasComponent<NavObstacleComponent>(entity)) {
+                    if (ImGui::MenuItem("Remove NavMesh Obstacle Component")) {
+                        ECSCommand removeCmd = ECSCommand::RemoveComponent<NavObstacleComponent>(entity);
                         if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
                             SM_WARN("ECS command queue full! Remove component command dropped.");
                         }
@@ -949,6 +967,46 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                                 SM_WARN("ECS command queue full! Modify command dropped.");
                             }
                             navSourceModified = false;
+                        }
+                    }
+                }
+            }
+
+            // Edit NavMesh Obstacle Component
+            if (ctx.WorldSnapshot->HasComponent<NavObstacleComponent>(selectedEntity)) {
+                if (ImGui::CollapsingHeader("NavMesh Obstacle Component", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto* obs = ctx.WorldSnapshot->GetComponent<NavObstacleComponent>(selectedEntity);
+                    if (obs) {
+                        if (lastEditedNavObstacleEntity != selectedEntity) {
+                            editNavObstacle = *obs;
+                            lastEditedNavObstacleEntity = selectedEntity;
+                            navObstacleModified = false;
+                        }
+                        if (!navObstacleModified) {
+                            editNavObstacle = *obs;
+                        }
+                        static const char* kShapeNames[] = { "Cylinder", "Box" };
+                        static const NavObstacleShape kShapes[] = {
+                            NavObstacleShape::Cylinder, NavObstacleShape::Box,
+                        };
+                        int idx = 0;
+                        for (int i = 0; i < 2; ++i) if (editNavObstacle.Shape == kShapes[i]) idx = i;
+                        if (ImGui::Combo("Shape", &idx, kShapeNames, 2)) {
+                            editNavObstacle.Shape = kShapes[idx];
+                            navObstacleModified = true;
+                        }
+                        const char* sizeLabel = (editNavObstacle.Shape == NavObstacleShape::Cylinder)
+                            ? "Size (X=radius, Y=height)"
+                            : "Size (half-extents)";
+                        if (ImGui::InputFloat3(sizeLabel, &editNavObstacle.Size.x)) navObstacleModified = true;
+                        if (ImGui::InputFloat3("Offset", &editNavObstacle.Offset.x)) navObstacleModified = true;
+                        ImGui::Spacing();
+                        if (navObstacleModified) {
+                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editNavObstacle);
+                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
+                                SM_WARN("ECS command queue full! Modify command dropped.");
+                            }
+                            navObstacleModified = false;
                         }
                     }
                 }
