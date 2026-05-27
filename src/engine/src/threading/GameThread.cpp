@@ -26,6 +26,7 @@
 #include "assimp/scene.h"
 #include "WorldManager.h"
 #include "navigation/NavMeshSystem.h"
+#include "navigation/NavServicesImpl.h"
 
 using namespace std::chrono_literals;
 
@@ -148,6 +149,13 @@ void GameThread::RunLoop() {
 	frameStats.MaxFrameTimeMs = 0.0;
 	frameStats.AvgFrameTimeMs = 0.0;
 	frameStats.SampleCount = 0;
+
+    // NavServices function-pointer table — engine-provided nav API surface
+    // that game systems (NavObstacleSync, NavAgentSystem) call through
+    // instead of NavMeshSystem::Instance() directly. Restores Game.dll's
+    // GameState-only boundary (Game.dll no longer links Engine.dll).
+    NavServices navServices{};
+    NavServicesImpl::Init(navServices);
 
 	while (Running()) {
 		// Renderer hot-swap: pause here while RenderThread rebuilds the device.
@@ -394,7 +402,7 @@ void GameThread::RunLoop() {
             }
 
 			{
-                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime };
+                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices };
                 m_Scheduler.Run(sysCtx);
             }
 
