@@ -16,9 +16,10 @@ struct SystemContext {
 // Coarse run-order buckets. Systems sort by (phase, registration index).
 enum class SystemPhase : uint8_t {
     Input          = 0,   // (future) input-derived state
-    Simulation     = 1,   // gameplay logic — where v1 systems live
-    PostSimulation = 2,   // reactions to simulation
-    PreRender      = 3,   // last-chance ECS prep before snapshot
+    Simulation     = 1,   // gameplay decisions / intent (PlayerMovement, AI, MenuInteraction, AppFlow, …)
+    Physics        = 2,   // spatial resolution against the world (KinematicMovementSystem + future RigidBodyStep)
+    PostSimulation = 3,   // reactions to the resolved world (camera follow, animation triggers, audio cues)
+    PreRender      = 4,   // last-chance ECS prep before snapshot
 };
 
 // A unit of gameplay logic. Concrete systems live in game.dll; their vtables

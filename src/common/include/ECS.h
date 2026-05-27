@@ -244,6 +244,15 @@ struct ColliderComponent {
     uint32_t Mask  = 0xffffffffu; // Which layers this collider interacts with.
 };
 
+// Per-entity per-tick movement intent: how much the entity WANTS to move this tick.
+// Written by movement systems (PlayerMovementSystem, future AI/projectile systems);
+// consumed by KinematicMovementSystem which resolves against colliders, applies to
+// TransformComponent, and zeroes DesiredDelta (clear-after-consume — no per-tick
+// add/remove churn). Runtime-only: not authored, not serialized, not in ECSCommands.
+struct MoveIntentComponent {
+    glm::vec3 DesiredDelta{0.0f};
+};
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -274,7 +283,8 @@ struct ColliderComponent {
     X(StateScopeComponent) \
     X(MenuButtonComponent) \
     X(MenuStateComponent) \
-    X(ColliderComponent)
+    X(ColliderComponent) \
+    X(MoveIntentComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)
