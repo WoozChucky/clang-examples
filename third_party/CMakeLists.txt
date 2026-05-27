@@ -105,3 +105,16 @@ get_directory_property(json_targets DIRECTORY json BUILDSYSTEM_TARGETS)
 foreach(target ${json_targets})
   set_target_properties(${target} PROPERTIES FOLDER ThirdParty/json)
 endforeach()
+
+# Recast/Detour: build only the libraries we link against (Recast, Detour,
+# DetourCrowd, DetourTileCache, DebugUtils). The demo/tests/examples drag in
+# SDL2, GL, and a fluid-studios memory tracker we don't want.
+set(RECASTNAVIGATION_DEMO     OFF CACHE BOOL "" FORCE)
+set(RECASTNAVIGATION_TESTS    OFF CACHE BOOL "" FORCE)
+set(RECASTNAVIGATION_EXAMPLES OFF CACHE BOOL "" FORCE)
+add_subdirectory(recastnavigation)
+# Set folder for recastnavigation targets
+get_directory_property(recastnavigation_targets DIRECTORY recastnavigation BUILDSYSTEM_TARGETS)
+foreach(target ${recastnavigation_targets})
+  set_target_properties(${target} PROPERTIES FOLDER ThirdParty/recastnavigation)
+endforeach()
