@@ -137,7 +137,7 @@ public:
         });
     }
     const char* Name() const override { return "IsometricFollowCameraSystem"; }
-    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+    SystemPhase Phase() const override { return SystemPhase::PostSimulation; }
 };
 
 // Mouse-wheel zoom for the isometric follow camera. Adjusts the persistent eye
@@ -165,7 +165,7 @@ public:
         });
     }
     const char* Name() const override { return "CameraZoomSystem"; }
-    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+    SystemPhase Phase() const override { return SystemPhase::PostSimulation; }
 private:
     static constexpr float kZoomStep    = 2.0f;  // distance units per wheel notch
     static constexpr float kMinDistance = 6.0f;
@@ -201,10 +201,12 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 };
 
-// Moves entities tagged with PlayerComponent on the XZ plane from WASD input and
-// resolves the desired delta against editor-authored static colliders.
+// Writes a per-tick MoveIntentComponent for PlayerComponent entities from WASD input.
 class PlayerMovementSystem final : public ISystem {
 public:
+    // Moves entities tagged with PlayerComponent on the XZ plane from WASD input by writing
+    // a per-tick MoveIntentComponent. KinematicMovementSystem (Physics phase) resolves the
+    // intent against colliders and applies it — this system no longer touches Transform.
     void Update(SystemContext& ctx) override {
         // Gameplay runs only in-level.
         const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
@@ -213,8 +215,7 @@ public:
         const auto* in = ctx.world.GetSingleton<InputStateComponent>();
         if (!in) return;
         const float dt = static_cast<float>(ctx.dt);
-        // EntityId-only callback (no live component refs) so Modify<TransformComponent>
-        // below can safely clone/realloc the queried array without invalidating a ref.
+
         ctx.world.Each<PlayerComponent, TransformComponent>([&](EntityId e) {
             float speed = 5.0f;
             if (const auto* p = ctx.world.GetComponent<PlayerComponent>(e)) speed = p->MoveSpeed;
@@ -223,19 +224,58 @@ public:
             if (desiredDelta.x == 0.0f && desiredDelta.y == 0.0f && desiredDelta.z == 0.0f)
                 return;
 
-            glm::vec3 appliedDelta = desiredDelta;
-            if (const auto* transform = ctx.world.GetComponent<TransformComponent>(e)) {
-                if (const auto* collider = ctx.world.GetComponent<ColliderComponent>(e)) {
-                    appliedDelta = ResolveKinematicMove(ctx.world, e, *transform, *collider, desiredDelta).AppliedDelta;
-                }
+            // Lazy-seed MoveIntentComponent on first move; subsequent ticks Modify in place.
+            // Self-contained: any new mover (AI, projectile) uses the same pattern, no boot
+            // coupling required.
+            if (!ctx.world.HasComponent<MoveIntentComponent>(e)) {
+                ctx.world.AddComponent(e, MoveIntentComponent{});
             }
-
-            if (appliedDelta.x != 0.0f || appliedDelta.y != 0.0f || appliedDelta.z != 0.0f)
-                ctx.world.Modify<TransformComponent>(e, [&](TransformComponent& t){ t.Position += appliedDelta; });
+            ctx.world.Modify<MoveIntentComponent>(e, [&](MoveIntentComponent& m){
+                m.DesiredDelta = desiredDelta;
+            });
         });
     }
     const char* Name() const override { return "PlayerMovementSystem"; }
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
+// Resolves MoveIntentComponent against ColliderComponent (when present) and applies the
+// result to TransformComponent. Single owner of Collision.h calls from movement; producers
+// (PlayerMovement today, AI/projectiles later) only write the intent. Clears DesiredDelta
+// after consume so a stale value can't re-fire next tick if the producer stops running.
+// Physics phase: runs after Simulation (producers) and before PostSimulation (cameras).
+class KinematicMovementSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        ctx.world.Each<TransformComponent, MoveIntentComponent>([&](EntityId e) {
+            const auto* intent = ctx.world.GetComponent<MoveIntentComponent>(e);
+            if (!intent) return;
+            const glm::vec3 desired = intent->DesiredDelta;
+            if (desired.x == 0.0f && desired.y == 0.0f && desired.z == 0.0f) return;
+
+            const auto* transform = ctx.world.GetComponent<TransformComponent>(e);
+            if (!transform) return;
+
+            glm::vec3 applied = desired;
+            if (const auto* collider = ctx.world.GetComponent<ColliderComponent>(e)) {
+                applied = ResolveKinematicMove(ctx.world, e, *transform, *collider, desired).AppliedDelta;
+            }
+
+            if (applied.x != 0.0f || applied.y != 0.0f || applied.z != 0.0f) {
+                ctx.world.Modify<TransformComponent>(e, [&](TransformComponent& t){
+                    t.Position += applied;
+                });
+            }
+
+            // Clear-after-consume: zero the intent so a stale value doesn't re-fire next tick
+            // if the producer didn't run (e.g. gating turned a movement system off).
+            ctx.world.Modify<MoveIntentComponent>(e, [](MoveIntentComponent& m){
+                m.DesiredDelta = glm::vec3(0.0f);
+            });
+        });
+    }
+    const char* Name() const override { return "KinematicMovementSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Physics; }
 };
 
 // Hit-tests scoped menu buttons against the UI-space mouse, drives their UIRectComponent.Color
@@ -354,9 +394,10 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<MenuInteractionSystem>());  // emits actions; before AppFlow
     s->Register(std::make_unique<AppFlowSystem>());   // owns transitions; runs before gameplay
     s->Register(std::make_unique<DebugSpawnSystem>());
-    s->Register(std::make_unique<PlayerMovementSystem>());
-    s->Register(std::make_unique<CameraZoomSystem>());          // before follow: sets distance same tick
-    s->Register(std::make_unique<IsometricFollowCameraSystem>());
+    s->Register(std::make_unique<PlayerMovementSystem>());            // Simulation: writes MoveIntent
+    s->Register(std::make_unique<KinematicMovementSystem>());         // Physics: resolves intent + applies Transform
+    s->Register(std::make_unique<CameraZoomSystem>());                // PostSimulation: before follow (sets distance)
+    s->Register(std::make_unique<IsometricFollowCameraSystem>());     // PostSimulation: reads post-resolution Transform
 }
 
 static GameState* g_GameState = nullptr;
