@@ -430,6 +430,8 @@ uint32_t NavMesh::AddCylinderObstacle(const glm::vec3& pos, float radius, float 
     const float p[3] = { pos.x, pos.y, pos.z };
     dtObstacleRef ref = 0;
     if (dtStatusFailed(m_TileCache->addObstacle(p, radius, height, &ref))) {
+        SM_WARN("NavMesh::AddCylinderObstacle: dtTileCache::addObstacle failed "
+                "(MaxObstacles cap reached?)");
         return 0;
     }
     return static_cast<uint32_t>(ref);
@@ -442,6 +444,8 @@ uint32_t NavMesh::AddBoxObstacle(const glm::vec3& bmin, const glm::vec3& bmax)
     const float mx[3] = { bmax.x, bmax.y, bmax.z };
     dtObstacleRef ref = 0;
     if (dtStatusFailed(m_TileCache->addBoxObstacle(mn, mx, &ref))) {
+        SM_WARN("NavMesh::AddBoxObstacle: dtTileCache::addBoxObstacle failed "
+                "(MaxObstacles cap reached?)");
         return 0;
     }
     return static_cast<uint32_t>(ref);

@@ -19,7 +19,7 @@ void NavMeshSystem::Rebuild(const ECS& world,
     const NavMeshTriangleSoup soup = NavMeshBuilder::CollectTriangles(world, meshSystem);
     if (soup.Empty || soup.Tris.empty()) {
         SM_WARN("NavMeshSystem::Rebuild: no NavMeshSource entities; publishing empty navmesh");
-        m_EntityToObstacle.clear();
+        m_EntityToObstacle.clear();   // old dtObstacleRefs invalid against new dtTileCache
         std::atomic_store(&m_Current, std::shared_ptr<const NavMesh>{});
         return;
     }
@@ -28,7 +28,7 @@ void NavMeshSystem::Rebuild(const ECS& world,
         SM_WARN("NavMeshSystem::Rebuild: NavMesh::Build returned null; keeping previous navmesh");
         return;
     }
-    m_EntityToObstacle.clear();
+    m_EntityToObstacle.clear();   // old dtObstacleRefs invalid against new dtTileCache
     std::shared_ptr<const NavMesh> shared(std::move(fresh));
     std::atomic_store(&m_Current, shared);
 }
