@@ -18,7 +18,8 @@ static void T00_roundtrip()
 {
     CullingSettings   culling;  culling.Enabled = false;          // default true
     DebugDrawSettings debug;    debug.ShowLightGizmos = true; debug.ShowCameraFrustum = true;
-                                debug.ShowSelectedAABB = true; debug.Wireframe = true; debug.ShowGrid = true; // defaults all false
+                                debug.ShowSelectedAABB = true; debug.Wireframe = true; debug.ShowGrid = true;
+                                debug.ShowObstacles = true; // defaults all false
     ShadowSettings    shadows;  shadows.Enabled = false; shadows.Bias = 0.0042f; // defaults true / 0.0015
     EditorCameraState cam;      cam.Position = glm::vec3(1.5f, -2.5f, 3.5f); cam.Yaw = 0.7f; cam.Pitch = -0.4f; cam.FlySpeed = 21.0f;
 
@@ -33,6 +34,7 @@ static void T00_roundtrip()
     EXPECT(d2.ShowSelectedAABB  == debug.ShowSelectedAABB);
     EXPECT(d2.Wireframe         == debug.Wireframe);
     EXPECT(d2.ShowGrid          == debug.ShowGrid);
+    EXPECT(d2.ShowObstacles     == debug.ShowObstacles);
     EXPECT(s2.Enabled == shadows.Enabled);
     EXPECT(std::fabs(s2.Bias - shadows.Bias) < 1e-6f);
     EXPECT(std::fabs(cam2.Position.x - cam.Position.x) < 1e-5f);

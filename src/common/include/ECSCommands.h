@@ -246,6 +246,7 @@ private:
         if (auto* c = world.GetComponent<MenuButtonComponent>(src))  world.AddComponent(dst, *c);
         if (auto* c = world.GetComponent<ColliderComponent>(src))        world.AddComponent(dst, *c);
         if (auto* c = world.GetComponent<NavMeshSourceComponent>(src))   world.AddComponent(dst, *c);
+        if (auto* c = world.GetComponent<NavObstacleComponent>(src))     world.AddComponent(dst, *c);
         if (world.HasComponent<SunMarker>(src))                     world.AddComponent(dst, SunMarker{});
     }
 
@@ -314,6 +315,10 @@ private:
             if (auto* cfg = componentData.Get<NavMeshConfigComponent>()) {
                 world.AddComponent(entity, *cfg); // AddComponent updates if present (singleton edit)
             }
+        } else if (componentData.Type == std::type_index(typeid(NavObstacleComponent))) {
+            if (auto* obs = componentData.Get<NavObstacleComponent>()) {
+                world.AddComponent(entity, *obs);
+            }
         }
         // Add more component types as needed
     }
@@ -352,6 +357,8 @@ private:
             world.RemoveComponent<NavMeshSourceComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(NavMeshConfigComponent))) {
             world.RemoveComponent<NavMeshConfigComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(NavObstacleComponent))) {
+            world.RemoveComponent<NavObstacleComponent>(entity);
         }
         // Add more component types as needed
     }

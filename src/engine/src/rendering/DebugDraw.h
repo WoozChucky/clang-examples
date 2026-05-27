@@ -83,6 +83,38 @@ inline void DebugAppendCapsule(std::vector<DebugVertex>& out, const glm::vec3& c
     DebugAppendSphere(out, bottomCenter, radius, color, segments);
 }
 
+// Wireframe cylinder (Y-axis aligned). `bottomCenter` = base center, height extends +Y.
+// segments per ring. Two horizontal rings (XZ plane) + 4 vertical seams at +X/-X/+Z/-Z.
+// (segments * 2 + 4) * 2 verts total. Matches the cylinder body of DebugAppendCapsule.
+inline void DebugAppendCylinder(std::vector<DebugVertex>& out, const glm::vec3& bottomCenter,
+                                float radius, float height,
+                                const glm::vec4& color, int segments = 12) {
+    if (radius < 1e-4f) radius = 1e-4f;
+    if (height < 0.0f)  height = 0.0f;
+    if (segments < 4)   segments = 4;
+    const float kTwoPi = 6.28318530718f;
+    const glm::vec3 topCenter = bottomCenter + glm::vec3(0.0f, height, 0.0f);
+
+    // 2 horizontal circles (XZ) at base + top.
+    for (int i = 0; i < segments; ++i) {
+        const float t0 = kTwoPi * (float(i)     / float(segments));
+        const float t1 = kTwoPi * (float(i + 1) / float(segments));
+        const glm::vec3 a(std::cos(t0) * radius, 0.0f, std::sin(t0) * radius);
+        const glm::vec3 b(std::cos(t1) * radius, 0.0f, std::sin(t1) * radius);
+        DebugAppendLine(out, bottomCenter + a, bottomCenter + b, color);
+        DebugAppendLine(out, topCenter    + a, topCenter    + b, color);
+    }
+
+    // 4 vertical seams.
+    const glm::vec3 seams[4] = {
+        { radius, 0.0f, 0.0f }, { -radius, 0.0f, 0.0f },
+        { 0.0f, 0.0f,  radius }, { 0.0f, 0.0f, -radius },
+    };
+    for (const glm::vec3& s : seams) {
+        DebugAppendLine(out, bottomCenter + s, topCenter + s, color);
+    }
+}
+
 // Shaft from->to plus a 4-line arrowhead at `to`.
 inline void DebugAppendArrow(std::vector<DebugVertex>& out, const glm::vec3& from, const glm::vec3& to,
                              const glm::vec4& color) {

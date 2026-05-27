@@ -392,6 +392,11 @@ void GameThread::RunLoop() {
                 m_Scheduler.Run(sysCtx);
             }
 
+            // Drive dtTileCache::update so this tick's NavObstacleSyncSystem add/remove
+            // calls actually apply (re-bake affected tiles, update obstacle state). Single
+            // call per tick per Spec 2 (drain-loop policy deferred to perf measurement).
+            NavMeshSystem::Instance().Tick(static_cast<float>(gameState.DeltaTime));
+
 			// Update all loaded plugins
 			if (m_PluginManager) {
 				m_PluginManager->UpdateAll(gameState.DeltaTime);

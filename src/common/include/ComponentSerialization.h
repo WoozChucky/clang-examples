@@ -191,6 +191,20 @@ inline void from_json(const nlohmann::json& j, NavMeshSourceComponent& t) {
     if (j.contains("Geometry")) t.Geometry = static_cast<NavMeshGeometrySource>(j.at("Geometry").get<uint8_t>());
 }
 
+inline void to_json(nlohmann::json& j, const NavObstacleComponent& t) {
+    j = nlohmann::json{
+        // Shape as uint8_t for JSON stability (matches ColliderShape / NavMeshGeometrySource pattern).
+        {"Shape",  static_cast<uint8_t>(t.Shape)},
+        {"Size",   t.Size},
+        {"Offset", t.Offset}
+    };
+}
+inline void from_json(const nlohmann::json& j, NavObstacleComponent& t) {
+    if (j.contains("Shape"))  t.Shape = static_cast<NavObstacleShape>(j.at("Shape").get<uint8_t>());
+    if (j.contains("Size"))   j.at("Size").get_to(t.Size);
+    if (j.contains("Offset")) j.at("Offset").get_to(t.Offset);
+}
+
 // ----- Atmosphere components (new) -----
 
 inline void to_json(nlohmann::json& j, const FogComponent& t) {

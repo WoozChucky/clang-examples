@@ -22,6 +22,7 @@ struct DebugDrawSettings {
     bool ShowGrid          = false;
     bool ShowColliders     = false;
     bool ShowNavMesh       = false;
+    bool ShowObstacles     = false;
 };
 
 struct ShadowSettings {
