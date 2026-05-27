@@ -186,3 +186,25 @@ bool NavMeshSystem::TryLoadFromDisk(const std::string& worldPath) {
     SM_TRACE("NavMeshSystem::TryLoadFromDisk: loaded '%s'", bakePath.c_str());
     return true;
 }
+
+// ---- Mesh CPU-data cache (Spec 5) ----
+
+void NavMeshSystem::StoreMeshCpuData(uint32_t meshId,
+                                     std::vector<MeshVertex>&& vertices,
+                                     std::vector<uint32_t>&& indices)
+{
+    // Append-only: overwrite if meshId somehow reused (defensive; AddMesh
+    // returns monotonic handles so this branch shouldn't fire in practice).
+    m_MeshCpuData[meshId] = CachedMesh{ std::move(vertices), std::move(indices) };
+}
+
+bool NavMeshSystem::GetMeshCpuData(uint32_t meshId,
+                                   std::span<const MeshVertex>& outVerts,
+                                   std::span<const uint32_t>& outIndices) const
+{
+    auto it = m_MeshCpuData.find(meshId);
+    if (it == m_MeshCpuData.end()) return false;
+    outVerts   = std::span<const MeshVertex>(it->second.Vertices);
+    outIndices = std::span<const uint32_t>(it->second.Indices);
+    return true;
+}

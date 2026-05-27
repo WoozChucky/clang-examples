@@ -3,11 +3,14 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <span>
+#include <vector>
 
 #include <glm/vec3.hpp>
 
 #include "Engine.h"
 #include "ECS.h"   // EntityId
+#include "ApplicationContext.h"   // MeshVertex
 
 class  ECS;
 class  MeshSystem;
@@ -57,9 +60,33 @@ public:
     // should fall back to Rebuild. GameThread only.
     bool TryLoadFromDisk(const std::string& worldPath);
 
+    // ---- Mesh CPU-data cache (Spec 5: navigation-mesh-input) ----
+
+    // Append-only cache populated by GameThread when a MeshUpload response
+    // arrives from RenderThread. Mirrors MeshSystem's append-only behavior —
+    // entries are never removed (MeshSystem has no RemoveMesh today). Takes
+    // ownership of the buffers via move. GameThread only.
+    void StoreMeshCpuData(uint32_t meshId,
+                          std::vector<MeshVertex>&& vertices,
+                          std::vector<uint32_t>&& indices);
+
+    // Cache lookup for NavMeshBuilder's Mesh-source branch. Returns false on
+    // cache miss (caller falls back to its existing SM_WARN + skip path).
+    // Spans valid until the next cache mutation; readers are single-threaded
+    // GameThread per the NavMeshSystem contract.
+    bool GetMeshCpuData(uint32_t meshId,
+                        std::span<const MeshVertex>& outVerts,
+                        std::span<const uint32_t>& outIndices) const;
+
 private:
     NavMeshSystem() = default;
     std::shared_ptr<const NavMesh>               m_Current;
     std::unordered_map<EntityId, ObstacleHandle> m_EntityToObstacle;
     std::string                                  m_LastWorldPath;
+
+    struct CachedMesh {
+        std::vector<MeshVertex> Vertices;
+        std::vector<uint32_t>   Indices;
+    };
+    std::unordered_map<uint32_t, CachedMesh> m_MeshCpuData;
 };
