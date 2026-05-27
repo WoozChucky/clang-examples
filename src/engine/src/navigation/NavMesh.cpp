@@ -414,3 +414,41 @@ NavMesh::Stats NavMesh::GetStats() const
     s.MemoryKB = (int)((s.VertCount * sizeof(float) * 3 + s.PolyCount * 64) / 1024);
     return s;
 }
+
+// ---------- Tick / Obstacle API ----------
+void NavMesh::Tick(float dt)
+{
+    if (!m_TileCache || !m_NavMesh) return;
+    bool upToDate = true;
+    m_TileCache->update(dt, m_NavMesh, &upToDate);
+    // Single-call policy per spec; if !upToDate, remaining work continues next tick.
+}
+
+uint32_t NavMesh::AddCylinderObstacle(const glm::vec3& pos, float radius, float height)
+{
+    if (!m_TileCache) return 0;
+    const float p[3] = { pos.x, pos.y, pos.z };
+    dtObstacleRef ref = 0;
+    if (dtStatusFailed(m_TileCache->addObstacle(p, radius, height, &ref))) {
+        return 0;
+    }
+    return static_cast<uint32_t>(ref);
+}
+
+uint32_t NavMesh::AddBoxObstacle(const glm::vec3& bmin, const glm::vec3& bmax)
+{
+    if (!m_TileCache) return 0;
+    const float mn[3] = { bmin.x, bmin.y, bmin.z };
+    const float mx[3] = { bmax.x, bmax.y, bmax.z };
+    dtObstacleRef ref = 0;
+    if (dtStatusFailed(m_TileCache->addBoxObstacle(mn, mx, &ref))) {
+        return 0;
+    }
+    return static_cast<uint32_t>(ref);
+}
+
+void NavMesh::RemoveObstacle(uint32_t ref)
+{
+    if (!m_TileCache || ref == 0) return;
+    m_TileCache->removeObstacle(static_cast<dtObstacleRef>(ref));
+}

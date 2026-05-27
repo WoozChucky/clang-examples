@@ -79,6 +79,21 @@ public:
     };
     Stats GetStats() const;
 
+    // Drive dtTileCache::update — applies queued add/removeObstacle calls and
+    // re-bakes affected tiles. Single-call-per-tick policy from spec; remaining
+    // work continues next tick.
+    void Tick(float dt);
+
+    // Queue a cylinder obstacle (Y-axis aligned). Returns 0 on failure (log via SM_WARN).
+    // Caller is responsible for tracking the returned ref to later remove the obstacle.
+    uint32_t AddCylinderObstacle(const glm::vec3& pos, float radius, float height);
+
+    // Queue an AABB obstacle. Returns 0 on failure.
+    uint32_t AddBoxObstacle(const glm::vec3& bmin, const glm::vec3& bmax);
+
+    // Remove a previously-added obstacle by its ref. No-op if ref is 0.
+    void RemoveObstacle(uint32_t ref);
+
 private:
     NavMeshAlloc                                              m_Alloc;
     dtTileCache*                                              m_TileCache = nullptr;
