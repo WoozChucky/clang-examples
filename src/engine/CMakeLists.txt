@@ -59,6 +59,7 @@ add_library(Engine SHARED
     src/navigation/NavMeshBuilder.cpp
     src/navigation/NavMesh.cpp
     src/navigation/NavMeshSystem.cpp
+    src/navigation/NavServicesImpl.cpp
 
     # Third-party
     src/tiny_obj_loader.cpp
