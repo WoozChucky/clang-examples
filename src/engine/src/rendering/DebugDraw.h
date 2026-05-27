@@ -45,6 +45,44 @@ inline void DebugAppendSphere(std::vector<DebugVertex>& out, const glm::vec3& ce
     }
 }
 
+// Capsule outline = cylinder body (4 vertical seams + 2 horizontal circles at the cylinder
+// caps) + 2 sphere caps at the dome centers. center is the midpoint between the domes;
+// halfHeight is half the cylinder length (so total tip-to-tip height = 2*(halfHeight+radius)).
+// Cylinder runs along world Y. Wireframe-only -> the sphere/cylinder overlap is invisible.
+inline void DebugAppendCapsule(std::vector<DebugVertex>& out, const glm::vec3& center,
+                               float radius, float halfHeight,
+                               const glm::vec4& color, int segments = 16) {
+    if (radius < 1e-4f) radius = 1e-4f;
+    if (halfHeight < 0.0f) halfHeight = 0.0f;
+    if (segments < 4) segments = 4;
+    const float kTwoPi = 6.28318530718f;
+    const glm::vec3 topCenter    = center + glm::vec3(0.0f,  halfHeight, 0.0f);
+    const glm::vec3 bottomCenter = center + glm::vec3(0.0f, -halfHeight, 0.0f);
+
+    // 2 horizontal circles at the cylinder caps (XZ plane at top/bottom).
+    for (int i = 0; i < segments; ++i) {
+        const float t0 = kTwoPi * (float(i)     / float(segments));
+        const float t1 = kTwoPi * (float(i + 1) / float(segments));
+        const glm::vec3 a(std::cos(t0) * radius, 0.0f, std::sin(t0) * radius);
+        const glm::vec3 b(std::cos(t1) * radius, 0.0f, std::sin(t1) * radius);
+        DebugAppendLine(out, topCenter    + a, topCenter    + b, color);
+        DebugAppendLine(out, bottomCenter + a, bottomCenter + b, color);
+    }
+
+    // 4 vertical seam lines connecting the cap circles (at +X, -X, +Z, -Z).
+    const glm::vec3 seams[4] = {
+        { radius, 0.0f, 0.0f }, { -radius, 0.0f, 0.0f },
+        { 0.0f, 0.0f,  radius }, { 0.0f, 0.0f, -radius },
+    };
+    for (const glm::vec3& s : seams) {
+        DebugAppendLine(out, bottomCenter + s, topCenter + s, color);
+    }
+
+    // Dome caps: 2 full spheres at the dome centers (wireframe overlap is invisible).
+    DebugAppendSphere(out, topCenter,    radius, color, segments);
+    DebugAppendSphere(out, bottomCenter, radius, color, segments);
+}
+
 // Shaft from->to plus a 4-line arrowhead at `to`.
 inline void DebugAppendArrow(std::vector<DebugVertex>& out, const glm::vec3& from, const glm::vec3& to,
                              const glm::vec4& color) {

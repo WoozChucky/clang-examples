@@ -20,6 +20,7 @@ struct DebugDrawSettings {
     bool ShowSelectedAABB  = false;
     bool Wireframe         = false;
     bool ShowGrid          = false;
+    bool ShowColliders     = false;
 };
 
 struct ShadowSettings {
