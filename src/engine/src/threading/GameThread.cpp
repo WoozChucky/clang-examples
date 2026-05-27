@@ -64,6 +64,13 @@ void GameThread::RunLoop() {
         if (WorldManager::LoadWorldSnapshot(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH, &gameState.World)) {
             gameState.WorldLoaded = true;
             SM_TRACE("GameThread: default world loaded from '%s'", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
+            // Trigger initial navmesh build now that the world is populated. The hook
+            // installed below drains this on the next tick's ECSCommandRing pass and
+            // calls NavMeshSystem::Rebuild. Single trigger path — Spec 2 (obstacles)
+            // will reuse it.
+            if (!m_AppContext->ECSCommandRing.Push(ECSCommand::RebuildNavMesh())) {
+                SM_WARN("GameThread: ECSCommandRing full when posting initial RebuildNavMesh");
+            }
         } else {
             SM_WARN("GameThread: default world '%s' not loaded (file missing or invalid)", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
         }
