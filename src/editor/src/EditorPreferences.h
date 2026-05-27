@@ -35,6 +35,7 @@ inline nlohmann::json PrefsToJson(const CullingSettings& culling,
             {"colliders",     debug.ShowColliders},
             {"navmesh",       debug.ShowNavMesh},
             {"obstacles",     debug.ShowObstacles},
+            {"navpaths",      debug.ShowNavPaths},
         }},
         {"shadows", {
             {"enabled", shadows.Enabled},
@@ -71,6 +72,7 @@ inline void PrefsFromJson(const nlohmann::json& j,
         if (d.contains("colliders")     && d["colliders"].is_boolean())     debug.ShowColliders     = d["colliders"].get<bool>();
         if (d.contains("navmesh")       && d["navmesh"].is_boolean())       debug.ShowNavMesh       = d["navmesh"].get<bool>();
         if (d.contains("obstacles")     && d["obstacles"].is_boolean())     debug.ShowObstacles     = d["obstacles"].get<bool>();
+        if (d.contains("navpaths")      && d["navpaths"].is_boolean())      debug.ShowNavPaths      = d["navpaths"].get<bool>();
     }
     if (j.contains("shadows") && j["shadows"].is_object()) {
         const auto& s = j["shadows"];
