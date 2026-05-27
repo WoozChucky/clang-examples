@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include "ComponentSerialization.h" // shared component json (de)serializers
+#include "navigation/NavMeshSystem.h"
 
 using json = nlohmann::json;
 
@@ -162,6 +163,11 @@ bool WorldManager::LoadWorldSnapshot(const std::string& filepath, ECS* world) {
         SM_WARN("Failed to load world snapshot '%s': %s", filepath.c_str(), e.what());
         return false;
     }
+
+    // Spec 4: tell NavMeshSystem the world path so auto-bake (in Rebuild) and
+    // SaveCurrentToDisk (Bake button) can derive the sidecar path. Done at the
+    // end of load so it only happens on success.
+    NavMeshSystem::Instance().SetWorldPath(filepath);
 
     return true;
 }
