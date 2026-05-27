@@ -560,6 +560,71 @@ static void T25_navservices_findpath_empty_when_no_mesh() {
     EXPECT(path.empty());
 }
 
+// ---------- Navigation Mesh Input: T26-T27 (Spec 5) ----------
+
+static void T26_geometry_mesh_uses_cached_cpu_data() {
+    ECS w;
+
+    // Manually triangulated 4x4 floor (square at y=0, two triangles).
+    // Field names match MeshVertex layout: px,py,pz, nx,ny,nz, u,v.
+    std::vector<MeshVertex> verts = {
+        {-2.0f, 0.0f, -2.0f,  0,0,1,  0,0},
+        { 2.0f, 0.0f, -2.0f,  0,0,1,  1,0},
+        { 2.0f, 0.0f,  2.0f,  0,0,1,  1,1},
+        {-2.0f, 0.0f,  2.0f,  0,0,1,  0,1},
+    };
+    std::vector<uint32_t> indices = { 0, 1, 2, 0, 2, 3 };
+
+    constexpr uint32_t kMeshId = 42;
+    NavMeshSystem::Instance().StoreMeshCpuData(kMeshId, std::move(verts), std::move(indices));
+
+    // Entity references the cached mesh via MeshComponent + NavMeshSource(Geometry=Mesh).
+    const EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{ glm::vec3(0,0,0), glm::vec3(0), glm::vec3(1) });
+    MeshComponent mc{};
+    mc.MeshId = kMeshId;
+    mc.Visible = true;
+    w.AddComponent(e, mc);
+    NavMeshSourceComponent src{};
+    src.AreaId = 63;
+    src.Geometry = NavMeshGeometrySource::Mesh;
+    w.AddComponent(e, src);
+
+    // Rebuild (no MeshSystem* — NavMeshBuilder consults the cache).
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (!nm) return;
+    EXPECT(nm->GetStats().PolyCount > 0);  // floor became walkable navmesh
+
+    // FindPath across the floor returns 2-waypoint straight line.
+    auto path = nm->FindPath(glm::vec3(-1.5f, 0.5f, 0), glm::vec3(1.5f, 0.5f, 0));
+    EXPECT(path.size() >= 2);
+}
+
+static void T27_geometry_mesh_cache_miss_skips_entity() {
+    ECS w;
+    // Spawn a collider floor so navmesh isn't empty.
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+
+    // Add a Mesh-source entity whose MeshId is NOT in the cache.
+    const EntityId e = w.CreateEntity();
+    w.AddComponent(e, TransformComponent{ glm::vec3(2, 0.5f, 0), glm::vec3(0), glm::vec3(1) });
+    MeshComponent mc{};
+    mc.MeshId = 999;  // never stored in cache
+    mc.Visible = true;
+    w.AddComponent(e, mc);
+    NavMeshSourceComponent src{};
+    src.Geometry = NavMeshGeometrySource::Mesh;
+    w.AddComponent(e, src);
+
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);  // floor still built; Mesh-source skipped + SM_WARN
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -586,6 +651,8 @@ int main() {
     T23_try_load_from_disk_stale_returns_false();
     T24_navservices_table_forwards_to_navmeshsystem();
     T25_navservices_findpath_empty_when_no_mesh();
+    T26_geometry_mesh_uses_cached_cpu_data();
+    T27_geometry_mesh_cache_miss_skips_entity();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);
