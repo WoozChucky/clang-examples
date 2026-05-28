@@ -119,6 +119,12 @@ void SkyRenderPass::Render(nvrhi::ICommandList* commandList,
     if (!s.Enabled)
         return;
 
+    bool showSunDisc = true;
+    if (world) {
+        if (const auto* dn = world->GetSingleton<DayNightConfigComponent>())
+            showSunDisc = dn->ShowSunDisc;
+    }
+
     if (!m_Pipeline)
     {
         const auto fbi = frameBuffer->getFramebufferInfo();
@@ -163,7 +169,9 @@ void SkyRenderPass::Render(nvrhi::ICommandList* commandList,
     cb.DayHorizon   = glm::vec4(s.DayHorizon, 0.0f);
     cb.NightZenith  = glm::vec4(s.NightZenith, 0.0f);
     cb.NightHorizon = glm::vec4(s.NightHorizon, 0.0f);
-    cb.SunColor     = glm::vec4(s.SunColor,  s.SunGlow);
+    // ShowSunDisc == false zeroes the sun color so both the disc and its halo vanish
+    // (the halo term in the sky shader is independent of the uDisc thresholds).
+    cb.SunColor     = glm::vec4(showSunDisc ? s.SunColor : glm::vec3(0.0f), s.SunGlow);
     cb.MoonColor    = glm::vec4(s.MoonColor, s.MoonGlow);
     const float soft  = glm::radians(0.5f);
     const float sunR  = glm::radians(s.SunRadiusDeg);
