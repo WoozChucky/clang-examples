@@ -13,7 +13,6 @@
 #include "ApplicationContext.h"   // MeshVertex
 
 class  ECS;
-class  MeshSystem;
 class  NavMesh;
 struct NavMeshConfigComponent;
 
@@ -24,9 +23,9 @@ public:
     static NavMeshSystem& Instance();
 
     // Build + atomic-publish (Spec 1). Auto-bakes to disk after successful
-    // publish if SetWorldPath has been called (Spec 4 addition).
-    void Rebuild(const ECS& world, const NavMeshConfigComponent& cfg,
-                 const MeshSystem* meshSystem);
+    // publish if SetWorldPath has been called (Spec 4 addition). Mesh-source
+    // entities pull CPU data from the cache populated via StoreMeshCpuData.
+    void Rebuild(const ECS& world, const NavMeshConfigComponent& cfg);
 
     std::shared_ptr<const NavMesh> Current() const;
 

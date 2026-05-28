@@ -221,14 +221,14 @@ void GameThread::RunLoop() {
             {
                 ZoneScopedN("Game:ProcessECSCommands");
                 // Engine-side hook: ECSCommandType::RebuildNavMesh dispatches here.
-                // MeshSystem is currently not reachable from GameThread (lives on
-                // RenderThread inside Renderer); capture nullptr so Geometry=Mesh
-                // entities SM_WARN + skip. Spec 1 scenes only use Geometry=Collider.
+                // Geometry=Mesh entities pull CPU data from NavMeshSystem's mesh
+                // cache (populated by GameThread when MeshUpload responses arrive
+                // from RenderThread); cache miss → SM_WARN + skip in NavMeshBuilder.
                 ECSCommandHooks hooks;
                 hooks.OnRebuildNavMesh = [](ECS& w) {
                     const auto* cfg = w.GetSingleton<NavMeshConfigComponent>();
                     NavMeshConfigComponent defaultCfg{};
-                    NavMeshSystem::Instance().Rebuild(w, cfg ? *cfg : defaultCfg, nullptr);
+                    NavMeshSystem::Instance().Rebuild(w, cfg ? *cfg : defaultCfg);
                 };
                 hooks.OnBakeNavMesh = [](ECS&) {
                     // Spec 4: editor 'Bake to Disk' button. Saves the currently-published

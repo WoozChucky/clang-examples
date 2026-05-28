@@ -45,10 +45,9 @@ NavMeshSystem& NavMeshSystem::Instance() {
 }
 
 void NavMeshSystem::Rebuild(const ECS& world,
-                            const NavMeshConfigComponent& cfg,
-                            const MeshSystem* meshSystem)
+                            const NavMeshConfigComponent& cfg)
 {
-    const NavMeshTriangleSoup soup = NavMeshBuilder::CollectTriangles(world, meshSystem);
+    const NavMeshTriangleSoup soup = NavMeshBuilder::CollectTriangles(world);
     if (soup.Empty || soup.Tris.empty()) {
         SM_WARN("NavMeshSystem::Rebuild: no NavMeshSource entities; publishing empty navmesh");
         m_EntityToObstacle.clear();   // old dtObstacleRefs invalid against new dtTileCache

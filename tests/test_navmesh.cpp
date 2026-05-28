@@ -66,7 +66,7 @@ static const NavServices* TestNavServices() {
 
 static void T01_empty_world_yields_empty_navmesh() {
     ECS w;
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     auto nm = NavMeshSystem::Instance().Current();
     EXPECT(!nm); // empty soup → null published
 }
@@ -74,7 +74,7 @@ static void T01_empty_world_yields_empty_navmesh() {
 static void T02_flat_floor_path_is_straight() {
     ECS w;
     SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     auto nm = NavMeshSystem::Instance().Current();
     EXPECT(nm != nullptr);
     if (!nm) return;
@@ -86,7 +86,7 @@ static void T03_path_around_wall_is_curved() {
     ECS w;
     SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
     SpawnNavBox(w, glm::vec3(0,  1.0f, 0), glm::vec3(0.3f, 1.0f, 2.0f));
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     auto nm = NavMeshSystem::Instance().Current();
     EXPECT(nm != nullptr);
     if (!nm) return;
@@ -108,7 +108,7 @@ static void T04_unset_geometry_is_skipped() {
         src.Geometry = NavMeshGeometrySource::Unset;
         w.AddComponent(e, src);
     }
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     auto nm = NavMeshSystem::Instance().Current();
     EXPECT(nm != nullptr);
     if (nm) {
@@ -127,7 +127,7 @@ static void T05_mesh_geometry_without_meshcomponent_skipped() {
         src.Geometry = NavMeshGeometrySource::Mesh;
         w.AddComponent(e, src);
     }
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     auto nm = NavMeshSystem::Instance().Current();
     EXPECT(nm != nullptr);
     if (nm) {
@@ -151,7 +151,7 @@ static void T06_sphere_collider_routes_around() {
         src.Geometry = NavMeshGeometrySource::Collider;
         w.AddComponent(e, src);
     }
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     auto nm = NavMeshSystem::Instance().Current();
     EXPECT(nm != nullptr);
     if (nm) {
@@ -163,7 +163,7 @@ static void T06_sphere_collider_routes_around() {
 static void T07_current_shared_across_threads() {
     ECS w;
     SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     auto p1 = NavMeshSystem::Instance().Current();
     std::shared_ptr<const NavMesh> p2;
     std::thread t([&]{ p2 = NavMeshSystem::Instance().Current(); });
@@ -185,7 +185,7 @@ static void T08_flat_floor_only_box_builds_walkable_navmesh() {
     // future scenes with a low ceiling close to the floor.
     ECS w;
     SpawnNavBox(w, glm::vec3(0, 0, 0), glm::vec3(2.0f, 0.5f, 2.0f));
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     auto nm = NavMeshSystem::Instance().Current();
     EXPECT(nm != nullptr);
     if (!nm) return;
@@ -206,7 +206,7 @@ static void DrainTileCache(NavMeshSystem& nav, int maxTicks = 16) {
 // Shared helper for obstacle tests: floor + initial Rebuild that gives a usable navmesh.
 static void SpawnFloorAndBuild(ECS& w) {
     SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
 }
 
 static EntityId SpawnCylinderObstacle(ECS& w, const glm::vec3& pos, float radius, float height) {
@@ -318,7 +318,7 @@ static void T13_rebuild_clears_obstacle_map() {
     (void)e;
 
     // Trigger Rebuild -- map clears + new navmesh, obstacle handle no longer tracked.
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     EXPECT(NavMeshSystem::Instance().ObstacleCount() == 0);
 
     // Next sync re-adds the obstacle (entity still has the component).
@@ -430,7 +430,7 @@ static std::string TempBakePath(const char* suffix = "test_navmesh_bake.bin") {
 static void T19_save_and_load_roundtrip_produces_equivalent_navmesh() {
     ECS w;
     SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     auto built = NavMeshSystem::Instance().Current();
     EXPECT(built != nullptr);
     if (!built) return;
@@ -502,7 +502,7 @@ static void T23_try_load_from_disk_stale_returns_false() {
 
     ECS w;
     SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
     auto built = NavMeshSystem::Instance().Current();
     EXPECT(built != nullptr);
     if (built) {
@@ -526,7 +526,7 @@ static void T23_try_load_from_disk_stale_returns_false() {
 static void T24_navservices_table_forwards_to_navmeshsystem() {
     ECS w;
     SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg(), nullptr);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
 
     const NavServices* svc = TestNavServices();
     EXPECT(svc != nullptr);
@@ -550,7 +550,7 @@ static void T24_navservices_table_forwards_to_navmeshsystem() {
 
 static void T25_navservices_findpath_empty_when_no_mesh() {
     ECS empty;
-    NavMeshSystem::Instance().Rebuild(empty, DefaultCfg(), nullptr);  // empty soup → null current
+    NavMeshSystem::Instance().Rebuild(empty, DefaultCfg());  // empty soup → null current
 
     const NavServices* svc = TestNavServices();
     EXPECT(!svc->HasMesh());
@@ -568,12 +568,16 @@ static void T26_geometry_mesh_uses_cached_cpu_data() {
     // Manually triangulated 4x4 floor (square at y=0, two triangles).
     // Field names match MeshVertex layout: px,py,pz, nx,ny,nz, u,v.
     std::vector<MeshVertex> verts = {
-        {-2.0f, 0.0f, -2.0f,  0,0,1,  0,0},
-        { 2.0f, 0.0f, -2.0f,  0,0,1,  1,0},
-        { 2.0f, 0.0f,  2.0f,  0,0,1,  1,1},
-        {-2.0f, 0.0f,  2.0f,  0,0,1,  0,1},
+        {-2.0f, 0.0f, -2.0f,  0,1,0,  0,0},
+        { 2.0f, 0.0f, -2.0f,  0,1,0,  1,0},
+        { 2.0f, 0.0f,  2.0f,  0,1,0,  1,1},
+        {-2.0f, 0.0f,  2.0f,  0,1,0,  0,1},
     };
-    std::vector<uint32_t> indices = { 0, 1, 2, 0, 2, 3 };
+    // Wind CCW seen from above so Recast computes +Y face normal (cross of
+    // (v1-v0)x(v2-v0) for tri 0,2,1 yields (0,+y,0) — walkable). The mirrored
+    // {0,1,2,0,2,3} winding would give -Y and rcClearUnwalkableTriangles would
+    // skip both tris → zero polys. Vertex normals set to +Y to match.
+    std::vector<uint32_t> indices = { 0, 2, 1, 0, 3, 2 };
 
     constexpr uint32_t kMeshId = 42;
     NavMeshSystem::Instance().StoreMeshCpuData(kMeshId, std::move(verts), std::move(indices));

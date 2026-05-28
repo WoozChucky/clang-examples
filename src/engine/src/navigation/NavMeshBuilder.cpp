@@ -2,11 +2,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <span>
 
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "ECS.h"
-#include "MeshSystem.h"
+#include "navigation/NavMeshSystem.h"   // GetMeshCpuData
 #include "lib.h"          // SM_WARN
 #include "Engine.h"
 
@@ -143,7 +144,7 @@ void TriangulateCapsule(float r, float halfH, const glm::mat4& xf, uint8_t area,
     TriangulateSphere(r, botCap, area, segs, out);
 }
 
-NavMeshTriangleSoup CollectTriangles(const ECS& world, const MeshSystem* meshSystem)
+NavMeshTriangleSoup CollectTriangles(const ECS& world)
 {
     NavMeshTriangleSoup soup;
 
@@ -183,29 +184,26 @@ NavMeshTriangleSoup CollectTriangles(const ECS& world, const MeshSystem* meshSys
                 SM_WARN("NavMeshSource entity %llu Geometry=Mesh but no MeshComponent; skipped", e);
                 return;
             }
-            if (!meshSystem) {
-                SM_WARN("NavMeshSource entity %llu Geometry=Mesh but no MeshSystem available; skipped", e);
-                return;
-            }
-            const auto cpu = meshSystem->GetMeshCpuData(mc->MeshId);
-            if (!cpu.valid) {
+            std::span<const MeshVertex> meshVerts;
+            std::span<const uint32_t>   meshIndices;
+            if (!NavMeshSystem::Instance().GetMeshCpuData(mc->MeshId, meshVerts, meshIndices)) {
                 SM_WARN("NavMeshSource entity %llu MeshId %u has no CPU data; skipped", e, mc->MeshId);
                 return;
             }
             const int baseVert = static_cast<int>(soup.Verts.size() / 3);
             // MeshVertex layout: float px,py,pz; float nx,ny,nz; float u,v;  (ApplicationContext.h:57-62)
-            for (const auto& v : cpu.vertices) {
+            for (const auto& v : meshVerts) {
                 const glm::vec3 w = Xform(worldXform, glm::vec3(v.px, v.py, v.pz));
                 soup.Verts.push_back(w.x);
                 soup.Verts.push_back(w.y);
                 soup.Verts.push_back(w.z);
                 GrowAabb(soup, w);
             }
-            for (size_t i = 0; i + 2 < cpu.indices.size(); i += 3) {
+            for (size_t i = 0; i + 2 < meshIndices.size(); i += 3) {
                 EmitTri(soup,
-                        baseVert + static_cast<int>(cpu.indices[i + 0]),
-                        baseVert + static_cast<int>(cpu.indices[i + 1]),
-                        baseVert + static_cast<int>(cpu.indices[i + 2]),
+                        baseVert + static_cast<int>(meshIndices[i + 0]),
+                        baseVert + static_cast<int>(meshIndices[i + 1]),
+                        baseVert + static_cast<int>(meshIndices[i + 2]),
                         src.AreaId);
             }
         }
