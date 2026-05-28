@@ -78,6 +78,7 @@ target_include_directories(Engine PUBLIC
     src/utilities
     src/navigation
     ${CMAKE_SOURCE_DIR}/third_party/dotnet/include
+    ${CMAKE_SOURCE_DIR}/third_party/smaa/Textures
 )
 
 target_compile_definitions(Engine PUBLIC
