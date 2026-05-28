@@ -442,3 +442,33 @@ set_target_properties(test_navagent PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_inspector_editstate
+    test_inspector_editstate.cpp
+)
+
+target_link_libraries(test_inspector_editstate PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+    nlohmann_json::nlohmann_json
+)
+
+target_include_directories(test_inspector_editstate PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/engine/include
+    ${CMAKE_SOURCE_DIR}/src/engine/src/rendering
+    ${CMAKE_SOURCE_DIR}/src/editor/src/app
+    ${CMAKE_SOURCE_DIR}/src/editor/src/panels/inspector
+)
+
+target_compile_definitions(test_inspector_editstate PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_inspector_editstate PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
