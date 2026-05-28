@@ -9,7 +9,6 @@
 #include "Engine.h"
 
 class ECS;
-class MeshSystem;
 
 // Output of triangle collection: vertex/index/area arrays ready to feed into Recast.
 // Verts are interleaved x/y/z floats; tris are 3 indices per triangle into verts;
@@ -27,9 +26,9 @@ namespace NavMeshBuilder {
 
     // Walk all entities with NavMeshSourceComponent, resolve geometry per the Geometry
     // enum, transform to world space, concatenate. Logs SM_WARN per skipped entity.
-    // meshSystem may be null — entities with Geometry=Mesh will then SM_WARN + skip.
-    ENGINE_API NavMeshTriangleSoup CollectTriangles(const ECS& world,
-                                                    const MeshSystem* meshSystem);
+    // Mesh-source entities pull CPU data from NavMeshSystem's mesh cache (populated
+    // by GameThread when MeshUpload responses arrive); cache miss → SM_WARN + skip.
+    ENGINE_API NavMeshTriangleSoup CollectTriangles(const ECS& world);
 
     // Append a unit box (12 tris) sized by halfExtents, transformed by worldXform, with areaId.
     ENGINE_API void TriangulateBox(const glm::vec3& halfExtents,
