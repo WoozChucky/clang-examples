@@ -500,3 +500,20 @@ set_target_properties(test_inspector_editstate PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_aamode
+    test_aamode.cpp
+)
+
+target_link_libraries(test_aamode PRIVATE
+    nlohmann_json::nlohmann_json
+)
+
+target_include_directories(test_aamode PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+set_target_properties(test_aamode PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
