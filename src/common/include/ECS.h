@@ -132,6 +132,10 @@ struct UICameraComponent {
     glm::mat4 View{1.0f};
     glm::mat4 Projection{1.0f};
 };
+// Selects how the sky/sun behave. DynamicCycle animates the sun over time;
+// Static freezes it at a fixed angle (still lit, still casts shadows).
+enum class SkyMode : int { DynamicCycle = 0, Static = 1 };
+
 struct DayNightConfigComponent {
     float     CycleSeconds  = 60.0f;                 // full day length (was 10)
     float     DayBrightness = 1.0f;                  // peak sun brightness (cap <= 1.0, no blow-out)
@@ -139,6 +143,12 @@ struct DayNightConfigComponent {
     float     TwilightWidth = 0.25f;                 // smoothstep band for dawn/dusk easing (elevation units)
     float     DayAmbient    = 0.08f;                 // neutral daytime ambient floor
     glm::vec3 MoonColor     = glm::vec3(0.10f, 0.14f, 0.26f); // cool blue night fill
+
+    // --- Sky mode (added 2026-05-28) ---
+    SkyMode   Mode                = SkyMode::DynamicCycle; // default preserves the animated cycle
+    float     StaticSunElevDeg    = 50.0f;           // 0 = horizon, 90 = overhead (Static only)
+    float     StaticSunAzimuthDeg = 30.0f;           // compass angle around +Y (Static only)
+    bool      ShowSunDisc         = true;            // draw the sun disc/halo (mainly for Static)
 };
 
 // Computed per-tick by DayNightSystem (game), read by the deferred LightingRenderPass.
