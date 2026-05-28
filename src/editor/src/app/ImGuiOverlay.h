@@ -1,6 +1,6 @@
 #pragma once
 #include "IOverlay.h"
-#include "imgui/ImGuiRenderer.h"
+#include "ImGuiRenderer.h"
 
 // Editor overlay: implements the engine's IOverlay by forwarding to ImGuiRenderer.
 class ImGuiOverlay final : public IOverlay {

@@ -16,7 +16,7 @@
 #include "alloc.h"
 #include "lib.h"
 #include "Application.h"
-#include "rendering/imgui/ImGuiOverlay.h"
+#include "ImGuiOverlay.h"
 #include "utilities/SettingsManager.h"
 
 void platform_debug_break(const char* expr, const char* file, int line, const char* message)

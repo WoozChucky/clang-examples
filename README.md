@@ -78,7 +78,11 @@ Source
   - `include/IOverlay.h` – the interface a tooling overlay implements to hook into the renderer
 - `src/editor/` – the dev executable: `Engine` core plus the ImGui tooling layer
   - `src/main.cpp` – thin `main`; injects an `ImGuiOverlay` factory into `Application::Init`
-  - `src/rendering/imgui/` – `ImGuiOverlay`, `ImGuiRenderer` (panels/inspector/gizmos), `MemoryPanel`, `MeshPreviewRenderer`, `imgui_nvrhi`
+  - `src/app/` – `ImGuiOverlay`, `ImGuiRenderer`, `EditorContext`, `EditorPreferences`
+  - `src/panels/` – `EcsInspectorPanel`, `MemoryPanel`, `MaterialManagerPanel`, `NavigationPanel`, … (one file per panel) + `MainMenuBar`
+  - `src/viewport/` – `SceneViewport`, `ViewportPicker`, `GizmoController`, `EditorCamera`
+  - `src/imgui/` – `imgui_nvrhi` (ImGui↔NVRHI backend), `registered_font`
+  - `src/preview/` – `MeshPreviewRenderer` (offscreen mesh-thumbnail render); `src/dialogs/` – `EditorFileDialog`; `src/util/` – `MetricHistory`, `TransientStatus`
   - `src/alloc.h` – allocation-tracker hooks (editor-only)
 - `src/runtime/` – the stripped player executable (`runtime.exe`)
   - `src/main.cpp` – thin `main` mirroring the editor's, but boots `Application` with no overlay → no ImGui
@@ -221,7 +225,7 @@ On-screen
 - Build and run `editor.exe` once from CMake.
 - Iterate on game code by rebuilding just `Game.dll` (`--target game`); the host's `GameLibrary` watches the file, copies it to a timestamped filename, validates `GAME_API_VERSION`, and swaps it in between ticks.
 - Changing `Game.h` (struct layout / new export) requires bumping `GAME_API_VERSION` and restarting the editor; changing `ECS.h` requires rebuilding `ecs.dll`, the host, and the game, then restarting. See `CLAUDE.md` for the full rules.
-- For UI tooling work, edit `src/editor/src/rendering/imgui/` and rebuild `editor` (the overlay is compiled into the exe, not hot-reloaded).
+- For UI tooling work, edit the relevant `src/editor/src/` topic dir (`panels/`, `viewport/`, `app/`, …) and rebuild `editor` (the overlay is compiled into the exe, not hot-reloaded).
 
 Debugging tips
 - `SM_ASSERT` shows a dialog and breaks in the debugger.

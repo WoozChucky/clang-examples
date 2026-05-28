@@ -106,7 +106,7 @@ set_target_properties(test_picking PROPERTIES
 
 add_executable(test_editorcam
     test_editorcam.cpp
-    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering/EditorCamera.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor/src/viewport/EditorCamera.cpp
 )
 
 target_link_libraries(test_editorcam PRIVATE
@@ -115,7 +115,7 @@ target_link_libraries(test_editorcam PRIVATE
 
 target_include_directories(test_editorcam PRIVATE
     ${CMAKE_SOURCE_DIR}/src/common/include
-    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering
+    ${CMAKE_SOURCE_DIR}/src/editor/src/viewport
 )
 
 target_compile_definitions(test_editorcam PRIVATE
@@ -134,7 +134,7 @@ add_executable(test_metrichistory
 )
 
 target_include_directories(test_metrichistory PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering
+    ${CMAKE_SOURCE_DIR}/src/editor/src/util
 )
 
 set_target_properties(test_metrichistory PROPERTIES
@@ -147,7 +147,7 @@ add_executable(test_transientstatus
 )
 
 target_include_directories(test_transientstatus PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering
+    ${CMAKE_SOURCE_DIR}/src/editor/src/util
 )
 
 set_target_properties(test_transientstatus PROPERTIES
@@ -255,7 +255,8 @@ target_include_directories(test_editorprefs PRIVATE
     ${CMAKE_SOURCE_DIR}/src/engine/include
     ${CMAKE_SOURCE_DIR}/src/engine/src/rendering
     ${CMAKE_SOURCE_DIR}/src/editor/src
-    ${CMAKE_SOURCE_DIR}/src/editor/src/rendering
+    ${CMAKE_SOURCE_DIR}/src/editor/src/app
+    ${CMAKE_SOURCE_DIR}/src/editor/src/viewport
 )
 
 target_compile_definitions(test_editorprefs PRIVATE
