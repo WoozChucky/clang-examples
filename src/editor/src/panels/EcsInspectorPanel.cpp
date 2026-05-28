@@ -18,15 +18,23 @@
 #include "inspector/MaterialEditor.h"
 #include "inspector/TextEditor.h"
 #include "inspector/SunMarkerEditor.h"
+#include "inspector/PlayerEditor.h"
+#include "inspector/UIRectEditor.h"
+#include "inspector/StateScopeEditor.h"
+#include "inspector/MenuButtonEditor.h"
 
 EcsInspectorPanel::EcsInspectorPanel() {
-    // Registry order == display order. Batches B/C append here in Tasks 3-4.
+    // Registry order == display order. Batch C appends here in Task 4.
     m_Editors.push_back(std::make_unique<TransformEditor>());
     m_Editors.push_back(std::make_unique<LightningEditor>());
     m_Editors.push_back(std::make_unique<MeshEditor>());
     m_Editors.push_back(std::make_unique<MaterialEditor>());
     m_Editors.push_back(std::make_unique<TextEditor>());
     m_Editors.push_back(std::make_unique<SunMarkerEditor>());
+    m_Editors.push_back(std::make_unique<PlayerEditor>());
+    m_Editors.push_back(std::make_unique<UIRectEditor>());
+    m_Editors.push_back(std::make_unique<StateScopeEditor>());
+    m_Editors.push_back(std::make_unique<MenuButtonEditor>());
 }
 
 void EcsInspectorPanel::Draw(const EditorContext& ctx)
@@ -110,41 +118,7 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                         if (ImGui::MenuItem(lbl)) ed->AddDefault(ctx, entity);
                     }
                 }
-                // (remaining inline "Add X" blocks for Player..NavTarget stay below, untouched)
-
-                if (!ctx.WorldSnapshot->HasComponent<PlayerComponent>(entity)) {
-                    if (ImGui::MenuItem("Add Player Component")) {
-                        ECSCommand addCmd = ECSCommand::AddComponent(entity, PlayerComponent{});
-                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
-                            SM_WARN("ECS command queue full! Add component command dropped.");
-                        }
-                    }
-                }
-
-                if (!ctx.WorldSnapshot->HasComponent<UIRectComponent>(entity)) {
-                    if (ImGui::MenuItem("Add UI Rect Component")) {
-                        ECSCommand addCmd = ECSCommand::AddComponent(entity, UIRectComponent{});
-                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
-                            SM_WARN("ECS command queue full! Add component command dropped.");
-                        }
-                    }
-                }
-                if (!ctx.WorldSnapshot->HasComponent<StateScopeComponent>(entity)) {
-                    if (ImGui::MenuItem("Add State Scope Component")) {
-                        ECSCommand addCmd = ECSCommand::AddComponent(entity, StateScopeComponent{});
-                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
-                            SM_WARN("ECS command queue full! Add component command dropped.");
-                        }
-                    }
-                }
-                if (!ctx.WorldSnapshot->HasComponent<MenuButtonComponent>(entity)) {
-                    if (ImGui::MenuItem("Add Menu Button Component")) {
-                        ECSCommand addCmd = ECSCommand::AddComponent(entity, MenuButtonComponent{});
-                        if (!ctx.App->ECSCommandRing.Push(addCmd)) {
-                            SM_WARN("ECS command queue full! Add component command dropped.");
-                        }
-                    }
-                }
+                // (remaining inline "Add X" blocks for Collider..NavTarget stay below, untouched)
 
                 if (!ctx.WorldSnapshot->HasComponent<ColliderComponent>(entity)) {
                     if (ImGui::MenuItem("Add Collider Component")) {
@@ -200,41 +174,7 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                         if (ImGui::MenuItem(lbl)) ed->Remove(ctx, entity);
                     }
                 }
-                // (remaining inline "Remove X" blocks for Player..NavTarget stay below)
-
-                if (ctx.WorldSnapshot->HasComponent<PlayerComponent>(entity)) {
-                    if (ImGui::MenuItem("Remove Player Component")) {
-                        ECSCommand removeCmd = ECSCommand::RemoveComponent<PlayerComponent>(entity);
-                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
-                            SM_WARN("ECS command queue full! Remove component command dropped.");
-                        }
-                    }
-                }
-
-                if (ctx.WorldSnapshot->HasComponent<UIRectComponent>(entity)) {
-                    if (ImGui::MenuItem("Remove UI Rect Component")) {
-                        ECSCommand removeCmd = ECSCommand::RemoveComponent<UIRectComponent>(entity);
-                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
-                            SM_WARN("ECS command queue full! Remove component command dropped.");
-                        }
-                    }
-                }
-                if (ctx.WorldSnapshot->HasComponent<StateScopeComponent>(entity)) {
-                    if (ImGui::MenuItem("Remove State Scope Component")) {
-                        ECSCommand removeCmd = ECSCommand::RemoveComponent<StateScopeComponent>(entity);
-                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
-                            SM_WARN("ECS command queue full! Remove component command dropped.");
-                        }
-                    }
-                }
-                if (ctx.WorldSnapshot->HasComponent<MenuButtonComponent>(entity)) {
-                    if (ImGui::MenuItem("Remove Menu Button Component")) {
-                        ECSCommand removeCmd = ECSCommand::RemoveComponent<MenuButtonComponent>(entity);
-                        if (!ctx.App->ECSCommandRing.Push(removeCmd)) {
-                            SM_WARN("ECS command queue full! Remove component command dropped.");
-                        }
-                    }
-                }
+                // (remaining inline "Remove X" blocks for Collider..NavTarget stay below)
 
                 if (ctx.WorldSnapshot->HasComponent<ColliderComponent>(entity)) {
                     if (ImGui::MenuItem("Remove Collider Component")) {
@@ -317,142 +257,7 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                         ed->DrawEditor(ctx, selectedEntity);
                 }
             }
-            // (remaining inline "// Edit X Component" blocks for Player..NavTarget stay below)
-
-            // Edit Player Component
-            if (ctx.WorldSnapshot->HasComponent<PlayerComponent>(selectedEntity)) {
-                if (ImGui::CollapsingHeader("Player Component", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    auto* player = ctx.WorldSnapshot->GetComponent<PlayerComponent>(selectedEntity);
-                    if (player) {
-                        if (lastEditedPlayerEntity != selectedEntity) {
-                            editPlayer = *player;
-                            lastEditedPlayerEntity = selectedEntity;
-                            playerModified = false;
-                        }
-                        if (!playerModified) {
-                            editPlayer = *player;
-                        }
-                        if (ImGui::DragFloat("Move speed", &editPlayer.MoveSpeed, 0.1f, 0.5f, 50.0f, "%.1f")) {
-                            playerModified = true;
-                        }
-                        ImGui::Spacing();
-                        if (playerModified) {
-                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editPlayer);
-                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
-                                SM_WARN("ECS command queue full! Modify command dropped.");
-                            }
-                            playerModified = false;
-                        }
-                    }
-                }
-            }
-
-            // Edit UI Rect Component
-            if (ctx.WorldSnapshot->HasComponent<UIRectComponent>(selectedEntity)) {
-                if (ImGui::CollapsingHeader("UI Rect Component", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    auto* rect = ctx.WorldSnapshot->GetComponent<UIRectComponent>(selectedEntity);
-                    if (rect) {
-                        if (lastEditedUIRectEntity != selectedEntity) {
-                            editUIRect = *rect;
-                            lastEditedUIRectEntity = selectedEntity;
-                            uiRectModified = false;
-                        }
-                        if (!uiRectModified) {
-                            editUIRect = *rect;
-                        }
-                        if (ImGui::DragFloat2("Size (px)", &editUIRect.Size.x, 1.0f, 1.0f, 4096.0f, "%.0f")) {
-                            uiRectModified = true;
-                        }
-                        if (ImGui::ColorEdit4("Color##UIRect", &editUIRect.Color.x)) {
-                            uiRectModified = true;
-                        }
-                        ImGui::Spacing();
-                        if (uiRectModified) {
-                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editUIRect);
-                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
-                                SM_WARN("ECS command queue full! Modify command dropped.");
-                            }
-                            uiRectModified = false;
-                        }
-                    }
-                }
-            }
-
-            // Edit State Scope Component (one checkbox per state; mask bit i = GameStateId i)
-            if (ctx.WorldSnapshot->HasComponent<StateScopeComponent>(selectedEntity)) {
-                if (ImGui::CollapsingHeader("State Scope Component", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    auto* scope = ctx.WorldSnapshot->GetComponent<StateScopeComponent>(selectedEntity);
-                    if (scope) {
-                        if (lastEditedScopeEntity != selectedEntity) {
-                            editScope = *scope;
-                            lastEditedScopeEntity = selectedEntity;
-                            scopeModified = false;
-                        }
-                        if (!scopeModified) {
-                            editScope = *scope;
-                        }
-                        ImGui::TextDisabled("Active in states (none = always):");
-                        struct { const char* label; GameStateId id; } kStates[] = {
-                            {"Main Menu", GameStateId::MainMenu},
-                            {"In Level",  GameStateId::InLevel},
-                            {"In Editor", GameStateId::InEditor},
-                            {"Paused",    GameStateId::Paused},
-                        };
-                        for (const auto& s : kStates) {
-                            const uint32_t bit = 1u << static_cast<uint32_t>(s.id);
-                            bool on = (editScope.StateMask & bit) != 0u;
-                            if (ImGui::Checkbox(s.label, &on)) {
-                                if (on) editScope.StateMask |= bit; else editScope.StateMask &= ~bit;
-                                scopeModified = true;
-                            }
-                        }
-                        ImGui::Spacing();
-                        if (scopeModified) {
-                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editScope);
-                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
-                                SM_WARN("ECS command queue full! Modify command dropped.");
-                            }
-                            scopeModified = false;
-                        }
-                    }
-                }
-            }
-
-            // Edit Menu Button Component
-            if (ctx.WorldSnapshot->HasComponent<MenuButtonComponent>(selectedEntity)) {
-                if (ImGui::CollapsingHeader("Menu Button Component", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    auto* btn = ctx.WorldSnapshot->GetComponent<MenuButtonComponent>(selectedEntity);
-                    if (btn) {
-                        if (lastEditedMenuBtnEntity != selectedEntity) {
-                            editMenuBtn = *btn;
-                            lastEditedMenuBtnEntity = selectedEntity;
-                            menuBtnModified = false;
-                        }
-                        if (!menuBtnModified) {
-                            editMenuBtn = *btn;
-                        }
-                        static const char* kActionNames[] = { "None", "Play", "Quit", "Back" };
-                        static const uint32_t kActionIds[] = { Actions::None, Actions::Play, Actions::Quit, Actions::Back };
-                        int curIdx = 0;
-                        for (int i = 0; i < 4; ++i) if (editMenuBtn.ActionId == kActionIds[i]) curIdx = i;
-                        if (ImGui::Combo("Action", &curIdx, kActionNames, 4)) {
-                            editMenuBtn.ActionId = kActionIds[curIdx];
-                            menuBtnModified = true;
-                        }
-                        if (ImGui::ColorEdit4("Normal##MenuBtn", &editMenuBtn.Normal.x)) menuBtnModified = true;
-                        if (ImGui::ColorEdit4("Hover##MenuBtn",  &editMenuBtn.Hover.x))  menuBtnModified = true;
-                        if (ImGui::ColorEdit4("Press##MenuBtn",  &editMenuBtn.Press.x))  menuBtnModified = true;
-                        ImGui::Spacing();
-                        if (menuBtnModified) {
-                            ECSCommand modifyCmd = ECSCommand::ModifyComponent(selectedEntity, editMenuBtn);
-                            if (!ctx.App->ECSCommandRing.Push(modifyCmd)) {
-                                SM_WARN("ECS command queue full! Modify command dropped.");
-                            }
-                            menuBtnModified = false;
-                        }
-                    }
-                }
-            }
+            // (remaining inline "// Edit X Component" blocks for Collider..NavTarget stay below)
 
             // Edit Collider Component
             if (ctx.WorldSnapshot->HasComponent<ColliderComponent>(selectedEntity)) {

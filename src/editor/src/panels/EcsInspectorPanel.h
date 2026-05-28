@@ -17,11 +17,6 @@ private:
     std::vector<std::unique_ptr<IComponentEditor>> m_Editors;
 
     // --- Un-migrated component edit-state (removed as each batch lands) ---
-    // Batch B (Task 3):
-    PlayerComponent    editPlayer{};        EntityId lastEditedPlayerEntity = INVALID_ENTITY;    bool playerModified = false;
-    UIRectComponent    editUIRect{};        EntityId lastEditedUIRectEntity = INVALID_ENTITY;    bool uiRectModified = false;
-    StateScopeComponent editScope{};        EntityId lastEditedScopeEntity = INVALID_ENTITY;     bool scopeModified = false;
-    MenuButtonComponent editMenuBtn{};      EntityId lastEditedMenuBtnEntity = INVALID_ENTITY;   bool menuBtnModified = false;
     // Batch C (Task 4):
     ColliderComponent  editCollider{};      EntityId lastEditedColliderEntity = INVALID_ENTITY;  bool colliderModified = false;
     NavMeshSourceComponent editNavSource{}; EntityId lastEditedNavSourceEntity = INVALID_ENTITY;  bool navSourceModified = false;
