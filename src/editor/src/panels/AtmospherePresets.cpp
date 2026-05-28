@@ -3,7 +3,9 @@
 #include <cmath> // std::fabs
 
 namespace {
-    constexpr float kEps = 1e-4f;
+    // Comfortably clears the panel sliders' coarsest display rounding (%.4f) so a value
+    // nudged onto a preset still matches; presets differ by far more than this.
+    constexpr float kEps = 1e-3f;
 
     bool feq(float a, float b)              { return std::fabs(a - b) <= kEps; }
     bool veq(const glm::vec3& a, const glm::vec3& b) {
