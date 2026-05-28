@@ -8,6 +8,7 @@
 #include "MenuHitTest.h" // ToUiSpace + PointInRect
 #include "StateScope.h"  // ScopeAllows
 #include "Actions.h"     // ActionCategory / Actions::
+#include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 
 #include <memory>
 #include <tuple>
@@ -58,11 +59,17 @@ public:
         DayNightConfigComponent cfg{};
         if (const auto* c = ctx.world.GetSingleton<DayNightConfigComponent>()) cfg = *c;
 
-        const float cycle = glm::max(cfg.CycleSeconds, 0.001f);
-        const double gameTime = ctx.gameTime;
-        const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
-        const float theta = phase * 6.28318530718f;
-        const glm::vec3 dir = glm::normalize(glm::vec3(0.0f, -cosf(theta), sinf(theta)));
+        // Sun direction: animated by the cycle (DynamicCycle) or pinned at a fixed angle (Static).
+        glm::vec3 dir;
+        if (cfg.Mode == SkyMode::Static) {
+            dir = SunDirectionFromAngles(cfg.StaticSunElevDeg, cfg.StaticSunAzimuthDeg);
+        } else {
+            const float cycle = glm::max(cfg.CycleSeconds, 0.001f);
+            const double gameTime = ctx.gameTime;
+            const auto phase = static_cast<float>(std::fmod(gameTime, static_cast<double>(cycle)) / static_cast<double>(cycle));
+            const float theta = phase * 6.28318530718f;
+            dir = glm::normalize(glm::vec3(0.0f, -cosf(theta), sinf(theta)));
+        }
 
         const float elevation = glm::clamp(-dir.y, 0.0f, 1.0f); // 1 = noon, 0 = at/below horizon
         const float nightDepth = glm::clamp(dir.y, 0.0f, 1.0f);  // 0 = horizon, 1 = deep midnight
