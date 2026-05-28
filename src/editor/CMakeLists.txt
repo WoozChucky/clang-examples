@@ -31,6 +31,11 @@ add_executable(editor
     src/panels/inspector/UIRectEditor.cpp
     src/panels/inspector/StateScopeEditor.cpp
     src/panels/inspector/MenuButtonEditor.cpp
+    src/panels/inspector/ColliderEditor.cpp
+    src/panels/inspector/NavMeshSourceEditor.cpp
+    src/panels/inspector/NavObstacleEditor.cpp
+    src/panels/inspector/NavAgentEditor.cpp
+    src/panels/inspector/NavTargetEditor.cpp
 
     # Viewport interaction + editor camera
     src/viewport/SceneViewport.cpp
