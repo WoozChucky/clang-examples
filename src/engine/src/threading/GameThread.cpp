@@ -8,6 +8,7 @@
 #include <thread>
 #include <chrono>
 #include <regex>
+#include <unordered_map>
 
 #ifdef _WIN32
 #include <timeapi.h>  // For timeBeginPeriod/timeEndPeriod
@@ -156,6 +157,17 @@ void GameThread::RunLoop() {
     // GameState-only boundary (Game.dll no longer links Engine.dll).
     NavServices navServices{};
     NavServicesImpl::Init(navServices);
+
+    // Spec 5: per-MeshId verts/indices in flight from the mesh-upload command
+    // (GameThread sends to RenderThread) → the MeshUpload response (RenderThread
+    // sends back). Keyed by ticketId (entityId) at upload time, transferred to
+    // NavMeshSystem's MeshId-keyed cache when the response arrives. Function-
+    // scope: lives for the entire RunLoop, sole owner is GameThread.
+    struct PendingMeshData {
+        std::vector<MeshVertex> Vertices;
+        std::vector<uint32_t>   Indices;
+    };
+    std::unordered_map<EntityId, PendingMeshData> pendingMeshData;
 
 	while (Running()) {
 		// Renderer hot-swap: pause here while RenderThread rebuilds the device.
@@ -327,6 +339,16 @@ void GameThread::RunLoop() {
                             break;
                         }
                         res.MeshUploaded = true; // mesh is on the ring; a retry must not re-upload it
+
+                        // Spec 5: stash verts/indices keyed by ticketId. When the MeshUpload
+                        // response arrives with the assigned MeshId, we transfer ownership
+                        // into NavMeshSystem's cache (see ProcessRenderResponses below).
+                        // Vectors are no longer needed by the upload path (staging-pool
+                        // memcpy already happened above).
+                        pendingMeshData[res.ticketId] = PendingMeshData{
+                            std::move(res.vertices),
+                            std::move(res.indices)
+                        };
                     }
 
                     if (!res.Texture)
@@ -366,6 +388,18 @@ void GameThread::RunLoop() {
                                 m.MeshId  = response.Mesh.Handle.Index;
                                 m.Visible = true;
                             });
+
+                            // Spec 5: transfer the verts/indices we stashed at upload
+                            // time into NavMeshSystem's MeshId-keyed cache. Mesh-source
+                            // entities now contribute triangles to the navmesh build.
+                            auto it = pendingMeshData.find(response.TicketId);
+                            if (it != pendingMeshData.end()) {
+                                NavMeshSystem::Instance().StoreMeshCpuData(
+                                    response.Mesh.Handle.Index,
+                                    std::move(it->second.Vertices),
+                                    std::move(it->second.Indices));
+                                pendingMeshData.erase(it);
+                            }
 
                             SM_TRACE("GameThread: MeshUpload complete for entity %llu, meshId=%u",
                                      response.TicketId, response.Mesh.Handle.Index);
