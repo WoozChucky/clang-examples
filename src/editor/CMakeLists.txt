@@ -20,6 +20,14 @@ add_executable(editor
     src/panels/PerformancePanel.cpp
     src/panels/MainMenuBar.cpp
 
+    # Inspector component editors (Spec B)
+    src/panels/inspector/TransformEditor.cpp
+    src/panels/inspector/LightningEditor.cpp
+    src/panels/inspector/MeshEditor.cpp
+    src/panels/inspector/MaterialEditor.cpp
+    src/panels/inspector/TextEditor.cpp
+    src/panels/inspector/SunMarkerEditor.cpp
+
     # Viewport interaction + editor camera
     src/viewport/SceneViewport.cpp
     src/viewport/ViewportPicker.cpp
@@ -45,6 +53,7 @@ target_include_directories(editor PRIVATE
     src
     src/app
     src/panels
+    src/panels/inspector
     src/viewport
     src/imgui
     src/preview
