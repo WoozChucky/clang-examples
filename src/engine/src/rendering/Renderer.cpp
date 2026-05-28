@@ -265,7 +265,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 // FXAA path: world passes render into an offscreen scene-color SRV,
                 // which the FXAA pass then resolves into sceneBuffer. UI draws on top,
                 // un-AA'd. When disabled, worldTarget == sceneBuffer (today's path).
-                bool fxaa = GetAntiAliasingSettings().FxaaEnabled && m_FxaaPass != nullptr;
+                bool fxaa = GetAntiAliasingSettings().Mode == AAMode::FXAA && m_FxaaPass != nullptr;
                 nvrhi::IFramebuffer* worldTarget = sceneBuffer;
                 if (fxaa) {
                     const auto& sfbi = sceneBuffer->getFramebufferInfo();

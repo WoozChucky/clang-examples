@@ -45,7 +45,15 @@ bool DrawRenderStatsPanel(bool* open)
     ImGui::Separator();
     ImGui::TextDisabled("Anti-Aliasing");
     AntiAliasingSettings& aa = GetAntiAliasingSettings();
-    changed |= ImGui::Checkbox("FXAA", &aa.FxaaEnabled);
+    {
+        int mode = static_cast<int>(aa.Mode);
+        if (mode > 1) mode = 1; // SMAA not wired yet this milestone -> clamp display to FXAA
+        const char* names[] = { "Off", "FXAA" };
+        if (ImGui::Combo("Anti-aliasing", &mode, names, IM_ARRAYSIZE(names))) {
+            aa.Mode = static_cast<AAMode>(mode);
+            changed = true;
+        }
+    }
 
     ImGui::End();
     return changed;

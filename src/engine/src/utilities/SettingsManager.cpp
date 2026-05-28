@@ -9,6 +9,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "AaModeMigration.h" // ResolveAaMode
+
 using json = nlohmann::json;
 
 namespace {
@@ -69,9 +71,7 @@ bool Load(const std::string& filepath, ApplicationSettings* out) {
                 out->Backend = parsed;
             }
         }
-        if (jr.contains("fxaa") && jr["fxaa"].is_boolean()) {
-            out->fxaaEnabled = jr["fxaa"].get<bool>();
-        }
+        out->aaMode = ResolveAaMode(jr); // migrates legacy "fxaa" bool; defaults to FXAA
     }
 
     if (j.contains("window") && j["window"].is_object()) {
@@ -91,7 +91,7 @@ bool Save(const std::string& filepath, const ApplicationSettings& settings) {
     json j;
     j["version"]               = SETTINGS_VERSION;
     j["renderer"]["backend"]   = BackendToString(settings.Backend);
-    j["renderer"]["fxaa"]      = settings.fxaaEnabled;
+    j["renderer"]["aaMode"]    = settings.aaMode;
     j["window"]["width"]       = settings.windowWidth;
     j["window"]["height"]      = settings.windowHeight;
     j["window"]["vsync"]       = settings.vsyncEnabled;

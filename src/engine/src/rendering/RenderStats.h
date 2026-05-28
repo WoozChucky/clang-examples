@@ -31,8 +31,9 @@ struct ShadowSettings {
     float Bias    = 0.0015f;
 };
 
+enum class AAMode : int { Off = 0, FXAA = 1, SMAA = 2 };
 struct AntiAliasingSettings {
-    bool FxaaEnabled = true;
+    AAMode Mode = AAMode::FXAA;
 };
 
 // Single instances DEFINED in RenderStats.cpp and exported from Engine.dll so the mesh pass
