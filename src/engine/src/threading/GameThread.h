@@ -77,4 +77,11 @@ private:
     std::condition_variable m_JobCv;
     std::queue<ModelLoadJob> m_PendingJobs;
     std::queue<ModelLoadResult> m_CompletedJobs;
+
+    // Monotonic ticket counter for non-entity model loads (startup .obj/.gltf scan).
+    // Starts above the EntityId range so IsValidEntity(ticket) deterministically returns
+    // false in the response handler — but pendingMeshData keys stay unique, fixing the
+    // collision where every startup load shared INVALID_ENTITY (0) and overwrote each
+    // other in the cache-pending map. Entity-owned loads keep using the EntityId.
+    std::atomic<uint64_t> m_NextLoadTicket{1ULL << 48};
 };

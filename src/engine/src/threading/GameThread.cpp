@@ -121,7 +121,10 @@ void GameThread::RunLoop() {
             if (entry.is_regular_file() && (entry.path().extension() == ".obj") || (entry.path().extension() == ".gltf")) {
                 const std::string objPath = entry.path().string();
                 const std::string mtlBaseDir = entry.path().parent_path().string();
-                EnqueueModelLoadJob(INVALID_ENTITY, objPath, mtlBaseDir);
+                // Unique non-entity ticket per startup load — prevents pendingMeshData
+                // key collision in the Spec 5 mesh-cache flow. IsValidEntity stays false.
+                EnqueueModelLoadJob(m_NextLoadTicket.fetch_add(1, std::memory_order_relaxed),
+                                    objPath, mtlBaseDir);
             }
         }
     }
@@ -379,6 +382,21 @@ void GameThread::RunLoop() {
 			        switch (response.Type) {
 			            case RendererResponseType::MeshUpload: {
                             if (!response.Mesh.Valid) break;
+
+                            // Spec 5: transfer the verts/indices we stashed at upload
+                            // time into NavMeshSystem's MeshId-keyed cache. Must run
+                            // BEFORE the IsValidEntity gate — startup .obj/.gltf loads
+                            // use non-entity tickets and would otherwise skip the cache
+                            // populate entirely.
+                            auto it = pendingMeshData.find(response.TicketId);
+                            if (it != pendingMeshData.end()) {
+                                NavMeshSystem::Instance().StoreMeshCpuData(
+                                    response.Mesh.Handle.Index,
+                                    std::move(it->second.Vertices),
+                                    std::move(it->second.Indices));
+                                pendingMeshData.erase(it);
+                            }
+
                             if (!gameState.World.IsValidEntity(response.TicketId)) continue;
 
                             if (!gameState.World.HasComponent<MeshComponent>(response.TicketId)) {
@@ -388,18 +406,6 @@ void GameThread::RunLoop() {
                                 m.MeshId  = response.Mesh.Handle.Index;
                                 m.Visible = true;
                             });
-
-                            // Spec 5: transfer the verts/indices we stashed at upload
-                            // time into NavMeshSystem's MeshId-keyed cache. Mesh-source
-                            // entities now contribute triangles to the navmesh build.
-                            auto it = pendingMeshData.find(response.TicketId);
-                            if (it != pendingMeshData.end()) {
-                                NavMeshSystem::Instance().StoreMeshCpuData(
-                                    response.Mesh.Handle.Index,
-                                    std::move(it->second.Vertices),
-                                    std::move(it->second.Indices));
-                                pendingMeshData.erase(it);
-                            }
 
                             SM_TRACE("GameThread: MeshUpload complete for entity %llu, meshId=%u",
                                      response.TicketId, response.Mesh.Handle.Index);
