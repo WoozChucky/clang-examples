@@ -31,9 +31,10 @@
 | `src/engine/src/core/Application.cpp` | Startup sync int → `AntiAliasingSettings.Mode` | 2 |
 | `src/editor/src/app/ImGuiRenderer.cpp` | Persist AA mode (change-guarded) | 2 |
 | `src/editor/src/panels/RenderStatsPanel.cpp` | FXAA checkbox → Off/FXAA/SMAA combo | 2 |
-| `third_party/smaa/{SMAA.hlsl,AreaTex.h,SearchTex.h,LICENSE}` (vendored) | Official SMAA shader + lookup-texture bytes | 3 |
+| `third_party/smaa/` (git submodule, already added) | Official SMAA.hlsl + `Textures/AreaTex.h`/`SearchTex.h` + LICENSE.txt | 3 |
+| `<build>/generated/SMAA_hlsl.h` (CMake-generated, not committed) | SMAA.hlsl wrapped as a C string literal | 3 |
 | `src/engine/src/rendering/passes/SmaaRenderPass.{h,cpp}` (new) | 3-sub-pass SMAA resolve | 4,5 |
-| `src/engine/CMakeLists.txt` | Add SmaaRenderPass.cpp + smaa include dir | 3,4 |
+| `src/engine/CMakeLists.txt` | Codegen SMAA_hlsl.h; add SmaaRenderPass.cpp + smaa include dirs | 3,4 |
 | `src/engine/src/rendering/Renderer.{h,cpp}` | Own `m_SmaaPass`; AA-mode switch | 6 |
 
 **Incremental milestones:** Task 1 = tested migration helper. Task 2 = enum fully working end-to-end with **FXAA/Off only** (no SMAA yet) — a shippable checkpoint. Tasks 3–5 build SMAA in isolation (compiles, unused). Task 6 wires SMAA in.
@@ -335,59 +336,67 @@ git commit -m "feat(render): AA mode enum (Off/FXAA) replacing FxaaEnabled bool,
 
 ---
 
-## Task 3: Vendor official SMAA (shader + lookup textures)
+## Task 3: Wire the SMAA submodule + generate the embeddable shader header
 
 **Files:**
-- Create: `third_party/smaa/SMAA.hlsl`, `third_party/smaa/AreaTex.h`, `third_party/smaa/SearchTex.h`, `third_party/smaa/LICENSE`
-- Create: `third_party/smaa/SMAA_hlsl.h` (the SMAA.hlsl text wrapped as a C string literal)
-- Modify: `src/engine/CMakeLists.txt` (add `third_party/smaa` to the Engine target's include dirs)
+- Modify: `src/engine/CMakeLists.txt` (codegen `SMAA_hlsl.h` from the submodule's `SMAA.hlsl`; add the `Textures` + generated include dirs)
 
-**External dependency:** these come from the official MIT repo `github.com/iryoku/smaa`. Obtain via WebFetch (or, if this environment has no network access, STOP and report NEEDS_CONTEXT so the human can drop the files in). Canonical raw URLs (master branch):
-- `https://raw.githubusercontent.com/iryoku/smaa/master/SMAA.hlsl`
-- `https://raw.githubusercontent.com/iryoku/smaa/master/Textures/AreaTex.h`
-- `https://raw.githubusercontent.com/iryoku/smaa/master/Textures/SearchTex.h`
-- `https://raw.githubusercontent.com/iryoku/smaa/master/LICENSE.txt` (save as `LICENSE`)
+The submodule is already present and checked out (verified):
+- `third_party/smaa/SMAA.hlsl` (the reference shader, MIT)
+- `third_party/smaa/Textures/AreaTex.h` — `areaTexBytes[]`, `AREATEX_WIDTH=160`, `AREATEX_HEIGHT=560`, `AREATEX_PITCH=(AREATEX_WIDTH*2)`
+- `third_party/smaa/Textures/SearchTex.h` — `searchTexBytes[]`, `SEARCHTEX_WIDTH=64`, `SEARCHTEX_HEIGHT=16`, `SEARCHTEX_PITCH=SEARCHTEX_WIDTH`
+- `third_party/smaa/LICENSE.txt`
 
-- [ ] **Step 1: Fetch and place the four official files**
+**Do NOT edit any file under `third_party/smaa/`** — it is a pinned submodule. `Renderer::CreateShader` takes one source string and DXC has no `#include` handler, so we embed `SMAA.hlsl` as a C string literal via a **CMake configure-time codegen** (no manual paste, regenerates if the submodule updates).
 
-Download each URL above verbatim into `third_party/smaa/` with the filenames listed. Do NOT edit `SMAA.hlsl`, `AreaTex.h`, or `SearchTex.h` — they are the reference implementation and its matched lookup data. `AreaTex.h` defines `areaTexBytes[]` (160×560, 2 bytes/texel, RG) and the dims `AREATEX_WIDTH/HEIGHT`; `SearchTex.h` defines `searchTexBytes[]` (64×16, 1 byte/texel, R) and `SEARCHTEX_WIDTH/HEIGHT`.
+- [ ] **Step 1: Add the codegen + include dirs to Engine**
 
-- [ ] **Step 2: Generate the embeddable shader string header**
+In `src/engine/CMakeLists.txt`, before the `Engine` target's `target_include_directories(...)`, add a configure-time step that reads `SMAA.hlsl` and writes a string-literal header into the build tree. (Using `file(READ)`+`file(WRITE)` rather than `configure_file` — `SMAA.hlsl` contains `@token` sequences in comments that `configure_file`'s `@VAR@` substitution could mangle.)
 
-Because `Renderer::CreateShader` takes a single source string and DXC here has no include handler, embed `SMAA.hlsl`'s text as a C string. Create `third_party/smaa/SMAA_hlsl.h`:
-```cpp
-#pragma once
-// Auto-embedded copy of third_party/smaa/SMAA.hlsl (MIT, Jimenez et al.) as a string literal,
-// so it can be concatenated into inline shader sources (CreateShader has no #include handler).
-// Regenerate if SMAA.hlsl is updated.
-static const char* SMAA_HLSL_SOURCE = R"SMAA(
-<PASTE THE FULL VERBATIM CONTENTS OF third_party/smaa/SMAA.hlsl HERE>
-)SMAA";
-```
-Replace the placeholder line with the exact contents of the downloaded `SMAA.hlsl`. Use the `R"SMAA( ... )SMAA"` delimiter (not plain `R"(...)"`) so any `)"` inside the shader can't terminate the literal early. Verify by building in Task 4 (the string compiles as part of a shader).
-
-- [ ] **Step 3: Add the include dir to Engine**
-
-In `src/engine/CMakeLists.txt`, find the Engine target's `target_include_directories(...)` and add:
 ```cmake
-    ${CMAKE_SOURCE_DIR}/third_party/smaa
+# --- Embed SMAA.hlsl as a C string literal (DXC has no #include handler) ---
+set(_smaa_src "${CMAKE_SOURCE_DIR}/third_party/smaa/SMAA.hlsl")
+set(_smaa_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(_smaa_gen "${_smaa_gen_dir}/SMAA_hlsl.h")
+file(MAKE_DIRECTORY "${_smaa_gen_dir}")
+file(READ "${_smaa_src}" _smaa_body)
+# R"SMAA( ... )SMAA" delimiter: the terminator )SMAA" does not occur in SMAA.hlsl.
+file(WRITE  "${_smaa_gen}" "#pragma once\n// Generated from third_party/smaa/SMAA.hlsl (MIT). Do not edit.\nstatic const char* SMAA_HLSL_SOURCE = R\"SMAA(\n")
+file(APPEND "${_smaa_gen}" "${_smaa_body}")
+file(APPEND "${_smaa_gen}" "\n)SMAA\";\n")
 ```
 
-- [ ] **Step 4: Confirm the files are present and Engine still builds**
+Then add these to the `Engine` target's `target_include_directories(...)`:
+```cmake
+    ${CMAKE_SOURCE_DIR}/third_party/smaa/Textures
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+```
+
+- [ ] **Step 2: Sanity-check the codegen guard**
+
+Confirm the chosen raw-string terminator does not appear in the source (must print nothing):
+```
+grep -n ')SMAA"' third_party/smaa/SMAA.hlsl
+```
+Expected: no output. (If it ever matches, change the delimiter token in the codegen, e.g. `R"SMAA_RAW( ... )SMAA_RAW"`.)
+
+- [ ] **Step 3: Configure + confirm the header generates and Engine still builds**
 
 Run:
 ```
 cmake --preset msvc-win64-vs2026-community
 cmake --build --preset msvc-win64-vs2026-community --target Engine
 ```
-Expected: clean (the new files aren't referenced by code yet; this just confirms the include dir + tree are valid).
+Expected: clean. Confirm `out/build/msvc-win64-vs2026-community/src/engine/generated/SMAA_hlsl.h` exists and begins with the `SMAA_HLSL_SOURCE = R"SMAA(` line. (Nothing references it yet; this just validates codegen + include paths.)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add third_party/smaa/ src/engine/CMakeLists.txt
-git commit -m "chore(third_party): vendor SMAA.hlsl + AreaTex/SearchTex (MIT)"
+git add src/engine/CMakeLists.txt
+git commit -m "build(render): embed submodule SMAA.hlsl as string + wire smaa include dirs"
 ```
+
+(The submodule registration itself — `.gitmodules` + the `third_party/smaa` gitlink — was added by the user; if `git status` shows it uncommitted, include it in this commit.)
 
 ---
 
@@ -469,26 +478,48 @@ Create `src/engine/src/rendering/passes/SmaaRenderPass.cpp`. Start with the shad
 
 #include "Renderer.h"
 #include <nvrhi/utils.h>
+#include <string>
 
-#include "SMAA_hlsl.h"   // SMAA_HLSL_SOURCE (embedded official SMAA.hlsl, MIT)
-#include "AreaTex.h"     // areaTexBytes, AREATEX_WIDTH/HEIGHT
-#include "SearchTex.h"   // searchTexBytes, SEARCHTEX_WIDTH/HEIGHT
+#include "SMAA_hlsl.h"   // SMAA_HLSL_SOURCE (generated from submodule SMAA.hlsl, MIT)
+#include "AreaTex.h"     // areaTexBytes, AREATEX_WIDTH/HEIGHT/PITCH
+#include "SearchTex.h"   // searchTexBytes, SEARCHTEX_WIDTH/HEIGHT/PITCH
 
 // SMAA constant-buffer layout. SMAA_RT_METRICS = (1/w, 1/h, w, h).
 struct SmaaFrameCB { glm::vec4 RtMetrics; };
 
 namespace {
-// Config prelude defined BEFORE the SMAA.hlsl body. The preset is changed here.
+// Config prelude defined BEFORE the SMAA.hlsl body.
+//
+// We use SMAA_CUSTOM_SL (not SMAA_HLSL_4): SMAA.hlsl's built-in HLSL4 path declares its
+// samplers with legacy Effects-framework state syntax (`SamplerState X { Filter=...; }`),
+// which DXC/SM6 rejects. SMAA_CUSTOM_SL lets us supply the device macros + register-based
+// samplers ourselves. Mirror of SMAA.hlsl's HLSL4 macro block (lines ~543-553) but with
+// `register(s#)` samplers. The preset is changed on the first line.
 static const char* SMAA_PRELUDE = R"(
 #define SMAA_PRESET_HIGH 1          // <-- change to SMAA_PRESET_ULTRA / _LOW etc. + recompile
-#define SMAA_HLSL_4 1
-cbuffer SmaaCB : register(b0) { float4 uRtMetrics; };
 #define SMAA_RT_METRICS uRtMetrics
+#define SMAA_CUSTOM_SL 1
+cbuffer SmaaCB : register(b0) { float4 uRtMetrics; };
+SamplerState LinearSampler : register(s0);
+SamplerState PointSampler  : register(s1);
+#define SMAATexture2D(tex) Texture2D tex
+#define SMAATexturePass2D(tex) tex
+#define SMAASampleLevelZero(tex, coord) tex.SampleLevel(LinearSampler, coord, 0)
+#define SMAASampleLevelZeroPoint(tex, coord) tex.SampleLevel(PointSampler, coord, 0)
+#define SMAASampleLevelZeroOffset(tex, coord, offset) tex.SampleLevel(LinearSampler, coord, 0, offset)
+#define SMAASample(tex, coord) tex.Sample(LinearSampler, coord)
+#define SMAASamplePoint(tex, coord) tex.Sample(PointSampler, coord)
+#define SMAASampleOffset(tex, coord, offset) tex.Sample(LinearSampler, coord, offset)
+#define SMAALoad(tex, pos, sample) tex.Load(pos, sample)
+#define SMAAGather(tex, coord) tex.Gather(LinearSampler, coord)
+#define SMAA_FLATTEN [flatten]
+#define SMAA_BRANCH [branch]
 )";
 
 // Full-screen-triangle VS that also produces the SMAA varyings each stage needs.
 // SMAA's *VS helpers take a texcoord and fill offset[]/pixcoord; we synthesize texcoord
-// from SV_VertexID instead of a vertex buffer.
+// from SV_VertexID instead of a vertex buffer. Textures live at t0.. ; the SMAA PS take the
+// texture by name (the SMAATexture2D macro = `Texture2D tex`) and use the global samplers.
 static const char* EDGE_VS = R"(
 struct VSOut { float4 PosH:SV_POSITION; float2 tc:TEXCOORD0; float4 off[3]:TEXCOORD1; };
 VSOut main_vs(uint vid : SV_VertexID){
@@ -499,7 +530,7 @@ VSOut main_vs(uint vid : SV_VertexID){
 }
 )";
 static const char* EDGE_PS = R"(
-Texture2D uColor : register(t1); SamplerState uLin : register(s2);
+Texture2D uColor : register(t0);
 struct PSIn { float4 PosH:SV_POSITION; float2 tc:TEXCOORD0; float4 off[3]:TEXCOORD1; };
 float4 main_ps(PSIn i):SV_Target { return float4(SMAALumaEdgeDetectionPS(i.tc, i.off, uColor), 0.0, 0.0); }
 )";
@@ -514,8 +545,7 @@ VSOut main_vs(uint vid : SV_VertexID){
 }
 )";
 static const char* WEIGHT_PS = R"(
-Texture2D uEdges : register(t1); Texture2D uArea : register(t2); Texture2D uSearch : register(t3);
-SamplerState uLin : register(s4); SamplerState uPt : register(s5);
+Texture2D uEdges : register(t0); Texture2D uArea : register(t1); Texture2D uSearch : register(t2);
 struct PSIn { float4 PosH:SV_POSITION; float2 tc:TEXCOORD0; float2 pix:TEXCOORD1; float4 off[3]:TEXCOORD2; };
 float4 main_ps(PSIn i):SV_Target {
     return SMAABlendingWeightCalculationPS(i.tc, i.pix, i.off, uEdges, uArea, uSearch, float4(0,0,0,0));
@@ -532,14 +562,14 @@ VSOut main_vs(uint vid : SV_VertexID){
 }
 )";
 static const char* BLEND_PS = R"(
-Texture2D uColor : register(t1); Texture2D uBlend : register(t2); SamplerState uLin : register(s3);
+Texture2D uColor : register(t0); Texture2D uBlend : register(t1);
 struct PSIn { float4 PosH:SV_POSITION; float2 tc:TEXCOORD0; float4 off:TEXCOORD1; };
 float4 main_ps(PSIn i):SV_Target { return SMAANeighborhoodBlendingPS(i.tc, i.off, uColor, uBlend); }
 )";
 
 // Build a full shader source: prelude + SMAA body + entry wrapper.
 static std::string Compose(const char* entry) {
-    std::string s; s.reserve(64 * 1024);
+    std::string s; s.reserve(96 * 1024);
     s += SMAA_PRELUDE; s += SMAA_HLSL_SOURCE; s += entry; return s;
 }
 } // namespace
@@ -592,9 +622,10 @@ bool SmaaRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
             d.setBindingOffsets(nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0));
         return m_Device->createBindingLayout(d);
     };
-    m_EdgeLayout = makeLayout({ nvrhi::BindingLayoutItem::ConstantBuffer(0), nvrhi::BindingLayoutItem::Texture_SRV(1), nvrhi::BindingLayoutItem::Sampler(2) });
-    m_WeightLayout = makeLayout({ nvrhi::BindingLayoutItem::ConstantBuffer(0), nvrhi::BindingLayoutItem::Texture_SRV(1), nvrhi::BindingLayoutItem::Texture_SRV(2), nvrhi::BindingLayoutItem::Texture_SRV(3), nvrhi::BindingLayoutItem::Sampler(4), nvrhi::BindingLayoutItem::Sampler(5) });
-    m_BlendLayout = makeLayout({ nvrhi::BindingLayoutItem::ConstantBuffer(0), nvrhi::BindingLayoutItem::Texture_SRV(1), nvrhi::BindingLayoutItem::Texture_SRV(2), nvrhi::BindingLayoutItem::Sampler(3) });
+    // Samplers are fixed globals (s0 Linear, s1 Point) from the SMAA_CUSTOM_SL prelude; textures at t0..
+    m_EdgeLayout   = makeLayout({ nvrhi::BindingLayoutItem::ConstantBuffer(0), nvrhi::BindingLayoutItem::Texture_SRV(0), nvrhi::BindingLayoutItem::Sampler(0), nvrhi::BindingLayoutItem::Sampler(1) });
+    m_WeightLayout = makeLayout({ nvrhi::BindingLayoutItem::ConstantBuffer(0), nvrhi::BindingLayoutItem::Texture_SRV(0), nvrhi::BindingLayoutItem::Texture_SRV(1), nvrhi::BindingLayoutItem::Texture_SRV(2), nvrhi::BindingLayoutItem::Sampler(0), nvrhi::BindingLayoutItem::Sampler(1) });
+    m_BlendLayout  = makeLayout({ nvrhi::BindingLayoutItem::ConstantBuffer(0), nvrhi::BindingLayoutItem::Texture_SRV(0), nvrhi::BindingLayoutItem::Texture_SRV(1), nvrhi::BindingLayoutItem::Sampler(0), nvrhi::BindingLayoutItem::Sampler(1) });
     if (!m_EdgeLayout || !m_WeightLayout || !m_BlendLayout) { SM_ERROR("SmaaRenderPass: binding layout creation failed"); return false; }
 
     m_FrameCB = m_Device->createBuffer(
@@ -668,7 +699,12 @@ Run:
 cmake --preset msvc-win64-vs2026-community
 cmake --build --preset msvc-win64-vs2026-community --target Engine
 ```
-Expected: clean. This is where the embedded `SMAA_HLSL_SOURCE` string and the SMAA function signatures (`SMAAEdgeDetectionVS`, `SMAALumaEdgeDetectionPS`, etc.) are first compiled by DXC. If DXC rejects the `SMAA_HLSL_4` path under SM6.1, switch the prelude `#define SMAA_HLSL_4 1` to `#define SMAA_HLSL_4_1 1` (the SMAA.hlsl D3D10.1 path, which DXC accepts) and rebuild. If a SMAA `*VS`/`*PS` signature differs from the wrappers above, reconcile the wrapper to the actual signature in `third_party/smaa/SMAA.hlsl` (it is the source of truth) and note the change.
+Expected: clean. This is where the embedded `SMAA_HLSL_SOURCE` string and the SMAA functions
+(`SMAAEdgeDetectionVS`, `SMAALumaEdgeDetectionPS`, etc.) are first compiled by DXC, using the
+`SMAA_CUSTOM_SL` device macros from the prelude. The prelude must appear **before**
+`SMAA_HLSL_SOURCE` in the composed string (it does — `Compose` concatenates prelude + body +
+entry). If DXC errors on a missing macro, cross-check the prelude against SMAA.hlsl's HLSL4
+macro block (lines ~543-553) and add the missing one with `register`-based samplers.
 
 - [ ] **Step 6: Commit**
 
@@ -735,8 +771,9 @@ void SmaaRenderPass::Render(nvrhi::ICommandList* commandList,
     {
         nvrhi::BindingSetDesc d; d.bindings = {
             nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
-            nvrhi::BindingSetItem::Texture_SRV(1, scene),
-            nvrhi::BindingSetItem::Sampler(2, m_LinearClamp) };
+            nvrhi::BindingSetItem::Texture_SRV(0, scene),
+            nvrhi::BindingSetItem::Sampler(0, m_LinearClamp),
+            nvrhi::BindingSetItem::Sampler(1, m_PointClamp) };
         draw(m_EdgePipeline, m_EdgesFb, m_Device->createBindingSet(d, m_EdgeLayout));
     }
     // 2) Blend-weight calc: edges + area + search -> blend. Clear blend first.
@@ -744,20 +781,21 @@ void SmaaRenderPass::Render(nvrhi::ICommandList* commandList,
     {
         nvrhi::BindingSetDesc d; d.bindings = {
             nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
-            nvrhi::BindingSetItem::Texture_SRV(1, m_EdgesTex),
-            nvrhi::BindingSetItem::Texture_SRV(2, m_AreaTex),
-            nvrhi::BindingSetItem::Texture_SRV(3, m_SearchTex),
-            nvrhi::BindingSetItem::Sampler(4, m_LinearClamp),
-            nvrhi::BindingSetItem::Sampler(5, m_PointClamp) };
+            nvrhi::BindingSetItem::Texture_SRV(0, m_EdgesTex),
+            nvrhi::BindingSetItem::Texture_SRV(1, m_AreaTex),
+            nvrhi::BindingSetItem::Texture_SRV(2, m_SearchTex),
+            nvrhi::BindingSetItem::Sampler(0, m_LinearClamp),
+            nvrhi::BindingSetItem::Sampler(1, m_PointClamp) };
         draw(m_WeightPipeline, m_BlendFb, m_Device->createBindingSet(d, m_WeightLayout));
     }
     // 3) Neighborhood blend: scene + blend -> swapchain.
     {
         nvrhi::BindingSetDesc d; d.bindings = {
             nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
-            nvrhi::BindingSetItem::Texture_SRV(1, scene),
-            nvrhi::BindingSetItem::Texture_SRV(2, m_BlendTex),
-            nvrhi::BindingSetItem::Sampler(3, m_LinearClamp) };
+            nvrhi::BindingSetItem::Texture_SRV(0, scene),
+            nvrhi::BindingSetItem::Texture_SRV(1, m_BlendTex),
+            nvrhi::BindingSetItem::Sampler(0, m_LinearClamp),
+            nvrhi::BindingSetItem::Sampler(1, m_PointClamp) };
         draw(m_BlendPipeline, frameBuffer, m_Device->createBindingSet(d, m_BlendLayout));
     }
 
@@ -921,8 +959,20 @@ git commit -m "feat(render): route SMAA through Renderer AA-mode switch + panel 
 
 ## Known Risk Notes (not placeholders — concrete fallbacks)
 
-- **SMAA.hlsl profile path:** if DXC/SM6.1 rejects `SMAA_HLSL_4`, switch the prelude to `SMAA_HLSL_4_1` (Task 4 Step 5).
-- **SMAA VS/PS signatures:** the wrappers in Task 4 follow the standard SMAA API; if the vendored header's signatures differ, the header is the source of truth — reconcile the wrapper (Task 4 Step 5).
-- **Lookup pitch macros:** use `AREATEX_PITCH`/`SEARCHTEX_PITCH` if present, else `width*2` (RG) / `width*1` (R) (Task 4 Step 2).
-- **clearTextureFloat signature:** match the existing usage in the renderer if it differs (Task 5 Step 2).
-- **No network for vendoring:** report NEEDS_CONTEXT so the human supplies the four files (Task 3).
+- **Device-abstraction layer:** the plan uses `SMAA_CUSTOM_SL` with register-based samplers
+  precisely because SMAA.hlsl's built-in `SMAA_HLSL_4` path declares samplers with legacy
+  Effects state-block syntax that DXC rejects (verified by reading SMAA.hlsl lines 540-553).
+  The prelude's custom macros mirror that block. If DXC still complains about a specific macro,
+  the SMAA.hlsl HLSL4 block is the reference to mirror.
+- **SMAA VS/PS signatures (verified against the submodule):** EdgeVS(tc, out off[3]);
+  WeightVS(tc, out pix, out off[3]); BlendVS(tc, out off); `SMAALumaEdgeDetectionPS(tc, off[3],
+  colorTex)`; `SMAABlendingWeightCalculationPS(tc, pix, off[3], edgesTex, areaTex, searchTex,
+  float4(0))`; `SMAANeighborhoodBlendingPS(tc, off, colorTex, blendTex)`. The wrappers match
+  these; if a future submodule bump changes them, SMAA.hlsl is the source of truth.
+- **Lookup pitch macros (verified present):** `AREATEX_PITCH` = `AREATEX_WIDTH*2` (RG8),
+  `SEARCHTEX_PITCH` = `SEARCHTEX_WIDTH` (R8). Used directly in Task 4 Step 2.
+- **clearTextureFloat signature:** match the existing usage in the renderer if it differs
+  (grep `clearTextureFloat` under `src/engine/src/rendering`) (Task 5 Step 2).
+- **Gamma note:** SMAA luma edge detection wants gamma-corrected (non-sRGB) color input. The
+  scene-color target format is whatever `EnsureSceneColor` uses (same input FXAA already
+  consumes); if edges look wrong, confirm the scene-color isn't an sRGB-view mismatch.
