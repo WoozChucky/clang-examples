@@ -6,9 +6,14 @@ CompileFlags:
 
     - "-Isrc/common/include"
 
-    - "-Isrc/editor/src/core"
-    - "-Isrc/editor/src/rendering"
-    - "-Isrc/editor/src/threading"
+    - "-Isrc/editor/src"
+    - "-Isrc/editor/src/app"
+    - "-Isrc/editor/src/panels"
+    - "-Isrc/editor/src/viewport"
+    - "-Isrc/editor/src/imgui"
+    - "-Isrc/editor/src/preview"
+    - "-Isrc/editor/src/dialogs"
+    - "-Isrc/editor/src/util"
 
     - "-Ithird_party/freetype/include"
     - "-Ithird_party/glfw/include"
