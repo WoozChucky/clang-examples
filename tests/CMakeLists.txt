@@ -346,6 +346,7 @@ set_target_properties(test_followcam PROPERTIES
 
 add_executable(test_atmosphere
     test_atmosphere.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor/src/panels/AtmospherePresets.cpp
 )
 
 target_link_libraries(test_atmosphere PRIVATE
@@ -357,6 +358,7 @@ target_link_libraries(test_atmosphere PRIVATE
 target_include_directories(test_atmosphere PRIVATE
     ${CMAKE_SOURCE_DIR}/src/common/include
     ${CMAKE_SOURCE_DIR}/src/game/src
+    ${CMAKE_SOURCE_DIR}/src/editor/src/panels
 )
 
 target_compile_definitions(test_atmosphere PRIVATE

@@ -5,8 +5,10 @@
 #include "Atmosphere.h" // SunDirectionFromAngles
 
 #include <nlohmann/json.hpp>
+#include <string>
 #include "ECS.h"
 #include "ComponentSerialization.h"
+#include "AtmospherePresets.h"
 
 static int g_Failures = 0;
 #define EXPECT(cond)                                                     \
@@ -86,6 +88,38 @@ static void T11_daynight_missing_keys_default()
     EXPECT(near(out.StaticSunElevDeg, 50.0f)); // struct default
 }
 
+// A preset's own values match itself.
+static void T20_preset_matches_itself()
+{
+    const AtmospherePreset& p = kAtmospherePresets[0];
+    const char* name = MatchPreset(p.Fog, p.Sky, p.DayNight);
+    EXPECT(name != nullptr);
+    EXPECT(std::string(name) == p.Name);
+}
+
+// Mode/static-angle/cycle differences do NOT break a palette match: only the
+// palette fields (fog + sky colors/densities, day/night tunables) are compared.
+static void T21_match_ignores_mode_and_static_angle()
+{
+    AtmospherePreset p = kAtmospherePresets[0];
+    DayNightConfigComponent dn = p.DayNight;
+    dn.Mode             = SkyMode::Static;  // mode differs
+    dn.StaticSunElevDeg = 5.0f;             // static angle differs
+    const char* name = MatchPreset(p.Fog, p.Sky, dn);
+    EXPECT(name != nullptr);
+    EXPECT(std::string(name) == p.Name);
+}
+
+// Edited palette values match no preset -> "Custom" (nullptr).
+static void T22_edited_values_are_custom()
+{
+    AtmospherePreset p = kAtmospherePresets[0];
+    SkyComponent sky = p.Sky;
+    sky.DayZenith = glm::vec3(0.123f, 0.456f, 0.789f); // not any preset's value
+    const char* name = MatchPreset(p.Fog, sky, p.DayNight);
+    EXPECT(name == nullptr);
+}
+
 int main()
 {
     T00_overhead_points_down();
@@ -94,6 +128,9 @@ int main()
     T03_elevation_clamped();
     T10_daynight_roundtrip();
     T11_daynight_missing_keys_default();
+    T20_preset_matches_itself();
+    T21_match_ignores_mode_and_static_angle();
+    T22_edited_values_are_custom();
     if (g_Failures == 0) { std::printf("All atmosphere tests passed.\n"); return 0; }
     std::fprintf(stderr, "%d atmosphere test(s) failed.\n", g_Failures);
     return 1;

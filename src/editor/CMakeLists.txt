@@ -15,6 +15,7 @@ add_executable(editor
     src/panels/NavigationPanel.cpp
     src/panels/MemoryPanel.cpp
     src/panels/DayNightPanel.cpp
+    src/panels/AtmospherePresets.cpp
     src/panels/RenderStatsPanel.cpp
     src/panels/SimulationPanel.cpp
     src/panels/PerformancePanel.cpp
