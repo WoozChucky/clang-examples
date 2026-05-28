@@ -2,36 +2,54 @@ set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE
 
 add_executable(editor
     src/main.cpp
-    src/EditorPreferences.cpp
 
-    # ImGui editor layer (editor-only; never compiled into Engine)
-    src/rendering/imgui/ImGuiRenderer.cpp
-    src/rendering/imgui/imgui_nvrhi.cpp
-    src/rendering/imgui/registered_font.cpp
-    src/rendering/imgui/MeshPreviewRenderer.cpp
-    src/rendering/imgui/MemoryPanel.cpp
-    src/rendering/imgui/RenderStatsPanel.cpp
-    src/rendering/imgui/PerformancePanel.cpp
-    src/rendering/imgui/SimulationPanel.cpp
-    src/rendering/imgui/SceneViewport.cpp
-    src/rendering/imgui/EditorFileDialog.cpp
-    src/rendering/imgui/MaterialManagerPanel.cpp
-    src/rendering/imgui/MeshManagerPanel.cpp
-    src/rendering/imgui/GizmoController.cpp
-    src/rendering/imgui/EcsInspectorPanel.cpp
-    src/rendering/imgui/DayNightPanel.cpp
-    src/rendering/imgui/NavigationPanel.cpp
-    src/rendering/imgui/MainMenuBar.cpp
-    src/rendering/imgui/ImGuiOverlay.cpp
-    src/rendering/imgui/ViewportPicker.cpp
-    src/rendering/EditorCamera.cpp
+    # App / orchestration layer
+    src/app/EditorPreferences.cpp
+    src/app/ImGuiRenderer.cpp
+    src/app/ImGuiOverlay.cpp
+
+    # Editor panels
+    src/panels/EcsInspectorPanel.cpp
+    src/panels/MaterialManagerPanel.cpp
+    src/panels/MeshManagerPanel.cpp
+    src/panels/NavigationPanel.cpp
+    src/panels/MemoryPanel.cpp
+    src/panels/DayNightPanel.cpp
+    src/panels/RenderStatsPanel.cpp
+    src/panels/SimulationPanel.cpp
+    src/panels/PerformancePanel.cpp
+    src/panels/MainMenuBar.cpp
+
+    # Viewport interaction + editor camera
+    src/viewport/SceneViewport.cpp
+    src/viewport/ViewportPicker.cpp
+    src/viewport/GizmoController.cpp
+    src/viewport/EditorCamera.cpp
+
+    # ImGui <-> NVRHI integration
+    src/imgui/imgui_nvrhi.cpp
+    src/imgui/registered_font.cpp
+
+    # Offscreen mesh-thumbnail render
+    src/preview/MeshPreviewRenderer.cpp
+
+    # Dialogs
+    src/dialogs/EditorFileDialog.cpp
 )
 
 # Editor include paths. Engine headers (Renderer.h, IOverlay.h, MeshSystem.h,
-# etc.) are inherited transitively via Engine's PUBLIC include dirs.
+# etc.) are inherited transitively via Engine's PUBLIC include dirs. Editor
+# topic dirs are all on the path so the existing flat #include "Foo.h" lines
+# keep resolving across the new directory boundaries (strategy A).
 target_include_directories(editor PRIVATE
     src
-    src/rendering
+    src/app
+    src/panels
+    src/viewport
+    src/imgui
+    src/preview
+    src/dialogs
+    src/util
 )
 
 target_compile_definitions(editor PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES} GLFW_INCLUDE_VULKAN)
