@@ -350,6 +350,8 @@ add_executable(test_atmosphere
 
 target_link_libraries(test_atmosphere PRIVATE
     glm::glm
+    ecs
+    nlohmann_json::nlohmann_json
 )
 
 target_include_directories(test_atmosphere PRIVATE

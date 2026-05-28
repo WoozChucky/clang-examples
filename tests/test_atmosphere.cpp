@@ -4,6 +4,10 @@
 
 #include "Atmosphere.h" // SunDirectionFromAngles
 
+#include <nlohmann/json.hpp>
+#include "ECS.h"
+#include "ComponentSerialization.h"
+
 static int g_Failures = 0;
 #define EXPECT(cond)                                                     \
     do {                                                                 \
@@ -49,12 +53,47 @@ static void T03_elevation_clamped()
     EXPECT(near(d.y, -1.0f)); // clamped to 90 -> straight down
 }
 
+// New fields survive a to_json -> from_json round-trip.
+static void T10_daynight_roundtrip()
+{
+    DayNightConfigComponent in{};
+    in.Mode                = SkyMode::Static;
+    in.StaticSunElevDeg    = 12.5f;
+    in.StaticSunAzimuthDeg = 200.0f;
+    in.ShowSunDisc         = false;
+
+    const nlohmann::json j = in;          // to_json
+    DayNightConfigComponent out = j.get<DayNightConfigComponent>(); // from_json
+
+    EXPECT(out.Mode == SkyMode::Static);
+    EXPECT(near(out.StaticSunElevDeg, 12.5f));
+    EXPECT(near(out.StaticSunAzimuthDeg, 200.0f));
+    EXPECT(out.ShowSunDisc == false);
+}
+
+// Old world.json (new keys absent) loads with the new fields defaulted to DynamicCycle.
+static void T11_daynight_missing_keys_default()
+{
+    // Only the original six keys present (an old file).
+    nlohmann::json j = {
+        {"CycleSeconds", 60.0f}, {"DayBrightness", 1.0f}, {"MoonIntensity", 0.15f},
+        {"TwilightWidth", 0.25f}, {"DayAmbient", 0.08f},
+        {"MoonColor", nlohmann::json::array({0.1f, 0.14f, 0.26f})}
+    };
+    DayNightConfigComponent out = j.get<DayNightConfigComponent>();
+    EXPECT(out.Mode == SkyMode::DynamicCycle);
+    EXPECT(out.ShowSunDisc == true);
+    EXPECT(near(out.StaticSunElevDeg, 50.0f)); // struct default
+}
+
 int main()
 {
     T00_overhead_points_down();
     T01_horizon_is_flat();
     T02_azimuth_rotates_horizontal();
     T03_elevation_clamped();
+    T10_daynight_roundtrip();
+    T11_daynight_missing_keys_default();
     if (g_Failures == 0) { std::printf("All atmosphere tests passed.\n"); return 0; }
     std::fprintf(stderr, "%d atmosphere test(s) failed.\n", g_Failures);
     return 1;
