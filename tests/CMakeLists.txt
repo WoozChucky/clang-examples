@@ -344,6 +344,34 @@ set_target_properties(test_followcam PROPERTIES
     FOLDER Tests
 )
 
+add_executable(test_atmosphere
+    test_atmosphere.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor/src/panels/AtmospherePresets.cpp
+)
+
+target_link_libraries(test_atmosphere PRIVATE
+    glm::glm
+    ecs
+    nlohmann_json::nlohmann_json
+)
+
+target_include_directories(test_atmosphere PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/game/src
+    ${CMAKE_SOURCE_DIR}/src/editor/src/panels
+)
+
+target_compile_definitions(test_atmosphere PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_atmosphere PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
+
 add_executable(test_settings
     test_settings.cpp
 )

@@ -280,7 +280,11 @@ inline void to_json(nlohmann::json& j, const DayNightConfigComponent& t) {
         {"MoonIntensity", t.MoonIntensity},
         {"TwilightWidth", t.TwilightWidth},
         {"DayAmbient", t.DayAmbient},
-        {"MoonColor", t.MoonColor}};
+        {"MoonColor", t.MoonColor},
+        {"Mode", static_cast<int>(t.Mode)},
+        {"StaticSunElevDeg", t.StaticSunElevDeg},
+        {"StaticSunAzimuthDeg", t.StaticSunAzimuthDeg},
+        {"ShowSunDisc", t.ShowSunDisc}};
 }
 inline void from_json(const nlohmann::json& j, DayNightConfigComponent& t) {
     j.at("CycleSeconds").get_to(t.CycleSeconds);
@@ -289,6 +293,11 @@ inline void from_json(const nlohmann::json& j, DayNightConfigComponent& t) {
     j.at("TwilightWidth").get_to(t.TwilightWidth);
     j.at("DayAmbient").get_to(t.DayAmbient);
     j.at("MoonColor").get_to(t.MoonColor);
+    // New fields are optional so existing world.json files still load (default = DynamicCycle).
+    if (j.contains("Mode"))                t.Mode = static_cast<SkyMode>(j.at("Mode").get<int>());
+    if (j.contains("StaticSunElevDeg"))    j.at("StaticSunElevDeg").get_to(t.StaticSunElevDeg);
+    if (j.contains("StaticSunAzimuthDeg")) j.at("StaticSunAzimuthDeg").get_to(t.StaticSunAzimuthDeg);
+    if (j.contains("ShowSunDisc"))         j.at("ShowSunDisc").get_to(t.ShowSunDisc);
 }
 
 inline void to_json(nlohmann::json& j, const NavMeshConfigComponent& t) {
