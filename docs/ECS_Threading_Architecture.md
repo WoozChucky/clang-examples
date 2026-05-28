@@ -314,7 +314,7 @@ void RenderThread::RunLoop() {
 
 ### ImGui Editor - Reading ECS
 
-**File**: `src/editor/src/rendering/imgui/ImGuiRenderer.cpp`
+**File**: `src/editor/src/app/ImGuiRenderer.cpp`
 
 ```cpp
 void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, 
@@ -359,7 +359,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer,
 
 ### ImGui Editor - Modifying ECS
 
-**File**: `src/editor/src/rendering/imgui/ImGuiRenderer.cpp`
+**File**: `src/editor/src/app/ImGuiRenderer.cpp`
 
 ```cpp
 // Edit Transform Component
