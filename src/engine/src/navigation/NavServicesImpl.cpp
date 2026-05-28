@@ -20,6 +20,10 @@ void ForwardFindPath(const glm::vec3& start, const glm::vec3& end,
     for (const auto& pt : path) outPath->push_back(pt.Position);
 }
 
+uint32_t ForwardNavVersion() {
+    return NavMeshSystem::Instance().GetNavVersion();
+}
+
 uint32_t ForwardAddCylinderObstacle(const glm::vec3& pos, float radius, float height) {
     return NavMeshSystem::Instance().AddCylinderObstacle(pos, radius, height);
 }
@@ -51,6 +55,7 @@ namespace NavServicesImpl {
 void Init(NavServices& out) {
     out.HasMesh                = &ForwardHasMesh;
     out.FindPath               = &ForwardFindPath;
+    out.NavVersion             = &ForwardNavVersion;
     out.AddCylinderObstacle    = &ForwardAddCylinderObstacle;
     out.AddBoxObstacle         = &ForwardAddBoxObstacle;
     out.RemoveObstacle         = &ForwardRemoveObstacle;
