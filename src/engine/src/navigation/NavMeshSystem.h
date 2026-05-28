@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -28,6 +29,13 @@ public:
     void Rebuild(const ECS& world, const NavMeshConfigComponent& cfg);
 
     std::shared_ptr<const NavMesh> Current() const;
+
+    // Monotonic version counter; bumped every time the published NavMesh
+    // shared_ptr is replaced (Rebuild success, Rebuild empty-soup clear,
+    // TryLoadFromDisk success). NavAgentSystem reads via NavServices::NavVersion
+    // to invalidate cached paths after a rebuild. Single-threaded writer
+    // (GameThread, per NavMeshSystem contract); relaxed atomic suffices.
+    uint32_t GetNavVersion() const { return m_NavVersion.load(std::memory_order_relaxed); }
 
     // ---- Spec 2: obstacles ----
     void Tick(float dt);
@@ -88,4 +96,10 @@ private:
         std::vector<uint32_t>   Indices;
     };
     std::unordered_map<uint32_t, CachedMesh> m_MeshCpuData;
+
+    std::atomic<uint32_t> m_NavVersion{0};
+
+    // All m_Current publish sites route through here so the version bump
+    // can't be forgotten on a future publish site.
+    void PublishNavMesh(std::shared_ptr<const NavMesh> mesh);
 };

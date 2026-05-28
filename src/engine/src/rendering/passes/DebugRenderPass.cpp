@@ -217,16 +217,17 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
     }
 
     if (s.ShowNavPaths) {
-        // v1: destination markers only. Path-line rendering is deferred to v2 (cached
-        // path on NavAgentComponent) — NavMesh::FindPath asserts on GameThread owner,
-        // but DebugRenderPass runs on RenderThread. Once v2 caches the path on the
-        // agent, viz reads the cached vector instead of querying (consistent with the
-        // stateless-v1 / cached-v2 framework documented in navigation-agents-design.md).
+        // v2: reads NavAgentComponent::CachedPath off the snapshot. No FindPath
+        // call from RenderThread — the v1 GameThread-assert footgun is gone.
+        const glm::vec4 pathCol(0.2f, 1.0f, 0.2f, 1.0f);  // green — path lines
         const glm::vec4 destCol(1.0f, 1.0f, 1.0f, 1.0f);  // white — destination markers
         world->Each<NavAgentComponent, NavTargetComponent, TransformComponent>(
-            [&](EntityId, const NavAgentComponent&,
+            [&](EntityId, const NavAgentComponent& a,
                 const NavTargetComponent& target, const TransformComponent&) {
                 DebugAppendSphere(m_Verts, target.Destination, 0.25f, destCol, 12);
+                for (uint8_t i = 1; i < a.PathCount; ++i) {
+                    DebugAppendLine(m_Verts, a.CachedPath[i - 1], a.CachedPath[i], pathCol);
+                }
             });
     }
 

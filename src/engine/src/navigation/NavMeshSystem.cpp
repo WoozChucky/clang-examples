@@ -51,7 +51,7 @@ void NavMeshSystem::Rebuild(const ECS& world,
     if (soup.Empty || soup.Tris.empty()) {
         SM_WARN("NavMeshSystem::Rebuild: no NavMeshSource entities; publishing empty navmesh");
         m_EntityToObstacle.clear();   // old dtObstacleRefs invalid against new dtTileCache
-        std::atomic_store(&m_Current, std::shared_ptr<const NavMesh>{});
+        PublishNavMesh(std::shared_ptr<const NavMesh>{});
         return;
     }
     auto fresh = NavMesh::Build(soup, cfg);
@@ -61,7 +61,7 @@ void NavMeshSystem::Rebuild(const ECS& world,
     }
     m_EntityToObstacle.clear();   // old dtObstacleRefs invalid against new dtTileCache
     std::shared_ptr<const NavMesh> shared(std::move(fresh));
-    std::atomic_store(&m_Current, shared);
+    PublishNavMesh(shared);
 
     // Spec 4: auto-bake to disk so subsequent startups can skip Rebuild.
     // Skips silently when no world path is known (e.g., test harness calling
@@ -181,7 +181,7 @@ bool NavMeshSystem::TryLoadFromDisk(const std::string& worldPath) {
     m_EntityToObstacle.clear();   // same invariant as Rebuild — new tilecache, old refs invalid
     m_LastWorldPath = worldPath;
     std::shared_ptr<const NavMesh> shared(std::move(fresh));
-    std::atomic_store(&m_Current, shared);
+    PublishNavMesh(shared);
     SM_TRACE("NavMeshSystem::TryLoadFromDisk: loaded '%s'", bakePath.c_str());
     return true;
 }
@@ -206,4 +206,9 @@ bool NavMeshSystem::GetMeshCpuData(uint32_t meshId,
     outVerts   = std::span<const MeshVertex>(it->second.Vertices);
     outIndices = std::span<const uint32_t>(it->second.Indices);
     return true;
+}
+
+void NavMeshSystem::PublishNavMesh(std::shared_ptr<const NavMesh> mesh) {
+    std::atomic_store(&m_Current, std::move(mesh));
+    m_NavVersion.fetch_add(1, std::memory_order_relaxed);
 }

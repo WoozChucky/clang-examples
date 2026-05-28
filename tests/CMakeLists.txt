@@ -413,3 +413,31 @@ set_target_properties(test_navmesh PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_navagent
+    test_navagent.cpp
+)
+
+target_link_libraries(test_navagent PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+    Engine
+)
+
+target_include_directories(test_navagent PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/engine/src
+    ${CMAKE_SOURCE_DIR}/src/game/src
+)
+
+target_compile_definitions(test_navagent PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_navagent PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)

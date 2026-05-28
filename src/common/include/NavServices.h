@@ -30,6 +30,12 @@ struct NavServices {
     void (*FindPath)(const glm::vec3& start, const glm::vec3& end,
                      float maxSearchRadius, std::vector<glm::vec3>* outPath);
 
+    // Monotonic counter incremented every time NavMeshSystem publishes a new
+    // NavMesh (Rebuild success, Rebuild empty-soup clear, TryLoadFromDisk).
+    // NavAgentSystem caches LastSeenNavVersion to detect navmesh-rebuilt and
+    // invalidate the cached path. GameThread only.
+    uint32_t (*NavVersion)();
+
     // ---- Obstacle add/remove (Spec 2) ----
 
     uint32_t (*AddCylinderObstacle)(const glm::vec3& pos, float radius, float height);

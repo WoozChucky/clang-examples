@@ -309,9 +309,19 @@ struct NavObstacleComponent {
 // MoveIntent toward the next path waypoint at MoveSpeed * dt. Pure reader —
 // system doesn't mutate this component.
 struct NavAgentComponent {
+    // ---- v1 user-authored tunables (serialized) ----
     float MoveSpeed      = 3.0f;   // world units / second
     float Radius         = 0.5f;   // agent footprint; matches NavMeshConfigComponent::AgentRadius authoring
     float ReachedEpsilon = 0.10f;  // distance at which target is considered reached; stop emitting MoveIntent
+
+    // ---- v2 cached-path state (runtime, NOT serialized) ----
+    static constexpr int kMaxPathPoints = 32;   // path cap; typical Recast string-pull yields 4-16 waypoints
+    glm::vec3 CachedPath[kMaxPathPoints]{};
+    uint8_t   PathCount       = 0;              // valid waypoints in CachedPath
+    uint8_t   PathIndex       = 0;              // next waypoint the agent walks toward
+    glm::vec3 LastTarget{0.0f};                 // target-change detection (epsilon compare vs NavTarget.Destination)
+    uint32_t  LastNavVersion  = 0;              // navmesh-rebuild invalidation (vs NavServices::NavVersion)
+    float     TimeSinceRepath = 0.0f;           // safety-timer accumulator; repath when > kRepathInterval
 };
 
 // Per-entity destination. When attached to a NavAgent entity, system pathfinds
