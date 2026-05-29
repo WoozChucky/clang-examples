@@ -31,7 +31,13 @@ second, more-eroded class.
 3. **Storage:** class list is a **fixed-cap array inside `NavMeshConfigComponent`** (not a heap
    `std::vector`) so the component stays trivially-copyable for the ECS snapshot — matching the
    existing `NavAgentComponent::CachedPath[32]` style. `ClassId` is the **index** into that list
-   (default 0); append-only list recommended.
+   (default 0); append-only list recommended. The top-level per-agent fields
+   (`AgentRadius/AgentHeight/AgentMaxClimb`) are **removed** — `NavClassConfig` is the single source
+   of truth — and `NavMesh::Build` takes the chosen `NavClassConfig` directly (no `ConfigForClass`
+   shim). Invariant: `ClassCount >= 1` (a default config has one class).
+6. **No backward compatibility required** (engine is early-development): old `world.json` nav configs
+   need no migration code — a config with no `Classes` key simply loads as one default class.
+   Breaking schema changes are acceptable and preferred over migration complexity.
 4. **Obstacle fan-out** via **logical obstacle ids** that keep the `NavServices` obstacle ABI
    (`uint32_t` handles) unchanged.
 5. **Queries:** **append** class-aware `…ForClass` variants to `NavServices`; old non-class fns
@@ -99,15 +105,18 @@ struct NavMeshConfigComponent {
 };
 ```
 
-The per-agent fields (`AgentRadius/AgentHeight/AgentMaxClimb`) move OUT of the top level into
-`NavClassConfig`. A helper `NavMeshConfigComponent ConfigForClass(const NavMeshConfigComponent&,
-uint8_t classId)` returns a single-class config (global params + the chosen class's agent params),
-fed to `NavMesh::Build`. `ClassCount==0` (or a missing class) → a built-in default class
-(`NavClassConfig{}`), so empty/legacy configs still bake one mesh.
+The per-agent fields (`AgentRadius/AgentHeight/AgentMaxClimb`) are **removed** from the top level;
+they live only in `NavClassConfig`. `NavMesh::Build` changes signature to
+`Build(const NavMeshTriangleSoup&, const NavMeshConfigComponent& cfg, const NavClassConfig& cls)` —
+it reads `AgentRadius/AgentHeight/AgentMaxClimb` from `cls` and the shared params from `cfg`. The
+default-constructed `NavMeshConfigComponent` has `ClassCount = 1` with `Classes[0]` defaulted
+(`{0.5, 1.8, 0.4}`); `ClassCount >= 1` is an invariant. No `ConfigForClass` shim.
 
-**Migration:** `from_json` for `NavMeshConfigComponent` reads the new `Classes[]`/`ClassCount` when
-present; if absent but a legacy flat `AgentRadius/AgentHeight/AgentMaxClimb` is present, it
-synthesizes `Classes[0]` from those and sets `ClassCount=1`. `to_json` writes the class array.
+**Serialization (no migration code):** `to_json` writes the shared params + a `Classes` array
+(length `ClassCount`). `from_json` reads them; a config with **no `Classes` key** (old file) loads as
+**one default class** (`ClassCount = 1`, `Classes[0]` defaulted). Old flat `AgentRadius` keys are
+ignored. Breaking is acceptable (early dev). Additionally, the existing build-output `world.json` is
+hand-updated to the new `Classes` schema as part of implementation (it's runtime data, not committed).
 
 ### 2. Entity → class (`ECS.h` + plumbing + editor)
 
@@ -129,8 +138,8 @@ the entity's clamped ClassId, default 0) is factored so it is unit-testable.
 - `m_Current` → `std::array<std::shared_ptr<const NavMesh>, kMaxNavClasses> m_Classes;` published
   per slot through the existing `PublishNavMesh`-style routing (extended to take a class index;
   still bumps the single global `m_NavVersion`).
-- `Rebuild(world, cfg)`: build the triangle soup **once**; for `i in [0, max(cfg.ClassCount,1))`
-  build `NavMesh::Build(soup, ConfigForClass(cfg, i))` and publish slot `i`. Empty soup → clear all
+- `Rebuild(world, cfg)`: build the triangle soup **once**; for `i in [0, NavLiveClassCount(cfg))`
+  build `NavMesh::Build(soup, cfg, cfg.Classes[i])` and publish slot `i`. Empty soup → clear all
   slots. Reapplying obstacles after a rebuild fans out (see §4).
 - `Current(uint8_t classId) const` → slot accessor (clamped; out-of-range → slot 0 / nullptr).
 - A new private `m_ClassCount` snapshot records how many slots are live (for obstacle fan-out + the
@@ -202,8 +211,7 @@ Consumers:
     `Current(0)` and `Current(1)` both non-null; a point near the wall is on the small mesh but
     OFF the large mesh (`ClosestPoint` distance / `FindPath` reachability divergence proving
     different erosion).
-  - `ConfigForClass` helper: returns global params + the selected class's agent params; out-of-range
-    → class 0 / default.
+  - `NavLiveClassCount` helper: `ClassCount` clamped to `>= 1`.
   - `ResolveNavClass` helper: entity with `NavClassComponent{2}` → 2; absent → 0; `ClassId>=count`
     → 0.
   - Obstacle fan-out: add a cylinder obstacle → path blocked on BOTH class meshes; remove → restored
@@ -223,8 +231,9 @@ Consumers:
 | Unit | Responsibility | Depends on |
 |------|----------------|------------|
 | `NavClassConfig` + `NavMeshConfigComponent.Classes[]` | Author N radius classes (fixed-cap) | — |
+| `NavMesh::Build(soup, cfg, cls)` | Build one mesh from a chosen class's agent params | Detour |
 | `NavClassComponent` + plumbing + `NavClassEditor` | Per-entity class selection | ECS registration, ImGui |
-| `ConfigForClass` / `ResolveNavClass` helpers | Pure class→config + entity→class resolution (unit-tested) | ECS, glm |
+| `NavLiveClassCount` / `ResolveNavClass` helpers | Class-count clamp + entity→class resolution (unit-tested) | ECS, glm |
 | `NavMeshSystem` (N slots + obstacle fan-out) | Build/hold/publish per-class meshes; logical-id obstacles | NavMesh, Detour |
 | `NavServices` `…ForClass` + forwarders | Class-aware query bridge to Game.dll | NavMeshSystem |
 | `NavAgentSystem` / `KinematicMovementSystem` | Route by entity class | SystemContext.Nav |
@@ -232,7 +241,9 @@ Consumers:
 
 ## Files Touched
 
-- `src/common/include/ECS.h` — `kMaxNavClasses`, `NavClassConfig`, reshape `NavMeshConfigComponent`, `NavClassComponent` + X-macro.
+- `src/common/include/ECS.h` — `kMaxNavClasses`, `NavClassConfig`, reshape `NavMeshConfigComponent` (drop flat agent fields, add `Classes[]`/`ClassCount`), `NavClassComponent` + X-macro.
+- `src/engine/src/navigation/NavMesh.{h,cpp}` — `Build` takes a `NavClassConfig` (reads agent params from it).
+- `src/common/include/NavClass.h` (new) — `NavLiveClassCount`, `ResolveNavClass`.
 - `src/common/include/ECSCommands.h` — `NavClassComponent` Apply/Remove/Copy.
 - `src/common/include/ComponentSerialization.h` — `NavMeshConfigComponent` class-array (de)serialize + legacy migration; `NavClassComponent`.
 - `src/engine/src/utilities/WorldManager.cpp` — `NavClassComponent` save/load (Environment for the config already handled).
@@ -243,8 +254,8 @@ Consumers:
 - `src/game/src/game.cpp` — `KinematicMovementSystem` resolve class → `MoveAlongSurfaceForClass`.
 - `src/editor/src/panels/NavigationPanel.cpp` — class-list editor.
 - `src/editor/src/panels/inspector/NavClassEditor.{h,cpp}` (new) + registration + `src/editor/CMakeLists.txt`.
-- `tests/test_navmesh.cpp` — multi-class / fan-out / forwarder / helper / migration cases.
-- (Possibly a small pure header for `ConfigForClass`/`ResolveNavClass` if they don't fit cleanly inline — decided in the plan.)
+- `tests/test_navmesh.cpp` / `tests/test_worldserial.cpp` — multi-class / fan-out / forwarder / helper / serialization cases.
+- Build-output `world.json` — hand-updated to the `Classes` schema (runtime data, not committed).
 
 ## Build / Reload Note
 
