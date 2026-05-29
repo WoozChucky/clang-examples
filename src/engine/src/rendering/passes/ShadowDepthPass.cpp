@@ -101,11 +101,12 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
     bool haveFit = false;
     {
         const CameraView& cam = m_Renderer->GetActiveCamera();
-        const float shadowDist = glm::max(shadow.ShadowDistance, 1.0f);
-        const ShadowSphere sph = FrustumSliceSphere(cam.View, cam.Projection, shadowDist);
-        if (sph.radius > 1e-3f) {
-            center = SnapToTexelGrid(sph.center, sph.radius, sunDir, /*shadowMapSize=*/2048);
-            radius = sph.radius;
+        const glm::vec3 fwd  = CameraForward(cam.View);
+        const float coverage = glm::max(shadow.ShadowDistance, 1.0f); // box width (world units)
+        if (glm::dot(fwd, fwd) > 0.5f) {                              // valid camera basis
+            const glm::vec3 focus = GroundFocus(cam.Position, fwd, coverage);
+            radius = coverage * 0.5f;                                 // ortho half-extent
+            center = SnapToTexelGrid(focus, radius, sunDir, /*shadowMapSize=*/2048);
             haveFit = true;
         }
     }
