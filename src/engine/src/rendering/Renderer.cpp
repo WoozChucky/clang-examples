@@ -120,12 +120,15 @@ bool Renderer::Init(const RendererAPI api) {
     }
     AddRenderPass(std::move(skyPass));
 
+    // OutlineRenderPass intentionally disabled (hardcoded). Code kept for easy re-enable.
+#if 0
     auto outlinePass = std::make_unique<OutlineRenderPass>();
     if (!outlinePass->Initialize(m_Device, this)) {
         SM_ERROR("Failed to initialize OutlineRenderPass");
         return false;
     }
     AddRenderPass(std::move(outlinePass));
+#endif
 
     auto debugPass = std::make_unique<DebugRenderPass>();
     if (!debugPass->Initialize(m_Device, this)) {
@@ -721,9 +724,12 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     if (!skyPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: SkyPass failed"); return false; }
     AddRenderPass(std::move(skyPass));
 
+    // OutlineRenderPass intentionally disabled (hardcoded). Code kept for easy re-enable.
+#if 0
     auto outlinePass = std::make_unique<OutlineRenderPass>();
     if (!outlinePass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: OutlinePass failed"); return false; }
     AddRenderPass(std::move(outlinePass));
+#endif
 
     auto debugPass = std::make_unique<DebugRenderPass>();
     if (!debugPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: DebugPass failed"); return false; }
