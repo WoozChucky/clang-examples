@@ -47,8 +47,14 @@ float4 main_ps(PSIn i):SV_Target {
     N = normalize(N);
     float3 P = uWorldPos.Sample(uPt, uv).xyz;
 
-    // Per-pixel rotation angle (interleaved hash) to break up banding.
-    float a = frac(sin(dot(uv*uRtSize.xy, float2(12.9898,78.233)))*43758.5453)*6.28318530718;
+    // Rotation tiled to a 4x4 grid (repeats every 4 px) so the 4x4 box blur covers exactly one
+    // full set of 16 rotations and averages the noise out cleanly. A per-pixel (non-tiling) hash
+    // would leave residual grain the fixed 4x4 blur can't cancel. The 16 tile cells get fixed
+    // pseudo-random angles (hash of the cell index) to decorrelate neighbors.
+    float2 px   = floor(uv * uRtSize.xy);
+    float2 cell = fmod(px, 4.0);                  // 0..3 in x and y -> 4x4 tile
+    float  idx  = cell.y * 4.0 + cell.x;          // 0..15, repeats every 4 px
+    float  a    = frac(sin(idx * 12.9898) * 43758.5453) * 6.28318530718;
 
     float3 up = abs(N.y) < 0.99 ? float3(0,1,0) : float3(1,0,0);
     float3 T0 = normalize(cross(up, N));
