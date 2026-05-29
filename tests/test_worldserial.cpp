@@ -243,6 +243,13 @@ static void T_navcfg_no_classes_defaults_to_one() {
     EXPECT(near(out.Classes[0].AgentRadius, 0.5f));
 }
 
+static void T_navclass_roundtrip() {
+    NavClassComponent in; in.ClassId = 3;
+    const nlohmann::json j = in;
+    const auto out = j.get<NavClassComponent>();
+    EXPECT(out.ClassId == 3);
+}
+
 // ---------- T20-T22: navigation serialization ----------
 static void Test_Navigation() {
     using json = nlohmann::json;
@@ -360,6 +367,7 @@ int main()
     Test_Navigation();
     T_navcfg_multiclass_roundtrip();
     T_navcfg_no_classes_defaults_to_one();
+    T_navclass_roundtrip();
 
     if (g_Failures == 0) { std::printf("All world-serialization tests passed.\n"); return 0; }
     std::printf("%d world-serialization test(s) FAILED.\n", g_Failures);

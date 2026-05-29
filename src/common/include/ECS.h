@@ -361,6 +361,12 @@ struct NavTargetComponent {
 // player). Without it, movement is not navmesh-constrained (today's behavior).
 struct NavConstrainedComponent {};
 
+// Per-entity nav class selector: which class mesh (index into
+// NavMeshConfigComponent::Classes) this entity navigates / is constrained to.
+// Carried by NavAgents and by the player (alongside NavConstrainedComponent).
+// Absent → class 0. Out-of-range ClassId → class 0.
+struct NavClassComponent { uint8_t ClassId = 0; };
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -398,7 +404,8 @@ struct NavConstrainedComponent {};
     X(NavObstacleComponent) \
     X(NavAgentComponent) \
     X(NavTargetComponent) \
-    X(NavConstrainedComponent)
+    X(NavConstrainedComponent) \
+    X(NavClassComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

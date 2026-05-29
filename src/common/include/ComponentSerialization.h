@@ -120,6 +120,13 @@ inline void from_json(const nlohmann::json&, SunMarker&) {}
 inline void to_json(nlohmann::json& j, const NavConstrainedComponent&) { j = nlohmann::json::object(); }
 inline void from_json(const nlohmann::json&, NavConstrainedComponent&) {}
 
+inline void to_json(nlohmann::json& j, const NavClassComponent& t) {
+    j = nlohmann::json{ {"ClassId", t.ClassId} };
+}
+inline void from_json(const nlohmann::json& j, NavClassComponent& t) {
+    if (j.contains("ClassId")) t.ClassId = static_cast<uint8_t>(j.at("ClassId").get<int>());
+}
+
 inline void to_json(nlohmann::json& j, const PlayerComponent& t) {
     j = nlohmann::json{{"MoveSpeed", t.MoveSpeed}};
 }

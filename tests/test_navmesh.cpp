@@ -714,6 +714,21 @@ static void T33_live_class_count_clamps_to_one() {
     EXPECT(NavLiveClassCount(zero) == 1);
 }
 
+// ---------- Per-entity nav class: T34 ----------
+static void T34_resolve_nav_class() {
+    ECS w;
+    const EntityId none = w.CreateEntity();
+    const EntityId c1   = w.CreateEntity();
+    w.AddComponent(c1, NavClassComponent{ /*ClassId*/ 1 });
+    const EntityId cBad = w.CreateEntity();
+    w.AddComponent(cBad, NavClassComponent{ /*ClassId*/ 5 });
+
+    EXPECT(ResolveNavClass(w, none, 2) == 0);   // absent → 0
+    EXPECT(ResolveNavClass(w, c1,   2) == 1);   // in range → its id
+    EXPECT(ResolveNavClass(w, cBad, 2) == 0);   // >= count → 0
+    EXPECT(ResolveNavClass(w, c1,   0) == 0);   // count 0 → 0
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -748,6 +763,7 @@ int main() {
     T31_navservices_movealongsurface_forwards();
     T32_navservices_movealongsurface_no_mesh_returns_desired();
     T33_live_class_count_clamps_to_one();
+    T34_resolve_nav_class();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);
