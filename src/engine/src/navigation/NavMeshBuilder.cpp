@@ -10,6 +10,7 @@
 #include "navigation/NavMeshSystem.h"   // GetMeshCpuData
 #include "lib.h"          // SM_WARN
 #include "Engine.h"
+#include "TransformMath.h"   // ModelMatrix — single source of truth for the entity world transform
 
 namespace {
 
@@ -43,14 +44,12 @@ inline glm::vec3 Xform(const glm::mat4& m, const glm::vec3& p) {
     return glm::vec3(r.x, r.y, r.z);
 }
 
+// Use the canonical render transform (TransformMath::ModelMatrix) so the navmesh
+// soup matches what's drawn. The old hand-rolled version treated Rotation as
+// DEGREES (glm::radians) — but Rotation is radians (see ModelMatrix) — and used a
+// different Euler order, so any rotated mesh baked misaligned from its visual.
 inline glm::mat4 BuildWorld(const TransformComponent& t) {
-    glm::mat4 m(1.0f);
-    m = glm::translate(m, t.Position);
-    m = glm::rotate(m, glm::radians(t.Rotation.y), glm::vec3(0,1,0));
-    m = glm::rotate(m, glm::radians(t.Rotation.x), glm::vec3(1,0,0));
-    m = glm::rotate(m, glm::radians(t.Rotation.z), glm::vec3(0,0,1));
-    m = glm::scale(m, t.Scale);
-    return m;
+    return ModelMatrix(t);
 }
 
 } // namespace
