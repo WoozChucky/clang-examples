@@ -29,6 +29,22 @@ inline glm::mat4 ComputeLightViewProj(const glm::vec3& center, float radius,
     return proj * view;
 }
 
+// World forward direction from a view matrix (camera looks down -Z in view space).
+inline glm::vec3 CameraForward(const glm::mat4& view) {
+    return -glm::normalize(glm::vec3(view[0][2], view[1][2], view[2][2]));
+}
+
+// Ground point under the camera's gaze: intersect the forward ray (from eye) with the plane
+// y = groundY. If the ray does not descend (looking up/level), fall back to eye + forward*fallbackDist.
+inline glm::vec3 GroundFocus(const glm::vec3& eye, const glm::vec3& forward,
+                             float fallbackDist, float groundY = 0.0f) {
+    if (forward.y < -1e-4f) {
+        const float t = (groundY - eye.y) / forward.y;
+        if (t > 0.0f) return eye + forward * t;
+    }
+    return eye + forward * fallbackDist;
+}
+
 // Bounding sphere of a region (world space).
 struct ShadowSphere { glm::vec3 center{0.0f}; float radius = 0.0f; };
 

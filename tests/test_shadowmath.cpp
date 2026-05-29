@@ -109,6 +109,29 @@ static void T07_straight_down_no_nan()
     EXPECT(!std::isnan(n.x) && !std::isnan(n.y) && !std::isnan(n.z));
 }
 
+// CameraForward: a lookAtRH camera at (0,10,20) looking at origin yields normalize(target - eye).
+static void T08_camera_forward()
+{
+    const glm::vec3 eye(0, 10, 20), target(0, 0, 0);
+    const glm::mat4 view = glm::lookAtRH(eye, target, glm::vec3(0, 1, 0));
+    const glm::vec3 fwd = CameraForward(view);
+    const glm::vec3 expected = glm::normalize(target - eye);
+    EXPECT(near(fwd.x, expected.x));
+    EXPECT(near(fwd.y, expected.y));
+    EXPECT(near(fwd.z, expected.z));
+    EXPECT(near(glm::length(fwd), 1.0f));
+}
+
+// GroundFocus: a downward ray hits y=0 at the expected point; an upward ray uses the fallback.
+static void T09_ground_focus()
+{
+    const glm::vec3 hit = GroundFocus(glm::vec3(2, 10, 2), glm::vec3(0, -1, 0), 99.0f);
+    EXPECT(near(hit.x, 2.0f) && near(hit.y, 0.0f) && near(hit.z, 2.0f));
+    // Upward ray never hits the ground -> fallback eye + forward*fallbackDist = (0,5,0)+(0,1,0)*7.
+    const glm::vec3 up = GroundFocus(glm::vec3(0, 5, 0), glm::vec3(0, 1, 0), 7.0f);
+    EXPECT(near(up.x, 0.0f) && near(up.y, 12.0f) && near(up.z, 0.0f));
+}
+
 int main()
 {
     T00_nearextend_zero_is_identity_change();
@@ -119,6 +142,8 @@ int main()
     T05_center_projects_to_ndc_origin();
     T06_scene_fits_inside_light_frustum();
     T07_straight_down_no_nan();
+    T08_camera_forward();
+    T09_ground_focus();
     if (g_Failures == 0) { std::printf("All shadow-math tests passed.\n"); return 0; }
     std::fprintf(stderr, "%d shadow-math test(s) failed.\n", g_Failures);
     return 1;
