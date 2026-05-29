@@ -24,6 +24,11 @@ struct ApplicationSettings {
     float       shadowBias       = 0.0015f;
     float       shadowCoverage   = 80.0f;
     float       shadowNearExtend = 50.0f;
+    bool        ssaoEnabled      = true;
+    float       ssaoRadius       = 0.5f;
+    float       ssaoIntensity    = 1.0f;
+    float       ssaoPower        = 2.0f;
+    float       ssaoBias         = 0.025f;
 };
 
 // Runtime-configurable game thread settings (Render -> Game)

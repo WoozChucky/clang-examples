@@ -79,6 +79,14 @@ bool Load(const std::string& filepath, ApplicationSettings* out) {
             if (js.contains("coverage")   && js["coverage"].is_number())   out->shadowCoverage   = js["coverage"].get<float>();
             if (js.contains("nearExtend") && js["nearExtend"].is_number()) out->shadowNearExtend = js["nearExtend"].get<float>();
         }
+        if (jr.contains("ssao") && jr["ssao"].is_object()) {
+            const auto& jo = jr["ssao"];
+            if (jo.contains("enabled")   && jo["enabled"].is_boolean())  out->ssaoEnabled   = jo["enabled"].get<bool>();
+            if (jo.contains("radius")    && jo["radius"].is_number())    out->ssaoRadius    = jo["radius"].get<float>();
+            if (jo.contains("intensity") && jo["intensity"].is_number()) out->ssaoIntensity = jo["intensity"].get<float>();
+            if (jo.contains("power")     && jo["power"].is_number())     out->ssaoPower     = jo["power"].get<float>();
+            if (jo.contains("bias")      && jo["bias"].is_number())      out->ssaoBias      = jo["bias"].get<float>();
+        }
     }
 
     if (j.contains("window") && j["window"].is_object()) {
@@ -103,6 +111,11 @@ bool Save(const std::string& filepath, const ApplicationSettings& settings) {
     j["renderer"]["shadow"]["bias"]       = settings.shadowBias;
     j["renderer"]["shadow"]["coverage"]   = settings.shadowCoverage;
     j["renderer"]["shadow"]["nearExtend"] = settings.shadowNearExtend;
+    j["renderer"]["ssao"]["enabled"]   = settings.ssaoEnabled;
+    j["renderer"]["ssao"]["radius"]    = settings.ssaoRadius;
+    j["renderer"]["ssao"]["intensity"] = settings.ssaoIntensity;
+    j["renderer"]["ssao"]["power"]     = settings.ssaoPower;
+    j["renderer"]["ssao"]["bias"]      = settings.ssaoBias;
     j["window"]["width"]       = settings.windowWidth;
     j["window"]["height"]      = settings.windowHeight;
     j["window"]["vsync"]       = settings.vsyncEnabled;

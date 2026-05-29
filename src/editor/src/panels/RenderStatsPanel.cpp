@@ -44,6 +44,14 @@ bool DrawRenderStatsPanel(bool* open)
     changed |= ImGui::SliderFloat("Shadow coverage", &sh.ShadowCoverage, 5.0f, 200.0f, "%.0f");
     changed |= ImGui::SliderFloat("Shadow near-extend", &sh.NearExtend, 0.0f, 200.0f, "%.0f");
 
+    ImGui::TextDisabled("SSAO");
+    SsaoSettings& ao = GetSsaoSettings();
+    changed |= ImGui::Checkbox("SSAO enabled", &ao.Enabled);
+    changed |= ImGui::SliderFloat("SSAO radius",    &ao.Radius,    0.05f, 3.0f, "%.2f");
+    changed |= ImGui::SliderFloat("SSAO intensity", &ao.Intensity, 0.0f,  3.0f, "%.2f");
+    changed |= ImGui::SliderFloat("SSAO power",     &ao.Power,     0.5f,  6.0f, "%.2f");
+    changed |= ImGui::SliderFloat("SSAO bias",      &ao.Bias,      0.0f,  0.2f, "%.3f");
+
     ImGui::Separator();
     ImGui::TextDisabled("Anti-Aliasing");
     AntiAliasingSettings& aa = GetAntiAliasingSettings();
