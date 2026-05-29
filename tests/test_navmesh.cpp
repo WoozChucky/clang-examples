@@ -782,6 +782,41 @@ static void T36_obstacle_blocks_all_classes() {
     EXPECT(NavMeshSystem::Instance().Current(1)->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0)).size() > 2);
 }
 
+// ---------- Class-aware NavServices: T37-T38 ----------
+static void T37_navservices_forclass_queries() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshConfigComponent cfg = DefaultCfg();
+    cfg.ClassCount = 2;
+    cfg.Classes[0] = NavClassConfig{ 0.3f, 1.8f, 0.4f };
+    cfg.Classes[1] = NavClassConfig{ 0.5f, 1.8f, 0.4f };
+    NavMeshSystem::Instance().Rebuild(w, cfg);
+
+    const NavServices* svc = TestNavServices();
+    EXPECT(svc->HasMeshForClass != nullptr);
+    EXPECT(svc->HasMeshForClass(0));
+    EXPECT(svc->HasMeshForClass(1));
+    EXPECT(!svc->HasMeshForClass(7));
+
+    std::vector<glm::vec3> path;
+    svc->FindPathForClass(1, glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0), 50.0f, &path);
+    EXPECT(path.size() >= 2);
+
+    const glm::vec3 mv = svc->MoveAlongSurfaceForClass(0, glm::vec3(0,0.1f,0), glm::vec3(1.0f,0.1f,0));
+    EXPECT(std::fabs(mv.x - 1.0f) < 0.3f);
+}
+
+static void T38_navservices_legacy_fns_map_to_class0() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());   // single class 0
+    const NavServices* svc = TestNavServices();
+    EXPECT(svc->HasMesh());
+    std::vector<glm::vec3> path;
+    svc->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0), 50.0f, &path);
+    EXPECT(path.size() >= 2);
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -819,6 +854,8 @@ int main() {
     T34_resolve_nav_class();
     T35_multiclass_build_distinct_erosion();
     T36_obstacle_blocks_all_classes();
+    T37_navservices_forclass_queries();
+    T38_navservices_legacy_fns_map_to_class0();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

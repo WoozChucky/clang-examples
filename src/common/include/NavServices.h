@@ -54,4 +54,16 @@ struct NavServices {
     // moveAlongSurface). Off-mesh start → pulls toward nearest poly (recovery).
     // No mesh → returns desiredEnd unchanged. GameThread only.
     glm::vec3 (*MoveAlongSurface)(const glm::vec3& start, const glm::vec3& desiredEnd);
+
+    // ---- Class-aware queries (multi-class navmesh) ----
+
+    // Per-class variants of HasMesh/FindPath/MoveAlongSurface. classId indexes
+    // NavMeshConfigComponent::Classes; out-of-range → no mesh / empty / passthrough.
+    // The non-class HasMesh/FindPath/MoveAlongSurface above equal classId == 0.
+    // GameThread only.
+    bool      (*HasMeshForClass)(uint8_t classId);
+    void      (*FindPathForClass)(uint8_t classId, const glm::vec3& start, const glm::vec3& end,
+                                  float maxSearchRadius, std::vector<glm::vec3>* outPath);
+    glm::vec3 (*MoveAlongSurfaceForClass)(uint8_t classId, const glm::vec3& start,
+                                          const glm::vec3& desiredEnd);
 };

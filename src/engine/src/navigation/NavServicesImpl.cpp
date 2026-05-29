@@ -5,19 +5,35 @@
 
 namespace {
 
-bool ForwardHasMesh() {
-    return NavMeshSystem::Instance().Current() != nullptr;
+bool ForwardHasMeshForClass(uint8_t classId) {
+    return NavMeshSystem::Instance().Current(classId) != nullptr;
 }
 
-void ForwardFindPath(const glm::vec3& start, const glm::vec3& end,
-                     float maxSearchRadius, std::vector<glm::vec3>* outPath) {
+void ForwardFindPathForClass(uint8_t classId, const glm::vec3& start, const glm::vec3& end,
+                             float maxSearchRadius, std::vector<glm::vec3>* outPath) {
     if (!outPath) return;
     outPath->clear();
-    auto nm = NavMeshSystem::Instance().Current();
+    auto nm = NavMeshSystem::Instance().Current(classId);
     if (!nm) return;
     const auto path = nm->FindPath(start, end, maxSearchRadius);
     outPath->reserve(path.size());
     for (const auto& pt : path) outPath->push_back(pt.Position);
+}
+
+glm::vec3 ForwardMoveAlongSurfaceForClass(uint8_t classId, const glm::vec3& start,
+                                          const glm::vec3& desiredEnd) {
+    auto nm = NavMeshSystem::Instance().Current(classId);
+    if (!nm) return desiredEnd;
+    return nm->ConstrainMove(start, desiredEnd);
+}
+
+bool ForwardHasMesh() {
+    return ForwardHasMeshForClass(0);
+}
+
+void ForwardFindPath(const glm::vec3& start, const glm::vec3& end,
+                     float maxSearchRadius, std::vector<glm::vec3>* outPath) {
+    ForwardFindPathForClass(0, start, end, maxSearchRadius, outPath);
 }
 
 uint32_t ForwardNavVersion() {
@@ -49,9 +65,7 @@ void ForwardUntrackEntity(EntityId e) {
 }
 
 glm::vec3 ForwardMoveAlongSurface(const glm::vec3& start, const glm::vec3& desiredEnd) {
-    auto nm = NavMeshSystem::Instance().Current();
-    if (!nm) return desiredEnd;   // no mesh → unconstrained
-    return nm->ConstrainMove(start, desiredEnd);
+    return ForwardMoveAlongSurfaceForClass(0, start, desiredEnd);
 }
 
 } // namespace
@@ -69,6 +83,9 @@ void Init(NavServices& out) {
     out.FindObstacleForEntity  = &ForwardFindObstacleForEntity;
     out.UntrackEntity          = &ForwardUntrackEntity;
     out.MoveAlongSurface       = &ForwardMoveAlongSurface;
+    out.HasMeshForClass          = &ForwardHasMeshForClass;
+    out.FindPathForClass         = &ForwardFindPathForClass;
+    out.MoveAlongSurfaceForClass = &ForwardMoveAlongSurfaceForClass;
 }
 
 } // namespace NavServicesImpl
