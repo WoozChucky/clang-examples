@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <iosfwd>
 #include <memory>
 #include <string>
 #include <vector>
@@ -111,6 +112,15 @@ public:
     // with cause on every failure path.
     static std::unique_ptr<NavMesh> LoadFromFile(const std::string& path,
                                                  uint64_t* outWorldMtime);
+
+    // Serialize this mesh's tilecache state to a stream (no file header — the
+    // container header is owned by NavMeshSystem). Returns false on null cache /
+    // stream error. GameThread only.
+    bool WriteSection(std::ostream& os) const;
+
+    // Reconstruct a NavMesh from one section previously written by WriteSection.
+    // Returns nullptr on stream error / malformed data (logs SM_WARN). GameThread only.
+    static std::unique_ptr<NavMesh> ReadSection(std::istream& is);
 
     // Drive dtTileCache::update — applies queued add/removeObstacle calls and
     // re-bakes affected tiles. Single-call-per-tick policy from spec; remaining

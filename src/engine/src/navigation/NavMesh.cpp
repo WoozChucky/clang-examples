@@ -704,3 +704,115 @@ std::unique_ptr<NavMesh> NavMesh::LoadFromFile(const std::string& path, uint64_t
 
     return out;
 }
+
+bool NavMesh::WriteSection(std::ostream& os) const
+{
+    if (!m_TileCache || !m_NavMesh) {
+        SM_WARN("NavMesh::WriteSection: null tile cache / nav mesh; nothing to save");
+        return false;
+    }
+    const dtTileCacheParams* tcp = m_TileCache->getParams();
+    os.write(reinterpret_cast<const char*>(tcp), sizeof(dtTileCacheParams));
+    const dtNavMeshParams* nmp = m_NavMesh->getParams();
+    os.write(reinterpret_cast<const char*>(nmp), sizeof(dtNavMeshParams));
+
+    const int tileCap = m_TileCache->getTileCount();
+    int tileCount = 0;
+    for (int i = 0; i < tileCap; ++i) {
+        const dtCompressedTile* tile = m_TileCache->getTile(i);
+        if (tile && tile->header && tile->data && tile->dataSize > 0) ++tileCount;
+    }
+    os.write(reinterpret_cast<const char*>(&tileCount), sizeof(tileCount));
+
+    for (int i = 0; i < tileCap; ++i) {
+        const dtCompressedTile* tile = m_TileCache->getTile(i);
+        if (!tile || !tile->header || !tile->data || tile->dataSize <= 0) continue;
+        os.write(reinterpret_cast<const char*>(&tile->dataSize), sizeof(int));
+        os.write(reinterpret_cast<const char*>(tile->data), tile->dataSize);
+    }
+    return static_cast<bool>(os);
+}
+
+std::unique_ptr<NavMesh> NavMesh::ReadSection(std::istream& is)
+{
+    auto out = std::unique_ptr<NavMesh>(new NavMesh());
+
+    dtTileCacheParams tcParams{};
+    is.read(reinterpret_cast<char*>(&tcParams), sizeof(dtTileCacheParams));
+    dtNavMeshParams nmParams{};
+    is.read(reinterpret_cast<char*>(&nmParams), sizeof(dtNavMeshParams));
+    if (!is.good()) { SM_WARN("NavMesh::ReadSection: truncated reading params"); return nullptr; }
+
+    out->m_TileCache = dtAllocTileCache();
+    if (!out->m_TileCache) { SM_WARN("dtAllocTileCache failed"); return nullptr; }
+    if (dtStatusFailed(out->m_TileCache->init(&tcParams,
+                                              out->m_Alloc.Alloc,
+                                              out->m_Alloc.Compressor,
+                                              out->m_Alloc.MeshProc))) {
+        SM_WARN("NavMesh::ReadSection: dtTileCache::init failed");
+        return nullptr;
+    }
+
+    out->m_NavMesh = dtAllocNavMesh();
+    if (!out->m_NavMesh) { SM_WARN("dtAllocNavMesh failed"); return nullptr; }
+    if (dtStatusFailed(out->m_NavMesh->init(&nmParams))) {
+        SM_WARN("NavMesh::ReadSection: dtNavMesh::init failed");
+        return nullptr;
+    }
+
+    int tileCount = 0;
+    is.read(reinterpret_cast<char*>(&tileCount), sizeof(int));
+    if (!is.good() || tileCount < 0 || tileCount > tcParams.maxTiles) {
+        SM_WARN("NavMesh::ReadSection: bad TileCount %d (max %d)", tileCount, tcParams.maxTiles);
+        return nullptr;
+    }
+
+    for (int i = 0; i < tileCount; ++i) {
+        int dataSize = 0;
+        is.read(reinterpret_cast<char*>(&dataSize), sizeof(int));
+        if (!is.good() || dataSize <= 0) {
+            SM_WARN("NavMesh::ReadSection: bad tile %d size %d", i, dataSize);
+            return nullptr;
+        }
+        unsigned char* tileData = (unsigned char*)dtAlloc(dataSize, DT_ALLOC_PERM);
+        if (!tileData) {
+            SM_WARN("NavMesh::ReadSection: dtAlloc(%d) failed for tile %d", dataSize, i);
+            return nullptr;
+        }
+        is.read(reinterpret_cast<char*>(tileData), dataSize);
+        if (!is.good()) {
+            dtFree(tileData);
+            SM_WARN("NavMesh::ReadSection: truncated reading tile %d", i);
+            return nullptr;
+        }
+        dtCompressedTileRef ref = 0;
+        if (dtStatusFailed(out->m_TileCache->addTile(tileData, dataSize,
+                                                    DT_COMPRESSEDTILE_FREE_DATA, &ref))) {
+            dtFree(tileData);
+            SM_WARN("NavMesh::ReadSection: addTile failed for tile %d", i);
+            return nullptr;
+        }
+    }
+
+    {
+        const int tileCap = out->m_TileCache->getTileCount();
+        std::unordered_set<uint64_t> built;
+        for (int i = 0; i < tileCap; ++i) {
+            const dtCompressedTile* tile = out->m_TileCache->getTile(i);
+            if (!tile || !tile->header) continue;
+            const uint64_t key = (uint64_t(uint32_t(tile->header->tx)) << 32)
+                               |  uint64_t(uint32_t(tile->header->ty));
+            if (built.insert(key).second)
+                out->m_TileCache->buildNavMeshTilesAt(tile->header->tx, tile->header->ty,
+                                                     out->m_NavMesh);
+        }
+    }
+
+    out->m_Query = std::unique_ptr<dtNavMeshQuery, NavMeshQueryDeleter>(dtAllocNavMeshQuery());
+    if (!out->m_Query || dtStatusFailed(out->m_Query->init(out->m_NavMesh, 2048))) {
+        SM_WARN("NavMesh::ReadSection: dtNavMeshQuery::init failed");
+        return nullptr;
+    }
+    NavQueryOwnerThread() = std::this_thread::get_id();
+    return out;
+}

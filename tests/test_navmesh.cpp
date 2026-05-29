@@ -3,6 +3,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <thread>
 
 #include <glm/glm.hpp>
@@ -855,6 +856,28 @@ static void T39_obstacle_dilated_by_agent_radius() {
     if (okL) EXPECT(xzDist(outL, probe) > 0.3f);   // large: probe inside dilated hole (~1.5)
 }
 
+// ---------- NavMesh section round-trip: T40 ----------
+static void T40_navmesh_section_roundtrip() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+    auto built = NavMeshSystem::Instance().Current(0);
+    EXPECT(built != nullptr);
+    if (!built) return;
+
+    std::stringstream ss(std::ios::in | std::ios::out | std::ios::binary);
+    EXPECT(built->WriteSection(ss));
+
+    auto loaded = NavMesh::ReadSection(ss);
+    EXPECT(loaded != nullptr);
+    if (!loaded) return;
+    EXPECT(loaded->GetStats().PolyCount == built->GetStats().PolyCount);
+    EXPECT(loaded->GetStats().TilesBuilt == built->GetStats().TilesBuilt);
+    auto pa = built->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0));
+    auto pb = loaded->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0));
+    EXPECT(pa.size() == pb.size());
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -895,6 +918,7 @@ int main() {
     T37_navservices_forclass_queries();
     T38_navservices_legacy_fns_map_to_class0();
     T39_obstacle_dilated_by_agent_radius();
+    T40_navmesh_section_roundtrip();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);
