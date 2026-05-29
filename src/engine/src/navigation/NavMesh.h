@@ -20,6 +20,7 @@ struct dtTileCacheMeshProcess;
 
 struct NavMeshTriangleSoup;          // from NavMeshBuilder.h
 struct NavMeshConfigComponent;       // from ECS.h
+struct NavClassConfig;               // from ECS.h
 
 // Owning RAII wrapper for the per-NavMesh allocator/compressor/process objects
 // so rebuild teardown is clean and we don't leak on shutdown.
@@ -49,7 +50,8 @@ public:
     // Build a navmesh from a triangle soup + config. Returns nullptr on failure
     // (already logged via SM_WARN). Caller atomic-publishes through NavMeshSystem.
     static std::unique_ptr<NavMesh> Build(const NavMeshTriangleSoup& soup,
-                                          const NavMeshConfigComponent& cfg);
+                                          const NavMeshConfigComponent& cfg,
+                                          const NavClassConfig& cls);
 
     NavMesh();
     ~NavMesh();
@@ -66,6 +68,21 @@ public:
     // Snap a world point to the closest poly. Returns false if no poly within
     // search extents (default 2m XZ, 4m Y).
     bool ClosestPoint(const glm::vec3& world, glm::vec3& out) const;
+
+    // Agent (capsule) radius this mesh was built/eroded for, in world units
+    // (the tilecache's walkableRadius). 0 if no tilecache. Used to dilate dynamic
+    // obstacles by the agent radius — Detour's tilecache carves obstacles at their
+    // literal radius with no agent-radius erosion (unlike static geometry).
+    float AgentRadius() const;
+
+    // Constrain a desired move to the navmesh surface (wall-slide via Detour
+    // moveAlongSurface). If `start` has a poly within near extents, returns the
+    // surface-constrained end position (slides along boundaries, never leaves the
+    // mesh). If off-mesh, searches wider recovery extents and returns the nearest
+    // poly point (pull back onto mesh) with a rate-limited SM_WARN; if even that
+    // misses, returns `start` unchanged (no movement). No query / no mesh →
+    // returns `desiredEnd` (unconstrained). GameThread only.
+    glm::vec3 ConstrainMove(const glm::vec3& start, const glm::vec3& desiredEnd) const;
 
     // Collect poly outline edges as line segments (pairs of vec3 — caller draws
     // as DebugAppendLine pairs). Used by DebugRenderPass ShowNavMesh.

@@ -68,7 +68,12 @@ void GameThread::RunLoop() {
             SM_TRACE("GameThread: default world loaded from '%s'", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
 
             // Spec 4: try disk bake first; fall back to runtime Rebuild on miss/stale/error.
-            if (!NavMeshSystem::Instance().TryLoadFromDisk(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH)) {
+            // The on-disk bake is single-mesh only — a multi-class config (ClassCount>1)
+            // must NOT be shadowed by it, so multi-class always Rebuilds at runtime
+            // (multi-class disk bake is a deferred follow-up).
+            const auto* navCfg = gameState.World.GetSingleton<NavMeshConfigComponent>();
+            const bool multiClass = navCfg && navCfg->ClassCount > 1;
+            if (multiClass || !NavMeshSystem::Instance().TryLoadFromDisk(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH)) {
                 if (!m_AppContext->ECSCommandRing.Push(ECSCommand::RebuildNavMesh())) {
                     SM_WARN("GameThread: ECSCommandRing full when posting initial RebuildNavMesh");
                 }

@@ -279,17 +279,30 @@ struct NavMeshSourceComponent {
     NavMeshGeometrySource  Geometry = NavMeshGeometrySource::Unset;
 };
 
+inline constexpr int kMaxNavClasses = 8;
+
+// One agent-radius class. Fixed-cap + trivially-copyable (no heap) so it rides
+// in the ECS snapshot like NavAgentComponent::CachedPath[]. Single source of
+// truth for agent footprint — NavMesh::Build reads these directly.
+struct NavClassConfig {
+    float AgentRadius   = 0.5f;   // agent capsule radius (m) — drives Recast erosion
+    float AgentHeight   = 1.8f;   // agent capsule height (m)
+    float AgentMaxClimb = 0.4f;   // step-up height (m)
+};
+
 // Singleton (one per scene, persisted in world.json Environment block). Recast/Detour
 // build knobs — tune per scene. Indoor/outdoor scenes want very different cell sizes.
 struct NavMeshConfigComponent {
-    float CellSize       = 0.3f;   // voxel XZ size (m)
-    float CellHeight     = 0.2f;   // voxel Y size (m)
-    float AgentRadius    = 0.5f;   // agent capsule radius (m)
-    float AgentHeight    = 1.8f;   // agent capsule height (m)
-    float AgentMaxClimb  = 0.4f;   // step-up height (m)
-    float AgentMaxSlope  = 45.0f;  // max walkable slope (degrees)
-    float TileSize       = 32.0f;  // tile XZ size (voxels per tile edge)
-    int   MaxObstacles   = 128;    // dtTileCache pre-alloc (unused in Spec 1; plumbed for Spec 2)
+    float CellSize      = 0.3f;   // voxel XZ size (m)        — shared across classes
+    float CellHeight    = 0.2f;   // voxel Y size (m)         — shared
+    float AgentMaxSlope = 45.0f;  // max walkable slope (deg) — shared
+    float TileSize      = 32.0f;  // tile XZ size (voxels)    — shared
+    int   MaxObstacles  = 128;    // dtTileCache pre-alloc    — shared
+
+    // Per-radius classes. Invariant: ClassCount >= 1 (a default config has one
+    // class). ClassId on an entity indexes here.
+    NavClassConfig Classes[kMaxNavClasses]{};
+    uint8_t        ClassCount = 1;
 };
 
 // Recast TileCache obstacle shapes. Distinct from ColliderShape because Recast has
@@ -342,6 +355,18 @@ struct NavTargetComponent {
     glm::vec3 Destination{0.0f};
 };
 
+// Opt-in marker: KinematicMovementSystem clamps this entity's per-tick move to
+// the walkable navmesh (wall-slide via NavServices::MoveAlongSurface) before the
+// AABB collider resolve. No fields. Added to directly-controlled movers (the
+// player). Without it, movement is not navmesh-constrained (today's behavior).
+struct NavConstrainedComponent {};
+
+// Per-entity nav class selector: which class mesh (index into
+// NavMeshConfigComponent::Classes) this entity navigates / is constrained to.
+// Carried by NavAgents and by the player (alongside NavConstrainedComponent).
+// Absent → class 0. Out-of-range ClassId → class 0.
+struct NavClassComponent { uint8_t ClassId = 0; };
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -378,7 +403,9 @@ struct NavTargetComponent {
     X(NavMeshConfigComponent) \
     X(NavObstacleComponent) \
     X(NavAgentComponent) \
-    X(NavTargetComponent)
+    X(NavTargetComponent) \
+    X(NavConstrainedComponent) \
+    X(NavClassComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

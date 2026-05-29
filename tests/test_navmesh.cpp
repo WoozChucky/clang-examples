@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 
 #include "ECS.h"
+#include "NavClass.h"
 #include "navigation/NavMesh.h"
 #include "navigation/NavMeshBuilder.h"
 #include "navigation/NavMeshSystem.h"
@@ -629,6 +630,231 @@ static void T27_geometry_mesh_cache_miss_skips_entity() {
     EXPECT(nm != nullptr);  // floor still built; Mesh-source skipped + SM_WARN
 }
 
+// ---------- Navmesh-constrained movement: T28-T30 ----------
+
+static void T28_constrain_open_move_reaches_target() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (!nm) return;
+    // Move 1m across open floor — result should land ~at the target, on the mesh.
+    const glm::vec3 result = nm->ConstrainMove(glm::vec3(0, 0.1f, 0), glm::vec3(1.0f, 0.1f, 0));
+    EXPECT(std::fabs(result.x - 1.0f) < 0.3f);   // advanced ~1m in +X
+    EXPECT(std::fabs(result.z - 0.0f) < 0.3f);   // no lateral drift
+}
+
+static void T29_constrain_into_boundary_clamps_on_mesh() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (!nm) return;
+    // Push from a valid on-mesh point far past the +X boundary. moveAlongSurface
+    // must clamp/slide along the edge: result stays inside the floor bounds and
+    // does NOT reach the requested x=20.
+    const glm::vec3 result = nm->ConstrainMove(glm::vec3(3.0f, 0.1f, 0), glm::vec3(20.0f, 0.1f, 0));
+    EXPECT(result.x < 6.0f);            // clamped near the eroded edge, not at 20
+    EXPECT(std::fabs(result.x) <= 5.5f); // still within the floor extents (on mesh)
+    EXPECT(std::fabs(result.z) <= 5.5f);
+}
+
+static void T30_constrain_offmesh_recovers_toward_mesh() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (!nm) return;
+    // Start ~5.5m off the +X edge (beyond the 2m near-extent, inside the 16m
+    // recovery extent). ConstrainMove should return the nearest poly point —
+    // i.e. pulled back TOWARD the mesh (closer to origin than the start).
+    const glm::vec3 start(10.0f, 0.1f, 0);
+    const glm::vec3 result = nm->ConstrainMove(start, glm::vec3(11.0f, 0.1f, 0));
+    EXPECT(glm::length(result) < glm::length(start)); // moved toward the mesh
+    EXPECT(result.x < start.x);
+}
+
+static void T31_navservices_movealongsurface_forwards() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+
+    const NavServices* svc = TestNavServices();
+    EXPECT(svc->MoveAlongSurface != nullptr);
+    // Open move advances toward the target.
+    const glm::vec3 open = svc->MoveAlongSurface(glm::vec3(0, 0.1f, 0), glm::vec3(1.0f, 0.1f, 0));
+    EXPECT(std::fabs(open.x - 1.0f) < 0.3f);
+    // Into-boundary clamps on mesh (does not reach x=20).
+    const glm::vec3 clamped = svc->MoveAlongSurface(glm::vec3(3.0f, 0.1f, 0), glm::vec3(20.0f, 0.1f, 0));
+    EXPECT(clamped.x < 6.0f);
+}
+
+static void T32_navservices_movealongsurface_no_mesh_returns_desired() {
+    ECS empty;
+    NavMeshSystem::Instance().Rebuild(empty, DefaultCfg());  // empty soup → null current
+    const NavServices* svc = TestNavServices();
+    EXPECT(!svc->HasMesh());
+    const glm::vec3 desiredEnd(7.0f, 1.0f, -2.0f);
+    const glm::vec3 out = svc->MoveAlongSurface(glm::vec3(0, 0, 0), desiredEnd);
+    EXPECT(std::fabs(out.x - desiredEnd.x) < 1e-4f);  // unchanged: no mesh = no constraint
+    EXPECT(std::fabs(out.y - desiredEnd.y) < 1e-4f);
+    EXPECT(std::fabs(out.z - desiredEnd.z) < 1e-4f);
+}
+
+// ---------- Multi-class config: T33 ----------
+static void T33_live_class_count_clamps_to_one() {
+    NavMeshConfigComponent def{};
+    EXPECT(NavLiveClassCount(def) == 1);
+    NavMeshConfigComponent two{}; two.ClassCount = 2;
+    EXPECT(NavLiveClassCount(two) == 2);
+    NavMeshConfigComponent zero{}; zero.ClassCount = 0;
+    EXPECT(NavLiveClassCount(zero) == 1);
+}
+
+// ---------- Per-entity nav class: T34 ----------
+static void T34_resolve_nav_class() {
+    ECS w;
+    const EntityId none = w.CreateEntity();
+    const EntityId c1   = w.CreateEntity();
+    w.AddComponent(c1, NavClassComponent{ /*ClassId*/ 1 });
+    const EntityId cBad = w.CreateEntity();
+    w.AddComponent(cBad, NavClassComponent{ /*ClassId*/ 5 });
+
+    EXPECT(ResolveNavClass(w, none, 2) == 0);   // absent → 0
+    EXPECT(ResolveNavClass(w, c1,   2) == 1);   // in range → its id
+    EXPECT(ResolveNavClass(w, cBad, 2) == 0);   // >= count → 0
+    EXPECT(ResolveNavClass(w, c1,   0) == 0);   // count 0 → 0
+}
+
+// ---------- Multi-class navmesh: T35 ----------
+static void T35_multiclass_build_distinct_erosion() {
+    ECS w;
+    // Floor with a narrow corridor: two walls leave a ~2m-wide gap at the center.
+    // A small agent (r=0.3) fits through; a large agent (r=2.0) is eroded out of
+    // the gap, producing fewer/no walkable polys there. This makes the two class
+    // meshes genuinely diverge (a flat open floor degenerates to 1 poly for both).
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));  // 10x10 floor
+    SpawnNavBox(w, glm::vec3(0, 1.0f,  3.0f), glm::vec3(5.0f, 1.0f, 1.0f));  // wall, +Z side
+    SpawnNavBox(w, glm::vec3(0, 1.0f, -3.0f), glm::vec3(5.0f, 1.0f, 1.0f));  // wall, -Z side
+    NavMeshConfigComponent cfg = DefaultCfg();
+    cfg.ClassCount = 2;
+    cfg.Classes[0] = NavClassConfig{ 0.3f, 1.8f, 0.4f };  // small radius
+    cfg.Classes[1] = NavClassConfig{ 2.0f, 1.8f, 0.4f };  // large radius → erodes more
+    NavMeshSystem::Instance().Rebuild(w, cfg);
+
+    auto small = NavMeshSystem::Instance().Current(0);
+    auto large = NavMeshSystem::Instance().Current(1);
+    EXPECT(small != nullptr);
+    EXPECT(large != nullptr);
+    if (!small || !large) return;
+    const auto ss = small->GetStats();
+    const auto ls = large->GetStats();
+    std::printf("T35: small(r=0.3) Poly=%d Vert=%d | large(r=2.0) Poly=%d Vert=%d\n",
+                ss.PolyCount, ss.VertCount, ls.PolyCount, ls.VertCount);
+    // More erosion → strictly fewer polys for this corridor geometry (verified:
+    // small builds a connected mesh through the gap; large erodes the 2m gap shut).
+    EXPECT(ls.PolyCount < ss.PolyCount);
+    EXPECT(NavMeshSystem::Instance().Current(7) == nullptr);              // out-of-range slot
+}
+
+// ---------- Multi-class obstacle fan-out: T36 ----------
+static void T36_obstacle_blocks_all_classes() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshConfigComponent cfg = DefaultCfg();
+    cfg.ClassCount = 2;
+    cfg.Classes[0] = NavClassConfig{ 0.3f, 1.8f, 0.4f };
+    cfg.Classes[1] = NavClassConfig{ 0.5f, 1.8f, 0.4f };
+    NavMeshSystem::Instance().Rebuild(w, cfg);
+
+    EXPECT(NavMeshSystem::Instance().Current(0)->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0)).size() == 2);
+    EXPECT(NavMeshSystem::Instance().Current(1)->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0)).size() == 2);
+
+    SpawnCylinderObstacle(w, glm::vec3(0,0,0), 1.5f, 2.0f);
+    NavObstacleSyncSystem sync;
+    RunSync(w, sync);
+    DrainTileCache(NavMeshSystem::Instance());
+
+    EXPECT(NavMeshSystem::Instance().Current(0)->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0)).size() > 2);
+    EXPECT(NavMeshSystem::Instance().Current(1)->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0)).size() > 2);
+}
+
+// ---------- Class-aware NavServices: T37-T38 ----------
+static void T37_navservices_forclass_queries() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshConfigComponent cfg = DefaultCfg();
+    cfg.ClassCount = 2;
+    cfg.Classes[0] = NavClassConfig{ 0.3f, 1.8f, 0.4f };
+    cfg.Classes[1] = NavClassConfig{ 0.5f, 1.8f, 0.4f };
+    NavMeshSystem::Instance().Rebuild(w, cfg);
+
+    const NavServices* svc = TestNavServices();
+    EXPECT(svc->HasMeshForClass != nullptr);
+    EXPECT(svc->HasMeshForClass(0));
+    EXPECT(svc->HasMeshForClass(1));
+    EXPECT(!svc->HasMeshForClass(7));
+
+    std::vector<glm::vec3> path;
+    svc->FindPathForClass(1, glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0), 50.0f, &path);
+    EXPECT(path.size() >= 2);
+
+    const glm::vec3 mv = svc->MoveAlongSurfaceForClass(0, glm::vec3(0,0.1f,0), glm::vec3(1.0f,0.1f,0));
+    EXPECT(std::fabs(mv.x - 1.0f) < 0.3f);
+}
+
+static void T38_navservices_legacy_fns_map_to_class0() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());   // single class 0
+    const NavServices* svc = TestNavServices();
+    EXPECT(svc->HasMesh());
+    std::vector<glm::vec3> path;
+    svc->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0), 50.0f, &path);
+    EXPECT(path.size() >= 2);
+}
+
+// ---------- Obstacle dilated per class agent radius: T39 ----------
+static void T39_obstacle_dilated_by_agent_radius() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshConfigComponent cfg = DefaultCfg();
+    cfg.ClassCount = 2;
+    cfg.Classes[0] = NavClassConfig{ 0.2f, 1.8f, 0.4f };   // small agent
+    cfg.Classes[1] = NavClassConfig{ 1.0f, 1.8f, 0.4f };   // large agent
+    NavMeshSystem::Instance().Rebuild(w, cfg);
+
+    // Obstacle radius 0.5 → carved hole ~0.7 (small) vs ~1.5 (large) after dilation.
+    SpawnCylinderObstacle(w, glm::vec3(0, 0, 0), 0.5f, 2.0f);
+    NavObstacleSyncSystem sync;
+    RunSync(w, sync);
+    DrainTileCache(NavMeshSystem::Instance());
+
+    // Probe 1.0 m from the obstacle centre: on-mesh for the small agent (hole ~0.7),
+    // but inside the large agent's dilated hole (~1.5) so ClosestPoint snaps it away.
+    // Compare HORIZONTAL (XZ) distance only — ClosestPoint snaps to the floor surface
+    // (y~0), so a probe Y offset would otherwise dominate.
+    auto xzDist = [](const glm::vec3& a, const glm::vec3& b) {
+        const float dx = a.x - b.x, dz = a.z - b.z;
+        return std::sqrt(dx * dx + dz * dz);
+    };
+    const glm::vec3 probe(1.0f, 0.0f, 0.0f);
+    glm::vec3 outS{}, outL{};
+    auto small = NavMeshSystem::Instance().Current(0);
+    auto large = NavMeshSystem::Instance().Current(1);
+    EXPECT(small && large);
+    if (!small || !large) return;
+    const bool okS = small->ClosestPoint(probe, outS);
+    const bool okL = large->ClosestPoint(probe, outL);
+    EXPECT(okS);
+    EXPECT(okL);
+    if (okS) EXPECT(xzDist(outS, probe) < 0.3f);   // small: probe is walkable (hole ~0.7)
+    if (okL) EXPECT(xzDist(outL, probe) > 0.3f);   // large: probe inside dilated hole (~1.5)
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -657,6 +883,18 @@ int main() {
     T25_navservices_findpath_empty_when_no_mesh();
     T26_geometry_mesh_uses_cached_cpu_data();
     T27_geometry_mesh_cache_miss_skips_entity();
+    T28_constrain_open_move_reaches_target();
+    T29_constrain_into_boundary_clamps_on_mesh();
+    T30_constrain_offmesh_recovers_toward_mesh();
+    T31_navservices_movealongsurface_forwards();
+    T32_navservices_movealongsurface_no_mesh_returns_desired();
+    T33_live_class_count_clamps_to_one();
+    T34_resolve_nav_class();
+    T35_multiclass_build_distinct_erosion();
+    T36_obstacle_blocks_all_classes();
+    T37_navservices_forclass_queries();
+    T38_navservices_legacy_fns_map_to_class0();
+    T39_obstacle_dilated_by_agent_radius();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

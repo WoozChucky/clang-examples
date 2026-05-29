@@ -115,7 +115,8 @@ NavMesh::~NavMesh() {
 
 // ---------- Build ----------
 std::unique_ptr<NavMesh> NavMesh::Build(const NavMeshTriangleSoup& soup,
-                                        const NavMeshConfigComponent& cfg)
+                                        const NavMeshConfigComponent& cfg,
+                                        const NavClassConfig& cls)
 {
     if (soup.Empty || soup.Tris.empty()) {
         SM_WARN("NavMesh::Build called with empty soup; returning null");
@@ -129,9 +130,9 @@ std::unique_ptr<NavMesh> NavMesh::Build(const NavMeshTriangleSoup& soup,
     rcc.cs                     = cfg.CellSize;
     rcc.ch                     = cfg.CellHeight;
     rcc.walkableSlopeAngle     = cfg.AgentMaxSlope;
-    rcc.walkableHeight         = (int)std::ceil(cfg.AgentHeight / cfg.CellHeight);
-    rcc.walkableClimb          = (int)std::floor(cfg.AgentMaxClimb / cfg.CellHeight);
-    rcc.walkableRadius         = (int)std::ceil(cfg.AgentRadius / cfg.CellSize);
+    rcc.walkableHeight         = (int)std::ceil(cls.AgentHeight / cfg.CellHeight);
+    rcc.walkableClimb          = (int)std::floor(cls.AgentMaxClimb / cfg.CellHeight);
+    rcc.walkableRadius         = (int)std::ceil(cls.AgentRadius / cfg.CellSize);
     rcc.maxEdgeLen             = (int)(12.0f / cfg.CellSize);
     rcc.maxSimplificationError = 1.3f;
     rcc.minRegionArea          = (int)rcSqr(8);
@@ -153,7 +154,7 @@ std::unique_ptr<NavMesh> NavMesh::Build(const NavMeshTriangleSoup& soup,
     // cases at exact voxel boundaries.
     const float bmin[3] = { soup.AabbMin.x, soup.AabbMin.y, soup.AabbMin.z };
     const float bmax[3] = { soup.AabbMax.x,
-                            soup.AabbMax.y + cfg.AgentHeight + 1.0f,
+                            soup.AabbMax.y + cls.AgentHeight + 1.0f,
                             soup.AabbMax.z };
     int gw = 0, gh = 0;
     rcCalcGridSize(bmin, bmax, rcc.cs, &gw, &gh);
@@ -167,9 +168,9 @@ std::unique_ptr<NavMesh> NavMesh::Build(const NavMeshTriangleSoup& soup,
     tcParams.ch                     = cfg.CellHeight;
     tcParams.width                  = rcc.tileSize;
     tcParams.height                 = rcc.tileSize;
-    tcParams.walkableHeight         = cfg.AgentHeight;
-    tcParams.walkableRadius         = cfg.AgentRadius;
-    tcParams.walkableClimb          = cfg.AgentMaxClimb;
+    tcParams.walkableHeight         = cls.AgentHeight;
+    tcParams.walkableRadius         = cls.AgentRadius;
+    tcParams.walkableClimb          = cls.AgentMaxClimb;
     tcParams.maxSimplificationError = 1.3f;
     tcParams.maxTiles               = tw * th * 4;        // 4 layers max per tile (Recast sample default)
     tcParams.maxObstacles           = cfg.MaxObstacles;
@@ -377,6 +378,57 @@ bool NavMesh::ClosestPoint(const glm::vec3& world, glm::vec3& out) const
     if (!ref) return false;
     out = glm::vec3(nearest[0], nearest[1], nearest[2]);
     return true;
+}
+
+float NavMesh::AgentRadius() const
+{
+    return m_TileCache ? m_TileCache->getParams()->walkableRadius : 0.0f;
+}
+
+glm::vec3 NavMesh::ConstrainMove(const glm::vec3& start, const glm::vec3& desiredEnd) const
+{
+    SM_ASSERT(std::this_thread::get_id() == NavQueryOwnerThread(),
+              "NavMesh::ConstrainMove called from non-owner thread; dtNavMeshQuery is not thread-safe");
+    if (!m_Query || !m_NavMesh) return desiredEnd;  // no query → unconstrained
+
+    dtQueryFilter filter;
+    filter.setIncludeFlags(0xffff);
+    filter.setExcludeFlags(0);
+
+    const float s[3] = { start.x, start.y, start.z };
+    const float e[3] = { desiredEnd.x, desiredEnd.y, desiredEnd.z };
+
+    // Normal path: small near-extents start-poly lookup, then slide along surface.
+    const float nearExt[3] = { 2.0f, 4.0f, 2.0f };
+    dtPolyRef startRef = 0;
+    float startNearest[3];
+    m_Query->findNearestPoly(s, nearExt, &filter, &startRef, startNearest);
+
+    if (startRef) {
+        float resultPos[3];
+        dtPolyRef visited[16];
+        int nvisited = 0;
+        if (dtStatusFailed(m_Query->moveAlongSurface(startRef, startNearest, e, &filter,
+                                                     resultPos, visited, &nvisited, 16))) {
+            return start;  // query failed → no movement this tick
+        }
+        return glm::vec3(resultPos[0], resultPos[1], resultPos[2]);
+    }
+
+    // Recovery: wider search to pull a displaced entity back toward the mesh.
+    const float recoverExt[3] = { 16.0f, 16.0f, 16.0f };
+    dtPolyRef recoverRef = 0;
+    float recoverNearest[3];
+    m_Query->findNearestPoly(s, recoverExt, &filter, &recoverRef, recoverNearest);
+    if (recoverRef) {
+        // Rate-limit: this fires per tick while off-mesh; log ~once/2s at 60Hz.
+        static int s_offMeshLog = 0;
+        if ((s_offMeshLog++ % 120) == 0) {
+            SM_WARN("NavMesh::ConstrainMove: start off-mesh, recovering toward nearest poly");
+        }
+        return glm::vec3(recoverNearest[0], recoverNearest[1], recoverNearest[2]);
+    }
+    return start;  // fully off-mesh (beyond recovery extents) → freeze this tick
 }
 
 void NavMesh::CollectPolyEdges(std::vector<glm::vec3>& outLines) const
