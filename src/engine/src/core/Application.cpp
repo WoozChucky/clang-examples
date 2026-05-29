@@ -19,7 +19,7 @@ bool Application::Init(std::optional<RendererAPI> backendOverride, OverlayFactor
 
     // Seed the live anti-aliasing toggle from the persisted setting (both exes
     // boot through here; the RenderThread reads GetAntiAliasingSettings()).
-    GetAntiAliasingSettings().FxaaEnabled = m_AppContext->Settings.fxaaEnabled;
+    GetAntiAliasingSettings().Mode = static_cast<AAMode>(m_AppContext->Settings.aaMode);
 
     if (m_AppContext->Settings.Backend == RendererAPI::Invalid) {
         SM_ERROR("Application: resolved backend is Invalid; aborting");

@@ -41,6 +41,7 @@ add_library(Engine SHARED
     src/rendering/passes/DebugRenderPass.cpp
     src/rendering/passes/UiRenderPass.cpp
     src/rendering/passes/FxaaRenderPass.cpp
+    src/rendering/passes/SmaaRenderPass.cpp
 
     # Shader Compilation
     src/rendering/shader/ShaderCompiler.cpp
@@ -78,6 +79,7 @@ target_include_directories(Engine PUBLIC
     src/utilities
     src/navigation
     ${CMAKE_SOURCE_DIR}/third_party/dotnet/include
+    ${CMAKE_SOURCE_DIR}/third_party/smaa/Textures
 )
 
 target_compile_definitions(Engine PUBLIC

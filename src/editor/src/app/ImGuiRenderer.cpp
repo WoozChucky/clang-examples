@@ -328,11 +328,11 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
             EditorPreferences::Save(EditorPreferences::DEFAULT_PREFERENCES_PATH, m_EditorCamera.GetState());
             // FXAA persists in engine_settings.json (engine tier). Only write when it
             // actually changed so unrelated panel edits don't rewrite engine settings.
-            const bool fxaaNow = GetAntiAliasingSettings().FxaaEnabled;
-            if (m_AppContext && fxaaNow != m_AppContext->Settings.fxaaEnabled) {
-                m_AppContext->Settings.fxaaEnabled = fxaaNow;
+            const int aaNow = static_cast<int>(GetAntiAliasingSettings().Mode);
+            if (m_AppContext && aaNow != m_AppContext->Settings.aaMode) {
+                m_AppContext->Settings.aaMode = aaNow;
                 if (!SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH, m_AppContext->Settings)) {
-                    SM_WARN("Failed to persist FXAA toggle to %s", SettingsManager::DEFAULT_SETTINGS_PATH);
+                    SM_WARN("Failed to persist AA mode to %s", SettingsManager::DEFAULT_SETTINGS_PATH);
                 }
             }
         }

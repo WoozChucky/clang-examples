@@ -19,6 +19,7 @@
 #include "MaterialSystem.h"
 
 #include "passes/FxaaRenderPass.h"
+#include "passes/SmaaRenderPass.h"
 
 struct GpuTimer
 {
@@ -220,6 +221,7 @@ private:
     // FXAA resolve pass. Owned here (not in m_RenderPasses) and invoked between the
     // World and Overlay pass loops when FXAA is enabled.
     std::unique_ptr<FxaaRenderPass> m_FxaaPass;
+    std::unique_ptr<SmaaRenderPass> m_SmaaPass;
 
     RendererBackend*            m_Backend = nullptr;
     RendererBackendSettings     m_BackendSettings{};

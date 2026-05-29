@@ -19,7 +19,7 @@ struct ApplicationSettings {
     uint32_t    windowWidth   = 1920;
     uint32_t    windowHeight  = 1080;
     bool        vsyncEnabled  = true;
-    bool        fxaaEnabled   = true;
+    int         aaMode        = 1;   // 0 = Off, 1 = FXAA, 2 = SMAA (see AaModeMigration.h)
 };
 
 // Runtime-configurable game thread settings (Render -> Game)
