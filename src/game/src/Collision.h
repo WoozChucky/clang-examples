@@ -59,6 +59,17 @@ inline glm::vec3 ComputeColliderCenter(const TransformComponent& transform,
     return position + collider.Offset * transform.Scale;
 }
 
+// Distance from the transform origin DOWN to the collider's base, so that
+// Position.Y = surfaceY + GroundOffset(...) places the collider base on the
+// navmesh surface. Used by navmesh ground-snap. (collider base
+// = center.y - halfExtents.y = Position.y + Offset.y*scale.y - halfExtents.y,
+// so the origin sits halfExtents.y - Offset.y*scale.y above the base.)
+inline float GroundOffset(const TransformComponent& transform, const ColliderComponent& collider)
+{
+    return ComputeColliderHalfExtents(transform, collider).y
+         - collider.Offset.y * transform.Scale.y;
+}
+
 inline CollisionAabb BuildCollisionAabb(const TransformComponent& transform,
                                         const ColliderComponent& collider,
                                         const glm::vec3& position)
