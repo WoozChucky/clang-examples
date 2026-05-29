@@ -676,6 +676,33 @@ static void T30_constrain_offmesh_recovers_toward_mesh() {
     EXPECT(result.x < start.x);
 }
 
+static void T31_navservices_movealongsurface_forwards() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+
+    const NavServices* svc = TestNavServices();
+    EXPECT(svc->MoveAlongSurface != nullptr);
+    // Open move advances toward the target.
+    const glm::vec3 open = svc->MoveAlongSurface(glm::vec3(0, 0.1f, 0), glm::vec3(1.0f, 0.1f, 0));
+    EXPECT(std::fabs(open.x - 1.0f) < 0.3f);
+    // Into-boundary clamps on mesh (does not reach x=20).
+    const glm::vec3 clamped = svc->MoveAlongSurface(glm::vec3(3.0f, 0.1f, 0), glm::vec3(20.0f, 0.1f, 0));
+    EXPECT(clamped.x < 6.0f);
+}
+
+static void T32_navservices_movealongsurface_no_mesh_returns_desired() {
+    ECS empty;
+    NavMeshSystem::Instance().Rebuild(empty, DefaultCfg());  // empty soup → null current
+    const NavServices* svc = TestNavServices();
+    EXPECT(!svc->HasMesh());
+    const glm::vec3 desiredEnd(7.0f, 1.0f, -2.0f);
+    const glm::vec3 out = svc->MoveAlongSurface(glm::vec3(0, 0, 0), desiredEnd);
+    EXPECT(std::fabs(out.x - desiredEnd.x) < 1e-4f);  // unchanged: no mesh = no constraint
+    EXPECT(std::fabs(out.y - desiredEnd.y) < 1e-4f);
+    EXPECT(std::fabs(out.z - desiredEnd.z) < 1e-4f);
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -707,6 +734,8 @@ int main() {
     T28_constrain_open_move_reaches_target();
     T29_constrain_into_boundary_clamps_on_mesh();
     T30_constrain_offmesh_recovers_toward_mesh();
+    T31_navservices_movealongsurface_forwards();
+    T32_navservices_movealongsurface_no_mesh_returns_desired();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

@@ -47,4 +47,11 @@ struct NavServices {
     void     (*TrackObstacleForEntity)(EntityId e, uint32_t handle);
     uint32_t (*FindObstacleForEntity)(EntityId e);   // 0 if not tracked
     void     (*UntrackEntity)(EntityId e);
+
+    // ---- Surface constraint (navmesh-constrained movement) ----
+
+    // Constrain a move to the navmesh surface (wall-slide via dtNavMeshQuery::
+    // moveAlongSurface). Off-mesh start → pulls toward nearest poly (recovery).
+    // No mesh → returns desiredEnd unchanged. GameThread only.
+    glm::vec3 (*MoveAlongSurface)(const glm::vec3& start, const glm::vec3& desiredEnd);
 };

@@ -48,6 +48,12 @@ void ForwardUntrackEntity(EntityId e) {
     NavMeshSystem::Instance().UntrackEntity(e);
 }
 
+glm::vec3 ForwardMoveAlongSurface(const glm::vec3& start, const glm::vec3& desiredEnd) {
+    auto nm = NavMeshSystem::Instance().Current();
+    if (!nm) return desiredEnd;   // no mesh → unconstrained
+    return nm->ConstrainMove(start, desiredEnd);
+}
+
 } // namespace
 
 namespace NavServicesImpl {
@@ -62,6 +68,7 @@ void Init(NavServices& out) {
     out.TrackObstacleForEntity = &ForwardTrackObstacleForEntity;
     out.FindObstacleForEntity  = &ForwardFindObstacleForEntity;
     out.UntrackEntity          = &ForwardUntrackEntity;
+    out.MoveAlongSurface       = &ForwardMoveAlongSurface;
 }
 
 } // namespace NavServicesImpl
