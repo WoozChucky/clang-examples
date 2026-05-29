@@ -277,7 +277,13 @@ public:
                 && ctx.Nav && ctx.Nav->HasMesh()) {
                 const glm::vec3 end     = transform->Position + desired;
                 const glm::vec3 clamped = ctx.Nav->MoveAlongSurface(transform->Position, end);
-                navDesired = clamped - transform->Position;
+                // Keep the move planar: take the navmesh-constrained X/Z (wall-slide)
+                // but preserve the input's Y (moveAlongSurface returns the surface
+                // height, which would otherwise snap/fight the entity's Y every tick;
+                // player input is planar — Y stays 0).
+                navDesired = glm::vec3(clamped.x - transform->Position.x,
+                                       desired.y,
+                                       clamped.z - transform->Position.z);
             }
 
             glm::vec3 applied = navDesired;
