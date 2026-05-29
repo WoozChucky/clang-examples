@@ -269,9 +269,20 @@ public:
             const auto* transform = ctx.world.GetComponent<TransformComponent>(e);
             if (!transform) return;
 
-            glm::vec3 applied = desired;
+            // Navmesh constraint (opt-in via NavConstrainedComponent): clamp the
+            // desired move to the walkable surface (wall-slide) BEFORE the AABB
+            // resolve. Skipped when no marker / no nav table / no mesh built.
+            glm::vec3 navDesired = desired;
+            if (ctx.world.HasComponent<NavConstrainedComponent>(e)
+                && ctx.Nav && ctx.Nav->HasMesh()) {
+                const glm::vec3 end     = transform->Position + desired;
+                const glm::vec3 clamped = ctx.Nav->MoveAlongSurface(transform->Position, end);
+                navDesired = clamped - transform->Position;
+            }
+
+            glm::vec3 applied = navDesired;
             if (const auto* collider = ctx.world.GetComponent<ColliderComponent>(e)) {
-                applied = ResolveKinematicMove(ctx.world, e, *transform, *collider, desired).AppliedDelta;
+                applied = ResolveKinematicMove(ctx.world, e, *transform, *collider, navDesired).AppliedDelta;
             }
 
             if (applied.x != 0.0f || applied.y != 0.0f || applied.z != 0.0f) {
