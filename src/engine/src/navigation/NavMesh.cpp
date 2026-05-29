@@ -412,6 +412,16 @@ glm::vec3 NavMesh::ConstrainMove(const glm::vec3& start, const glm::vec3& desire
                                                      resultPos, visited, &nvisited, 16))) {
             return start;  // query failed → no movement this tick
         }
+        // moveAlongSurface clamps XZ to the surface but does NOT recompute the
+        // destination height — resultPos[1] keeps the start Y (or a wall-edge vertex
+        // Y from dtVlerp). Height-correct it to the actual walkable surface at the
+        // result XZ via the last visited poly, so ground-snap follows ramps/steps
+        // (and never inherits a stale/elevated Y).
+        const dtPolyRef endRef = (nvisited > 0) ? visited[nvisited - 1] : startRef;
+        float surfaceH = resultPos[1];
+        if (dtStatusSucceed(m_Query->getPolyHeight(endRef, resultPos, &surfaceH))) {
+            resultPos[1] = surfaceH;
+        }
         return glm::vec3(resultPos[0], resultPos[1], resultPos[2]);
     }
 
