@@ -274,6 +274,8 @@ public:
             const auto* transform = ctx.world.GetComponent<TransformComponent>(e);
             if (!transform) return;
 
+            const auto* collider = ctx.world.GetComponent<ColliderComponent>(e);
+
             // Navmesh constraint (opt-in via NavConstrainedComponent): wall-slide
             // the X/Z move along the walkable surface, and ground-snap Y to the
             // surface height (follows ramps/stairs, rests on the floor). Skipped
@@ -283,23 +285,26 @@ public:
             float groundY    = 0.0f;
             if (ctx.world.HasComponent<NavConstrainedComponent>(e)
                 && ctx.Nav && ctx.Nav->HasMesh()) {
-                const glm::vec3 end     = transform->Position + desired;
+                const float off = collider ? GroundOffset(*transform, *collider) : 0.0f;
+                // Query the navmesh at FOOT level (origin minus the ground offset, i.e.
+                // ~the standing surface), NOT the offset center — otherwise the snapped
+                // center Y feeds back into the next query and findNearestPoly can flip
+                // between stacked walkable surfaces tick-to-tick (vertical jitter).
+                const glm::vec3 foot    = transform->Position - glm::vec3(0.0f, off, 0.0f);
+                const glm::vec3 footEnd  = foot + glm::vec3(desired.x, 0.0f, desired.z);
                 const uint8_t navClass  = ResolveNavClass(ctx.world, e, classCount);
-                const glm::vec3 clamped  = ctx.Nav->MoveAlongSurfaceForClass(navClass, transform->Position, end);
+                const glm::vec3 clamped  = ctx.Nav->MoveAlongSurfaceForClass(navClass, foot, footEnd);
                 // X/Z from the navmesh wall-slide; Y set directly below (ground-snap),
                 // NOT through the AABB resolver — pure floor placement, no vertical physics.
                 navDesired = glm::vec3(clamped.x - transform->Position.x,
                                        0.0f,
                                        clamped.z - transform->Position.z);
                 groundSnap = true;
-                if (const auto* col = ctx.world.GetComponent<ColliderComponent>(e))
-                    groundY = clamped.y + GroundOffset(*transform, *col);
-                else
-                    groundY = clamped.y;
+                groundY    = clamped.y + off;
             }
 
             glm::vec3 applied = navDesired;
-            if (const auto* collider = ctx.world.GetComponent<ColliderComponent>(e)) {
+            if (collider) {
                 applied = ResolveKinematicMove(ctx.world, e, *transform, *collider, navDesired).AppliedDelta;
             }
 
