@@ -29,7 +29,7 @@ struct DebugDrawSettings {
 struct ShadowSettings {
     bool  Enabled        = true;
     float Bias           = 0.0015f;
-    float ShadowDistance = 80.0f;   // world units of camera-frustum slice the shadow map covers
+    float ShadowCoverage = 80.0f;   // world-space width of the ground-focus shadow box
     float NearExtend     = 50.0f;   // light-space near-plane pull-back toward the sun
 };
 

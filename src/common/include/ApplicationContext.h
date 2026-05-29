@@ -22,7 +22,7 @@ struct ApplicationSettings {
     int         aaMode        = 1;   // 0 = Off, 1 = FXAA, 2 = SMAA (see AaModeMigration.h)
     bool        shadowEnabled    = true;
     float       shadowBias       = 0.0015f;
-    float       shadowDistance   = 80.0f;
+    float       shadowCoverage   = 80.0f;
     float       shadowNearExtend = 50.0f;
 };
 

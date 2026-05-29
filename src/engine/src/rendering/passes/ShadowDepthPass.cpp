@@ -102,7 +102,7 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
     {
         const CameraView& cam = m_Renderer->GetActiveCamera();
         const glm::vec3 fwd  = CameraForward(cam.View);
-        const float coverage = glm::max(shadow.ShadowDistance, 1.0f); // box width (world units)
+        const float coverage = glm::max(shadow.ShadowCoverage, 1.0f); // box width (world units)
         if (glm::dot(fwd, fwd) > 0.5f) {                              // valid camera basis
             const glm::vec3 focus = GroundFocus(cam.Position, fwd, coverage);
             radius = coverage * 0.5f;                                 // ortho half-extent

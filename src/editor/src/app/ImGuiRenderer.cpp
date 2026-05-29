@@ -341,11 +341,11 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
             if (m_AppContext &&
                 (sh.Enabled        != m_AppContext->Settings.shadowEnabled  ||
                  sh.Bias           != m_AppContext->Settings.shadowBias     ||
-                 sh.ShadowDistance != m_AppContext->Settings.shadowDistance ||
+                 sh.ShadowCoverage != m_AppContext->Settings.shadowCoverage ||
                  sh.NearExtend     != m_AppContext->Settings.shadowNearExtend)) {
                 m_AppContext->Settings.shadowEnabled    = sh.Enabled;
                 m_AppContext->Settings.shadowBias       = sh.Bias;
-                m_AppContext->Settings.shadowDistance   = sh.ShadowDistance;
+                m_AppContext->Settings.shadowCoverage   = sh.ShadowCoverage;
                 m_AppContext->Settings.shadowNearExtend = sh.NearExtend;
                 if (!SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH, m_AppContext->Settings)) {
                     SM_WARN("Failed to persist shadow settings to %s", SettingsManager::DEFAULT_SETTINGS_PATH);

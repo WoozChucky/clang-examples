@@ -27,7 +27,7 @@ bool Application::Init(std::optional<RendererAPI> backendOverride, OverlayFactor
         ShadowSettings& sh = GetShadowSettings();
         sh.Enabled        = m_AppContext->Settings.shadowEnabled;
         sh.Bias           = m_AppContext->Settings.shadowBias;
-        sh.ShadowDistance = m_AppContext->Settings.shadowDistance;
+        sh.ShadowCoverage = m_AppContext->Settings.shadowCoverage;
         sh.NearExtend     = m_AppContext->Settings.shadowNearExtend;
     }
 
