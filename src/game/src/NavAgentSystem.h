@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include "ECS.h"
+#include "NavClass.h"
 #include "Systems.h"   // SystemContext + NavServices pulled in transitively
 #include "lib.h"       // SM_WARN (currently unused; reserved for future rate-limited no-path logging)
 
@@ -33,6 +34,11 @@ public:
         if (!ctx.Nav || !ctx.Nav->HasMesh()) return;  // no navmesh built yet
         const float dt = static_cast<float>(ctx.dt);
         const uint32_t navVer = ctx.Nav->NavVersion();
+
+        // Live class count from the nav config singleton (default 1).
+        uint8_t classCount = 1;
+        if (const auto* navCfg = ctx.world.GetSingleton<NavMeshConfigComponent>())
+            classCount = NavLiveClassCount(*navCfg);
 
         ctx.world.Each<NavAgentComponent, NavTargetComponent, TransformComponent>(
             [&](EntityId e, const NavAgentComponent& agent,
@@ -70,8 +76,9 @@ public:
                     a.TimeSinceRepath += dt;
 
                     if (needsRepath) {
-                        ctx.Nav->FindPath(tr.Position, target.Destination,
-                                          kFindPathSearchRadius, &m_PathScratch);
+                        const uint8_t navClass = ResolveNavClass(ctx.world, e, classCount);
+                        ctx.Nav->FindPathForClass(navClass, tr.Position, target.Destination,
+                                                  kFindPathSearchRadius, &m_PathScratch);
                         const int n = std::min(static_cast<int>(m_PathScratch.size()),
                                                NavAgentComponent::kMaxPathPoints);
                         for (int i = 0; i < n; ++i) a.CachedPath[i] = m_PathScratch[i];
