@@ -106,7 +106,7 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
         if (glm::dot(fwd, fwd) > 0.5f) {                              // valid camera basis
             const glm::vec3 focus = GroundFocus(cam.Position, fwd, coverage);
             radius = coverage * 0.5f;                                 // ortho half-extent
-            center = SnapToTexelGrid(focus, radius, sunDir, /*shadowMapSize=*/2048);
+            center = SnapToTexelGrid(focus, radius, sunDir, Renderer::kShadowMapSize);
             haveFit = true;
         }
     }
