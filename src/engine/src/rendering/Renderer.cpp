@@ -588,6 +588,7 @@ void Renderer::EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* s
 
 void Renderer::EnsureSsao(uint32_t width, uint32_t height)
 {
+    if (width == 0 || height == 0) return;
     if (m_SsaoRaw && m_SsaoW == width && m_SsaoH == height) return;
     m_SsaoW = width; m_SsaoH = height;
     auto mk = [&](const char* name) {
