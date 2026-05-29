@@ -67,13 +67,10 @@ void GameThread::RunLoop() {
             gameState.WorldLoaded = true;
             SM_TRACE("GameThread: default world loaded from '%s'", WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH);
 
-            // Spec 4: try disk bake first; fall back to runtime Rebuild on miss/stale/error.
-            // The on-disk bake is single-mesh only — a multi-class config (ClassCount>1)
-            // must NOT be shadowed by it, so multi-class always Rebuilds at runtime
-            // (multi-class disk bake is a deferred follow-up).
-            const auto* navCfg = gameState.World.GetSingleton<NavMeshConfigComponent>();
-            const bool multiClass = navCfg && navCfg->ClassCount > 1;
-            if (multiClass || !NavMeshSystem::Instance().TryLoadFromDisk(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH)) {
+            // Try the disk bake first; fall back to a runtime Rebuild on miss/stale/corrupt.
+            // TryLoadFromDisk now handles any class count (multi-class container bake), so the
+            // previous ClassCount>1 bypass is gone.
+            if (!NavMeshSystem::Instance().TryLoadFromDisk(WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH)) {
                 if (!m_AppContext->ECSCommandRing.Push(ECSCommand::RebuildNavMesh())) {
                     SM_WARN("GameThread: ECSCommandRing full when posting initial RebuildNavMesh");
                 }
@@ -121,7 +118,7 @@ void GameThread::RunLoop() {
 
     {
         // Loop trough all *.obj files in assets/models and enqueue load jobs
-        const std::string modelDir = "assets/models";;
+        const std::string modelDir = "assets/models";
         for (const auto& entry : std::filesystem::directory_iterator(modelDir)) {
             if (entry.is_regular_file() && (entry.path().extension() == ".obj") || (entry.path().extension() == ".gltf")) {
                 const std::string objPath = entry.path().string();

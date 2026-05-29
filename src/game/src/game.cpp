@@ -262,8 +262,15 @@ class KinematicMovementSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
         uint8_t classCount = 1;
-        if (const auto* navCfg = ctx.world.GetSingleton<NavMeshConfigComponent>())
+        float   groundBias = 0.0f;
+        if (const auto* navCfg = ctx.world.GetSingleton<NavMeshConfigComponent>()) {
             classCount = NavLiveClassCount(*navCfg);
+            // Recast rasterizes the walkable surface UP to ~CellHeight above the real
+            // mesh (no detail mesh in the tilecache path). Bias ground-snap down by half
+            // a cell so the collider base lands on the true surface in expectation,
+            // instead of floating up to a full cell above it.
+            groundBias = navCfg->CellHeight * 0.5f;
+        }
 
         ctx.world.Each<TransformComponent, MoveIntentComponent>([&](EntityId e) {
             const auto* intent = ctx.world.GetComponent<MoveIntentComponent>(e);
@@ -300,7 +307,7 @@ public:
                                        0.0f,
                                        clamped.z - transform->Position.z);
                 groundSnap = true;
-                groundY    = clamped.y + off;
+                groundY    = clamped.y + off - groundBias;   // counter Recast's half-cell surface lift
             }
 
             glm::vec3 applied = navDesired;

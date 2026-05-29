@@ -7,3 +7,6 @@ third_party/freetype-demos/bin/freetype.dll
 .cache/
 
 compile_commands.json
+
+# Blender auto-save backups
+*.blend1

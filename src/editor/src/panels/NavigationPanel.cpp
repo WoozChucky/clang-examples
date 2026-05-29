@@ -75,11 +75,24 @@ namespace {
         return out;
     }
 
+    // Raw file_time tick count — MUST match NavMeshSystem's GetFileMtimeEpoch so the
+    // freshness comparison (info.WorldMtimeAtBake == currentWorldMtime) is meaningful.
+    // The engine stores this same raw-ticks value at bake time.
     uint64_t PanelFileMtimeEpoch(const std::string& path) {
         std::error_code ec;
         auto ftime = std::filesystem::last_write_time(path, ec);
         if (ec) return 0;
-        const auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(ftime);
+        return static_cast<uint64_t>(ftime.time_since_epoch().count());
+    }
+
+    // Convert a raw file_time tick count (as produced by PanelFileMtimeEpoch /
+    // stored in the bake header's WorldMtimeAtBake) to epoch-seconds for display.
+    uint64_t FileTimeTicksToEpochSeconds(uint64_t ticks) {
+        if (ticks == 0) return 0;
+        const std::filesystem::file_time_type ft{
+            std::filesystem::file_time_type::duration{
+                static_cast<std::filesystem::file_time_type::rep>(ticks)}};
+        const auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(ft);
         return static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::seconds>(
                 sysTime.time_since_epoch()).count());
@@ -181,7 +194,7 @@ void DrawNavigationPanel(const EditorContext& ctx, bool* open)
             if (!info.ValidMagic) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Header: invalid magic");
             } else {
-                ImGui::Text("World.json mtime: %s", FormatEpochUtc(currentWorldMtime).c_str());
+                ImGui::Text("World.json mtime: %s", FormatEpochUtc(FileTimeTicksToEpochSeconds(currentWorldMtime)).c_str());
                 ImGui::Text("Last baked: %s", FormatEpochUtc(info.BakeEpoch).c_str());
                 const bool fresh = (info.WorldMtimeAtBake == currentWorldMtime);
                 if (fresh) {

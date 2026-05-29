@@ -189,7 +189,8 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
     }
 
     if (s.ShowNavMesh) {
-        auto nm = NavMeshSystem::Instance().Current();
+        // Draw the selected class's mesh (Current() defaults to class 0); out-of-range → null.
+        auto nm = NavMeshSystem::Instance().Current(static_cast<uint8_t>(s.NavMeshClass < 0 ? 0 : s.NavMeshClass));
         if (nm) {
             std::vector<glm::vec3> edges;
             nm->CollectPolyEdges(edges);

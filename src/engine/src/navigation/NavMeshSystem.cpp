@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 
 #include "navigation/NavMesh.h"
 #include "navigation/NavMeshBuilder.h"
@@ -11,6 +12,9 @@
 #include "lib.h"
 
 namespace {
+
+constexpr uint32_t kNavMeshBakeMagic   = 0x484D534E;  // 'NMSH'
+constexpr uint32_t kNavMeshBakeVersion = 2;           // v2 = multi-class container
 
 // Derive '<path>.navmesh.bin' from a world.json path by replacing the trailing
 // '.json' extension. If path doesn't end in '.json' (or has no extension),
@@ -24,18 +28,17 @@ std::string DeriveBakePath(const std::string& worldPath) {
     return worldPath + kSuffix;
 }
 
-// fs::last_write_time → seconds since system_clock epoch (uint64).
-// Returns 0 on missing file or any fs error (also our "no bake" sentinel).
+// fs::last_write_time → raw file_time tick count (uint64), used purely as an
+// exact-match staleness signal (stored-at-bake vs current). Returns 0 on missing
+// file or any fs error (also our "no bake" sentinel). We keep the native clock's
+// full resolution (file_time_type ticks — 100 ns on MSVC) rather than truncating
+// to seconds: a sub-second edit to world.json must invalidate the bake, and a
+// 1 s granularity would miss edits made within the same wall-clock second.
 uint64_t GetFileMtimeEpoch(const std::string& path) {
     std::error_code ec;
     auto ftime = std::filesystem::last_write_time(path, ec);
     if (ec) return 0;
-    // file_time_type is implementation-defined epoch; convert via clock_cast
-    // (C++20). MSVC supports clock_cast in C++20+; project is C++23 per CLAUDE.md.
-    const auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(ftime);
-    return static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::seconds>(
-            sysTime.time_since_epoch()).count());
+    return static_cast<uint64_t>(ftime.time_since_epoch().count());
 }
 
 } // namespace
@@ -80,19 +83,12 @@ void NavMeshSystem::Rebuild(const ECS& world,
     m_Obstacles.clear();          // per-class refs invalid against freshly-built tilecaches
     m_ClassCount = liveCount;
 
-    // Disk auto-bake (single-mesh format) only for the single-class case.
-    // Multi-class disk bake is the deferred follow-up (see spec non-goals).
-    // Skips silently when no world path is known (e.g., test harness calling
-    // Rebuild without prior SetWorldPath).
-    if (liveCount == 1 && !m_LastWorldPath.empty()) {
-        auto cur = Current(0);
-        if (cur) {
-            const std::string bakePath = DeriveBakePath(m_LastWorldPath);
-            const uint64_t worldMtime = GetFileMtimeEpoch(m_LastWorldPath);
-            if (!cur->SaveToFile(bakePath, worldMtime)) {
-                SM_WARN("NavMeshSystem::Rebuild: failed to write disk bake to '%s'", bakePath.c_str());
-            }
-        }
+    // Auto-bake the full multi-class container so subsequent startups skip Rebuild.
+    // Skips silently when no world path is known (e.g. test harness without SetWorldPath).
+    if (!m_LastWorldPath.empty()) {
+        const std::string bakePath = DeriveBakePath(m_LastWorldPath);
+        if (!WriteBake(bakePath, GetFileMtimeEpoch(m_LastWorldPath)))
+            SM_WARN("NavMeshSystem::Rebuild: failed to write disk bake to '%s'", bakePath.c_str());
     }
 }
 
@@ -192,10 +188,33 @@ const std::string& NavMeshSystem::GetWorldPath() const {
     return m_LastWorldPath;
 }
 
-bool NavMeshSystem::SaveCurrentToDisk() {
-    auto cur = Current(0);
-    if (!cur) {
-        SM_WARN("NavMeshSystem::SaveCurrentToDisk: no current NavMesh; nothing to save");
+bool NavMeshSystem::WriteBake(const std::string& bakePath, uint64_t worldMtime) const
+{
+    std::ofstream ofs(bakePath, std::ios::binary);
+    if (!ofs) { SM_WARN("NavMeshSystem::WriteBake: cannot open '%s' for write", bakePath.c_str()); return false; }
+
+    const uint32_t magic = kNavMeshBakeMagic, version = kNavMeshBakeVersion;
+    const uint64_t bakeEpoch = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    ofs.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
+    ofs.write(reinterpret_cast<const char*>(&version), sizeof(version));
+    ofs.write(reinterpret_cast<const char*>(&bakeEpoch), sizeof(bakeEpoch));
+    ofs.write(reinterpret_cast<const char*>(&worldMtime), sizeof(worldMtime));
+    ofs.write(reinterpret_cast<const char*>(&m_ClassCount), sizeof(m_ClassCount));  // uint8_t
+
+    for (uint8_t i = 0; i < m_ClassCount; ++i) {
+        auto cur = Current(i);
+        if (!cur) { SM_WARN("NavMeshSystem::WriteBake: null slot %u", (unsigned)i); return false; }
+        if (!cur->WriteSection(ofs)) return false;
+    }
+    return ofs.good();
+}
+
+bool NavMeshSystem::SaveCurrentToDisk()
+{
+    if (m_ClassCount == 0) {
+        SM_WARN("NavMeshSystem::SaveCurrentToDisk: no navmesh; nothing to save");
         return false;
     }
     if (m_LastWorldPath.empty()) {
@@ -203,45 +222,67 @@ bool NavMeshSystem::SaveCurrentToDisk() {
         return false;
     }
     const std::string bakePath = DeriveBakePath(m_LastWorldPath);
-    const uint64_t worldMtime = GetFileMtimeEpoch(m_LastWorldPath);
-    if (!cur->SaveToFile(bakePath, worldMtime)) {
-        SM_WARN("NavMeshSystem::SaveCurrentToDisk: SaveToFile failed for '%s'", bakePath.c_str());
+    if (!WriteBake(bakePath, GetFileMtimeEpoch(m_LastWorldPath))) {
+        SM_WARN("NavMeshSystem::SaveCurrentToDisk: WriteBake failed for '%s'", bakePath.c_str());
         return false;
     }
-    SM_TRACE("NavMeshSystem::SaveCurrentToDisk: wrote '%s'", bakePath.c_str());
+    SM_TRACE("NavMeshSystem::SaveCurrentToDisk: wrote '%s' (%u classes)", bakePath.c_str(), (unsigned)m_ClassCount);
     return true;
 }
 
-bool NavMeshSystem::TryLoadFromDisk(const std::string& worldPath) {
+bool NavMeshSystem::TryLoadFromDisk(const std::string& worldPath)
+{
     const std::string bakePath = DeriveBakePath(worldPath);
-    if (!std::filesystem::exists(bakePath)) {
-        SM_TRACE("NavMeshSystem::TryLoadFromDisk: no bake at '%s'; will Rebuild", bakePath.c_str());
+    std::ifstream ifs(bakePath, std::ios::binary);
+    if (!ifs) { SM_TRACE("NavMeshSystem::TryLoadFromDisk: no bake at '%s'; will Rebuild", bakePath.c_str()); return false; }
+
+    uint32_t magic = 0, version = 0;
+    uint64_t bakeEpoch = 0, storedMtime = 0;
+    uint8_t  classCount = 0;
+    ifs.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+    if (!ifs.good() || magic != kNavMeshBakeMagic) {
+        SM_WARN("NavMeshSystem::TryLoadFromDisk: '%s' bad magic", bakePath.c_str()); return false;
+    }
+    ifs.read(reinterpret_cast<char*>(&version), sizeof(version));
+    if (!ifs.good() || version != kNavMeshBakeVersion) {
+        SM_WARN("NavMeshSystem::TryLoadFromDisk: '%s' unsupported version %u (expected %u); will Rebuild",
+                bakePath.c_str(), version, kNavMeshBakeVersion);
+        return false;
+    }
+    ifs.read(reinterpret_cast<char*>(&bakeEpoch), sizeof(bakeEpoch));
+    ifs.read(reinterpret_cast<char*>(&storedMtime), sizeof(storedMtime));
+    ifs.read(reinterpret_cast<char*>(&classCount), sizeof(classCount));
+    if (!ifs.good()) { SM_WARN("NavMeshSystem::TryLoadFromDisk: '%s' truncated header", bakePath.c_str()); return false; }
+    if (classCount == 0 || classCount > kMaxNavClasses) {
+        SM_WARN("NavMeshSystem::TryLoadFromDisk: '%s' bad classCount %u", bakePath.c_str(), (unsigned)classCount);
         return false;
     }
 
-    uint64_t storedWorldMtime = 0;
-    auto fresh = NavMesh::LoadFromFile(bakePath, &storedWorldMtime);
-    if (!fresh) {
-        // LoadFromFile already SM_WARNed with cause.
+    const uint64_t currentMtime = GetFileMtimeEpoch(worldPath);
+    if (storedMtime != currentMtime) {
+        SM_TRACE("NavMeshSystem::TryLoadFromDisk: '%s' stale (stored %llu != current %llu); will Rebuild",
+                 bakePath.c_str(), storedMtime, currentMtime);
         return false;
     }
 
-    const uint64_t currentWorldMtime = GetFileMtimeEpoch(worldPath);
-    if (storedWorldMtime != currentWorldMtime) {
-        SM_TRACE("NavMeshSystem::TryLoadFromDisk: '%s' stale "
-                 "(stored mtime %llu != current %llu); will Rebuild",
-                 bakePath.c_str(), storedWorldMtime, currentWorldMtime);
-        return false;  // fresh NavMesh discarded; minor waste, edge case
+    // Read ALL sections before publishing, so a mid-file failure leaves the live meshes intact.
+    std::array<std::shared_ptr<const NavMesh>, kMaxNavClasses> loaded{};
+    for (uint8_t i = 0; i < classCount; ++i) {
+        auto sec = NavMesh::ReadSection(ifs);
+        if (!sec) {
+            SM_WARN("NavMeshSystem::TryLoadFromDisk: '%s' section %u failed; will Rebuild", bakePath.c_str(), (unsigned)i);
+            return false;
+        }
+        loaded[i] = std::shared_ptr<const NavMesh>(std::move(sec));
     }
 
-    m_EntityToObstacle.clear();   // same invariant as Rebuild — new tilecache, old refs invalid
-    m_Obstacles.clear();          // per-class refs invalid against freshly-loaded tilecache
+    m_EntityToObstacle.clear();
+    m_Obstacles.clear();
     m_LastWorldPath = worldPath;
-    std::shared_ptr<const NavMesh> shared(std::move(fresh));
-    PublishNavMesh(0, shared);
-    for (uint8_t i = 1; i < kMaxNavClasses; ++i) PublishNavMesh(i, {});   // clear stale slots
-    m_ClassCount = 1;   // disk bake is single-mesh format → one live slot
-    SM_TRACE("NavMeshSystem::TryLoadFromDisk: loaded '%s'", bakePath.c_str());
+    for (uint8_t i = 0; i < classCount; ++i) PublishNavMesh(i, loaded[i]);
+    for (uint8_t i = classCount; i < kMaxNavClasses; ++i) PublishNavMesh(i, {});
+    m_ClassCount = classCount;
+    SM_TRACE("NavMeshSystem::TryLoadFromDisk: loaded '%s' (%u classes)", bakePath.c_str(), (unsigned)classCount);
     return true;
 }
 

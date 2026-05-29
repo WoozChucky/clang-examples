@@ -412,6 +412,16 @@ glm::vec3 NavMesh::ConstrainMove(const glm::vec3& start, const glm::vec3& desire
                                                      resultPos, visited, &nvisited, 16))) {
             return start;  // query failed → no movement this tick
         }
+        // moveAlongSurface clamps XZ to the surface but does NOT recompute the
+        // destination height — resultPos[1] keeps the start Y (or a wall-edge vertex
+        // Y from dtVlerp). Height-correct it to the actual walkable surface at the
+        // result XZ via the last visited poly, so ground-snap follows ramps/steps
+        // (and never inherits a stale/elevated Y).
+        const dtPolyRef endRef = (nvisited > 0) ? visited[nvisited - 1] : startRef;
+        float surfaceH = resultPos[1];
+        if (dtStatusSucceed(m_Query->getPolyHeight(endRef, resultPos, &surfaceH))) {
+            resultPos[1] = surfaceH;
+        }
         return glm::vec3(resultPos[0], resultPos[1], resultPos[2]);
     }
 
@@ -512,173 +522,97 @@ void NavMesh::RemoveObstacle(uint32_t ref)
     m_TileCache->removeObstacle(static_cast<dtObstacleRef>(ref));
 }
 
-// ---------- Spec 4: SaveToFile / LoadFromFile ----------
+// ---------- Multi-class container sections: WriteSection / ReadSection ----------
 
-namespace {
-constexpr uint32_t kNavMeshBakeMagic   = 0x484D534E;  // 'NMSH' little-endian
-constexpr uint32_t kNavMeshBakeVersion = 1;
-}
-
-bool NavMesh::SaveToFile(const std::string& path, uint64_t worldMtimeAtBake) const
+bool NavMesh::WriteSection(std::ostream& os) const
 {
     if (!m_TileCache || !m_NavMesh) {
-        SM_WARN("NavMesh::SaveToFile: null tile cache / nav mesh; nothing to save");
+        SM_WARN("NavMesh::WriteSection: null tile cache / nav mesh; nothing to save");
         return false;
     }
-
-    std::ofstream ofs(path, std::ios::binary);
-    if (!ofs) {
-        SM_WARN("NavMesh::SaveToFile: cannot open '%s' for write", path.c_str());
-        return false;
-    }
-
-    // Header
-    const uint32_t magic   = kNavMeshBakeMagic;
-    const uint32_t version = kNavMeshBakeVersion;
-    const uint64_t bakeEpoch = static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count());
-
-    ofs.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
-    ofs.write(reinterpret_cast<const char*>(&version), sizeof(version));
-    ofs.write(reinterpret_cast<const char*>(&bakeEpoch), sizeof(bakeEpoch));
-    ofs.write(reinterpret_cast<const char*>(&worldMtimeAtBake), sizeof(worldMtimeAtBake));
-
-    // dtTileCacheParams + dtNavMeshParams (raw POD bytes)
     const dtTileCacheParams* tcp = m_TileCache->getParams();
-    ofs.write(reinterpret_cast<const char*>(tcp), sizeof(dtTileCacheParams));
-
+    os.write(reinterpret_cast<const char*>(tcp), sizeof(dtTileCacheParams));
     const dtNavMeshParams* nmp = m_NavMesh->getParams();
-    ofs.write(reinterpret_cast<const char*>(nmp), sizeof(dtNavMeshParams));
+    os.write(reinterpret_cast<const char*>(nmp), sizeof(dtNavMeshParams));
 
-    // Count actually-populated tiles first (m_params.maxTiles is capacity, not used count).
     const int tileCap = m_TileCache->getTileCount();
     int tileCount = 0;
     for (int i = 0; i < tileCap; ++i) {
         const dtCompressedTile* tile = m_TileCache->getTile(i);
-        if (tile && tile->header && tile->data && tile->dataSize > 0) {
-            ++tileCount;
-        }
+        if (tile && tile->header && tile->data && tile->dataSize > 0) ++tileCount;
     }
-    ofs.write(reinterpret_cast<const char*>(&tileCount), sizeof(tileCount));
+    os.write(reinterpret_cast<const char*>(&tileCount), sizeof(tileCount));
 
-    // Per-tile: dataSize + full blob (header + compressed payload). dtTileCache::addTile
-    // expects the whole blob — header is parsed in-place from the first bytes, then
-    // `compressed` is set to `data + sizeof(dtTileCacheLayerHeader)` internally.
     for (int i = 0; i < tileCap; ++i) {
         const dtCompressedTile* tile = m_TileCache->getTile(i);
         if (!tile || !tile->header || !tile->data || tile->dataSize <= 0) continue;
-        ofs.write(reinterpret_cast<const char*>(&tile->dataSize), sizeof(int));
-        ofs.write(reinterpret_cast<const char*>(tile->data), tile->dataSize);
+        os.write(reinterpret_cast<const char*>(&tile->dataSize), sizeof(int));
+        os.write(reinterpret_cast<const char*>(tile->data), tile->dataSize);
     }
-
-    return ofs.good();
+    return static_cast<bool>(os);
 }
 
-std::unique_ptr<NavMesh> NavMesh::LoadFromFile(const std::string& path, uint64_t* outWorldMtime)
+std::unique_ptr<NavMesh> NavMesh::ReadSection(std::istream& is)
 {
-    if (outWorldMtime) *outWorldMtime = 0;
-
-    std::ifstream ifs(path, std::ios::binary);
-    if (!ifs) {
-        SM_WARN("NavMesh::LoadFromFile: cannot open '%s' for read", path.c_str());
-        return nullptr;
-    }
-
-    // Header — read + validate each field separately so a short file reports the
-    // actual failure (truncation) rather than a confusing "bad magic" with matching
-    // values (which happens when magic reads OK but EOF hits during a later field).
-    uint32_t magic = 0, version = 0;
-    uint64_t bakeEpoch = 0, worldMtime = 0;
-    ifs.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-    if (!ifs.good() || magic != kNavMeshBakeMagic) {
-        SM_WARN("NavMesh::LoadFromFile: '%s' bad magic (got 0x%08x, expected 0x%08x)",
-                path.c_str(), magic, kNavMeshBakeMagic);
-        return nullptr;
-    }
-    ifs.read(reinterpret_cast<char*>(&version), sizeof(version));
-    if (!ifs.good() || version != kNavMeshBakeVersion) {
-        SM_WARN("NavMesh::LoadFromFile: '%s' unsupported format version %u (expected %u)",
-                path.c_str(), version, kNavMeshBakeVersion);
-        return nullptr;
-    }
-    ifs.read(reinterpret_cast<char*>(&bakeEpoch), sizeof(bakeEpoch));
-    ifs.read(reinterpret_cast<char*>(&worldMtime), sizeof(worldMtime));
-    if (!ifs.good()) {
-        SM_WARN("NavMesh::LoadFromFile: '%s' truncated reading header", path.c_str());
-        return nullptr;
-    }
-    if (outWorldMtime) *outWorldMtime = worldMtime;
-
     auto out = std::unique_ptr<NavMesh>(new NavMesh());
 
-    // Params
     dtTileCacheParams tcParams{};
-    ifs.read(reinterpret_cast<char*>(&tcParams), sizeof(dtTileCacheParams));
+    is.read(reinterpret_cast<char*>(&tcParams), sizeof(dtTileCacheParams));
     dtNavMeshParams nmParams{};
-    ifs.read(reinterpret_cast<char*>(&nmParams), sizeof(dtNavMeshParams));
-    if (!ifs.good()) {
-        SM_WARN("NavMesh::LoadFromFile: '%s' truncated reading params", path.c_str());
-        return nullptr;
-    }
+    is.read(reinterpret_cast<char*>(&nmParams), sizeof(dtNavMeshParams));
+    if (!is.good()) { SM_WARN("NavMesh::ReadSection: truncated reading params"); return nullptr; }
 
-    // dtTileCache init
     out->m_TileCache = dtAllocTileCache();
     if (!out->m_TileCache) { SM_WARN("dtAllocTileCache failed"); return nullptr; }
     if (dtStatusFailed(out->m_TileCache->init(&tcParams,
                                               out->m_Alloc.Alloc,
                                               out->m_Alloc.Compressor,
                                               out->m_Alloc.MeshProc))) {
-        SM_WARN("NavMesh::LoadFromFile: dtTileCache::init failed");
+        SM_WARN("NavMesh::ReadSection: dtTileCache::init failed");
         return nullptr;
     }
 
-    // dtNavMesh init
     out->m_NavMesh = dtAllocNavMesh();
     if (!out->m_NavMesh) { SM_WARN("dtAllocNavMesh failed"); return nullptr; }
     if (dtStatusFailed(out->m_NavMesh->init(&nmParams))) {
-        SM_WARN("NavMesh::LoadFromFile: dtNavMesh::init failed");
+        SM_WARN("NavMesh::ReadSection: dtNavMesh::init failed");
         return nullptr;
     }
 
-    // Per-tile read + addTile
     int tileCount = 0;
-    ifs.read(reinterpret_cast<char*>(&tileCount), sizeof(int));
-    if (!ifs.good() || tileCount < 0 || tileCount > tcParams.maxTiles) {
-        SM_WARN("NavMesh::LoadFromFile: '%s' bad TileCount %d (max %d)",
-                path.c_str(), tileCount, tcParams.maxTiles);
+    is.read(reinterpret_cast<char*>(&tileCount), sizeof(int));
+    if (!is.good() || tileCount < 0 || tileCount > tcParams.maxTiles) {
+        SM_WARN("NavMesh::ReadSection: bad TileCount %d (max %d)", tileCount, tcParams.maxTiles);
         return nullptr;
     }
 
     for (int i = 0; i < tileCount; ++i) {
         int dataSize = 0;
-        ifs.read(reinterpret_cast<char*>(&dataSize), sizeof(int));
-        if (!ifs.good() || dataSize <= 0) {
-            SM_WARN("NavMesh::LoadFromFile: '%s' bad tile %d size %d", path.c_str(), i, dataSize);
+        is.read(reinterpret_cast<char*>(&dataSize), sizeof(int));
+        if (!is.good() || dataSize <= 0) {
+            SM_WARN("NavMesh::ReadSection: bad tile %d size %d", i, dataSize);
             return nullptr;
         }
         unsigned char* tileData = (unsigned char*)dtAlloc(dataSize, DT_ALLOC_PERM);
         if (!tileData) {
-            SM_WARN("NavMesh::LoadFromFile: dtAlloc(%d) failed for tile %d", dataSize, i);
+            SM_WARN("NavMesh::ReadSection: dtAlloc(%d) failed for tile %d", dataSize, i);
             return nullptr;
         }
-        ifs.read(reinterpret_cast<char*>(tileData), dataSize);
-        if (!ifs.good()) {
+        is.read(reinterpret_cast<char*>(tileData), dataSize);
+        if (!is.good()) {
             dtFree(tileData);
-            SM_WARN("NavMesh::LoadFromFile: '%s' truncated reading tile %d", path.c_str(), i);
+            SM_WARN("NavMesh::ReadSection: truncated reading tile %d", i);
             return nullptr;
         }
         dtCompressedTileRef ref = 0;
         if (dtStatusFailed(out->m_TileCache->addTile(tileData, dataSize,
                                                     DT_COMPRESSEDTILE_FREE_DATA, &ref))) {
             dtFree(tileData);
-            SM_WARN("NavMesh::LoadFromFile: dtTileCache::addTile failed for tile %d", i);
+            SM_WARN("NavMesh::ReadSection: addTile failed for tile %d", i);
             return nullptr;
         }
     }
 
-    // Build nav mesh tiles from the compressed tile cache (same final pass as Build).
-    // Iterate loaded tiles, dedupe (tx, ty) via a uint64-key set.
     {
         const int tileCap = out->m_TileCache->getTileCount();
         std::unordered_set<uint64_t> built;
@@ -687,20 +621,17 @@ std::unique_ptr<NavMesh> NavMesh::LoadFromFile(const std::string& path, uint64_t
             if (!tile || !tile->header) continue;
             const uint64_t key = (uint64_t(uint32_t(tile->header->tx)) << 32)
                                |  uint64_t(uint32_t(tile->header->ty));
-            if (built.insert(key).second) {
+            if (built.insert(key).second)
                 out->m_TileCache->buildNavMeshTilesAt(tile->header->tx, tile->header->ty,
                                                      out->m_NavMesh);
-            }
         }
     }
 
-    // Init query + pin thread (same as Build).
     out->m_Query = std::unique_ptr<dtNavMeshQuery, NavMeshQueryDeleter>(dtAllocNavMeshQuery());
     if (!out->m_Query || dtStatusFailed(out->m_Query->init(out->m_NavMesh, 2048))) {
-        SM_WARN("NavMesh::LoadFromFile: dtNavMeshQuery::init failed");
+        SM_WARN("NavMesh::ReadSection: dtNavMeshQuery::init failed");
         return nullptr;
     }
     NavQueryOwnerThread() = std::this_thread::get_id();
-
     return out;
 }
