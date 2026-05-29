@@ -25,6 +25,7 @@
 #include "inspector/NavObstacleEditor.h"
 #include "inspector/NavAgentEditor.h"
 #include "inspector/NavTargetEditor.h"
+#include "inspector/NavConstrainedEditor.h"
 
 EcsInspectorPanel::EcsInspectorPanel() {
     // Registry order == display order.
@@ -43,6 +44,7 @@ EcsInspectorPanel::EcsInspectorPanel() {
     m_Editors.push_back(std::make_unique<NavObstacleEditor>());
     m_Editors.push_back(std::make_unique<NavAgentEditor>());
     m_Editors.push_back(std::make_unique<NavTargetEditor>());
+    m_Editors.push_back(std::make_unique<NavConstrainedEditor>());
 }
 
 void EcsInspectorPanel::Draw(const EditorContext& ctx)

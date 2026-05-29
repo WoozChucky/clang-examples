@@ -37,6 +37,7 @@ add_executable(editor
     src/panels/inspector/NavObstacleEditor.cpp
     src/panels/inspector/NavAgentEditor.cpp
     src/panels/inspector/NavTargetEditor.cpp
+    src/panels/inspector/NavConstrainedEditor.cpp
 
     # Viewport interaction + editor camera
     src/viewport/SceneViewport.cpp
