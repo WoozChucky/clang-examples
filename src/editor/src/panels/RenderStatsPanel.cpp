@@ -3,6 +3,7 @@
 #include <imgui.h>
 
 #include "RenderStats.h" // resolved via the editor's Engine PUBLIC include dirs (same as StagingBufferPool.h in MemoryPanel)
+#include "ECS.h"         // kMaxNavClasses (NavMesh debug class selector bound)
 
 bool DrawRenderStatsPanel(bool* open)
 {
@@ -30,6 +31,13 @@ bool DrawRenderStatsPanel(bool* open)
     changed |= ImGui::Checkbox("Grid",           &dd.ShowGrid);
     changed |= ImGui::Checkbox("Colliders",      &dd.ShowColliders);
     changed |= ImGui::Checkbox("NavMesh",        &dd.ShowNavMesh);
+    if (dd.ShowNavMesh) {
+        // Which class mesh to draw — the player's class may differ from class 0.
+        if (ImGui::DragInt("NavMesh class", &dd.NavMeshClass, 0.1f, 0, kMaxNavClasses - 1)) {
+            dd.NavMeshClass = dd.NavMeshClass < 0 ? 0 : (dd.NavMeshClass > kMaxNavClasses - 1 ? kMaxNavClasses - 1 : dd.NavMeshClass);
+            changed = true;
+        }
+    }
     changed |= ImGui::Checkbox("Obstacles",      &dd.ShowObstacles);
     changed |= ImGui::Checkbox("Nav Paths",      &dd.ShowNavPaths);
 

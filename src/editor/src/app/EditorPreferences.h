@@ -35,6 +35,7 @@ inline nlohmann::json PrefsToJson(const CullingSettings& culling,
             {"navmesh",       debug.ShowNavMesh},
             {"obstacles",     debug.ShowObstacles},
             {"navpaths",      debug.ShowNavPaths},
+            {"navmeshClass",  debug.NavMeshClass},
         }},
         {"camera", {
             {"position", { camera.Position.x, camera.Position.y, camera.Position.z }},
@@ -67,6 +68,7 @@ inline void PrefsFromJson(const nlohmann::json& j,
         if (d.contains("navmesh")       && d["navmesh"].is_boolean())       debug.ShowNavMesh       = d["navmesh"].get<bool>();
         if (d.contains("obstacles")     && d["obstacles"].is_boolean())     debug.ShowObstacles     = d["obstacles"].get<bool>();
         if (d.contains("navpaths")      && d["navpaths"].is_boolean())      debug.ShowNavPaths      = d["navpaths"].get<bool>();
+        if (d.contains("navmeshClass")  && d["navmeshClass"].is_number_integer()) debug.NavMeshClass = d["navmeshClass"].get<int>();
     }
     if (j.contains("camera") && j["camera"].is_object()) {
         const auto& cam = j["camera"];
