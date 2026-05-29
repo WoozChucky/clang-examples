@@ -13,6 +13,7 @@
 #include "passes/DebugRenderPass.h"
 #include "passes/GBufferFillPass.h"
 #include "passes/LightingRenderPass.h"
+#include "passes/SsaoRenderPass.h"
 #include "passes/SkyRenderPass.h"
 #include "passes/ShadowDepthPass.h"
 
@@ -106,6 +107,10 @@ bool Renderer::Init(const RendererAPI api) {
     }
     AddRenderPass(std::move(gbufferPass));
 
+    auto ssaoPass = std::make_unique<SsaoRenderPass>();
+    if (!ssaoPass->Initialize(m_Device, this)) { SM_ERROR("Failed to initialize SsaoRenderPass"); return false; }
+    AddRenderPass(std::move(ssaoPass));
+
     auto lightingPass = std::make_unique<LightingRenderPass>();
     if (!lightingPass->Initialize(m_Device, this)) {
         SM_ERROR("Failed to initialize LightingRenderPass");
@@ -196,6 +201,9 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     m_ShadowSampler = nullptr;
     ReleaseGBuffer();
     ReleaseSceneColor();
+    m_SsaoRaw = nullptr; m_SsaoBlur = nullptr;
+    m_SsaoRawFb = nullptr; m_SsaoBlurFb = nullptr;
+    m_SsaoW = m_SsaoH = 0;
 
     if (m_CommandList) {
         m_CommandList = nullptr;
@@ -249,6 +257,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 const auto& fbinfo = sceneBuffer->getFramebufferInfo();
                 EnsureGBuffer(fbinfo.width, fbinfo.height,
                               sceneBuffer->getDesc().depthAttachment.texture);
+                EnsureSsao(fbinfo.width, fbinfo.height);
             }
 
             {
@@ -394,6 +403,11 @@ void Renderer::Resize(const uint32_t width, const uint32_t height) {
         m_FxaaPass->OnResize(width, height);
     }
     if (m_SmaaPass) { m_SmaaPass->OnResize(width, height); }
+
+    // Force the SSAO targets to rebuild at the new size (they are size-guarded by EnsureSsao).
+    m_SsaoW = m_SsaoH = 0;
+    m_SsaoRawFb = nullptr;
+    m_SsaoBlurFb = nullptr;
 
     if (m_Backend) {
         m_Backend->ResizeSwapChain(width, height);
@@ -572,6 +586,23 @@ void Renderer::EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* s
     m_GBuffer.Fb = fb;
 }
 
+void Renderer::EnsureSsao(uint32_t width, uint32_t height)
+{
+    if (m_SsaoRaw && m_SsaoW == width && m_SsaoH == height) return;
+    m_SsaoW = width; m_SsaoH = height;
+    auto mk = [&](const char* name) {
+        nvrhi::TextureDesc td; td.width = width; td.height = height; td.format = nvrhi::Format::R8_UNORM;
+        td.dimension = nvrhi::TextureDimension::Texture2D; td.isRenderTarget = true; td.isShaderResource = true;
+        td.debugName = name; td.initialState = nvrhi::ResourceStates::ShaderResource; td.keepInitialState = true;
+        td.clearValue = nvrhi::Color(1.f); td.useClearValue = true;
+        return m_Device->createTexture(td);
+    };
+    m_SsaoRaw  = mk("SSAO.Raw");
+    m_SsaoBlur = mk("SSAO.Blur");
+    m_SsaoRawFb  = m_Device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_SsaoRaw));
+    m_SsaoBlurFb = m_Device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_SsaoBlur));
+}
+
 void Renderer::ReleaseSceneColor()
 {
     m_SceneColor = SceneColorTarget{};
@@ -644,6 +675,9 @@ void Renderer::TeardownForSwap()
     m_ShadowSampler = nullptr;
     ReleaseGBuffer();
     ReleaseSceneColor();
+    m_SsaoRaw = nullptr; m_SsaoBlur = nullptr;
+    m_SsaoRawFb = nullptr; m_SsaoBlurFb = nullptr;
+    m_SsaoW = m_SsaoH = 0;
 
     // Flush the deferred-release queue now, while the device is still alive,
     // so the editor's released handles don't leak when the device is dropped.
@@ -715,6 +749,10 @@ bool Renderer::InitForSwap(RendererAPI newApi)
     auto gbufferPass = std::make_unique<GBufferFillPass>();
     if (!gbufferPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: GBufferFillPass failed"); return false; }
     AddRenderPass(std::move(gbufferPass));
+
+    auto ssaoPass = std::make_unique<SsaoRenderPass>();
+    if (!ssaoPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: SsaoRenderPass failed"); return false; }
+    AddRenderPass(std::move(ssaoPass));
 
     auto lightingPass = std::make_unique<LightingRenderPass>();
     if (!lightingPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: LightingPass failed"); return false; }
