@@ -221,6 +221,28 @@ static void T11_collider_backward_compatible_defaults()
     EXPECT(out.Mask == 0xffffffffu);
 }
 
+static void T_navcfg_multiclass_roundtrip() {
+    NavMeshConfigComponent in;
+    in.ClassCount = 2;
+    in.Classes[0] = NavClassConfig{ 0.3f, 1.8f, 0.4f };
+    in.Classes[1] = NavClassConfig{ 1.5f, 2.4f, 0.5f };
+    const nlohmann::json j = in;
+    const auto out = j.get<NavMeshConfigComponent>();
+    EXPECT(out.ClassCount == 2);
+    EXPECT(near(out.Classes[0].AgentRadius, 0.3f));
+    EXPECT(near(out.Classes[1].AgentRadius, 1.5f));
+    EXPECT(near(out.Classes[1].AgentHeight, 2.4f));
+}
+static void T_navcfg_no_classes_defaults_to_one() {
+    nlohmann::json j = {
+        {"CellSize", 0.3f}, {"CellHeight", 0.2f},
+        {"AgentMaxSlope", 45.0f}, {"TileSize", 32.0f}, {"MaxObstacles", 128}
+    };
+    const auto out = j.get<NavMeshConfigComponent>();
+    EXPECT(out.ClassCount == 1);
+    EXPECT(near(out.Classes[0].AgentRadius, 0.5f));
+}
+
 // ---------- T20-T22: navigation serialization ----------
 static void Test_Navigation() {
     using json = nlohmann::json;
@@ -231,14 +253,14 @@ static void Test_Navigation() {
         SkyComponent sky{};                              // default — irrelevant here
         DayNightConfigComponent dn{};                    // default — irrelevant here
         NavMeshConfigComponent cfg{};
-        cfg.CellSize      = 0.42f;
-        cfg.CellHeight    = 0.17f;
-        cfg.AgentRadius   = 0.66f;
-        cfg.AgentHeight   = 2.10f;
-        cfg.AgentMaxClimb = 0.55f;
-        cfg.AgentMaxSlope = 50.0f;
-        cfg.TileSize      = 48.0f;
-        cfg.MaxObstacles  = 256;
+        cfg.CellSize            = 0.42f;
+        cfg.CellHeight          = 0.17f;
+        cfg.AgentMaxSlope       = 50.0f;
+        cfg.TileSize            = 48.0f;
+        cfg.MaxObstacles        = 256;
+        cfg.Classes[0].AgentRadius   = 0.66f;
+        cfg.Classes[0].AgentHeight   = 2.10f;
+        cfg.Classes[0].AgentMaxClimb = 0.55f;
 
         json root;
         root["Environment"] = BuildEnvironmentJson(fog, sky, dn, cfg);
@@ -246,9 +268,9 @@ static void Test_Navigation() {
         EXPECT(parsed.HasNavMeshConfig);
         EXPECT(near(parsed.NavMeshConfig.CellSize,      0.42f));
         EXPECT(near(parsed.NavMeshConfig.CellHeight,    0.17f));
-        EXPECT(near(parsed.NavMeshConfig.AgentRadius,   0.66f));
-        EXPECT(near(parsed.NavMeshConfig.AgentHeight,   2.10f));
-        EXPECT(near(parsed.NavMeshConfig.AgentMaxClimb, 0.55f));
+        EXPECT(near(parsed.NavMeshConfig.Classes[0].AgentRadius,   0.66f));
+        EXPECT(near(parsed.NavMeshConfig.Classes[0].AgentHeight,   2.10f));
+        EXPECT(near(parsed.NavMeshConfig.Classes[0].AgentMaxClimb, 0.55f));
         EXPECT(near(parsed.NavMeshConfig.AgentMaxSlope, 50.0f));
         EXPECT(near(parsed.NavMeshConfig.TileSize,      48.0f));
         EXPECT(parsed.NavMeshConfig.MaxObstacles == 256);
@@ -336,6 +358,8 @@ int main()
     T10_collider_roundtrip();
     T11_collider_backward_compatible_defaults();
     Test_Navigation();
+    T_navcfg_multiclass_roundtrip();
+    T_navcfg_no_classes_defaults_to_one();
 
     if (g_Failures == 0) { std::printf("All world-serialization tests passed.\n"); return 0; }
     std::printf("%d world-serialization test(s) FAILED.\n", g_Failures);

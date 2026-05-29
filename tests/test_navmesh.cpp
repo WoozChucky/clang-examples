@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 
 #include "ECS.h"
+#include "NavClass.h"
 #include "navigation/NavMesh.h"
 #include "navigation/NavMeshBuilder.h"
 #include "navigation/NavMeshSystem.h"
@@ -703,6 +704,16 @@ static void T32_navservices_movealongsurface_no_mesh_returns_desired() {
     EXPECT(std::fabs(out.z - desiredEnd.z) < 1e-4f);
 }
 
+// ---------- Multi-class config: T33 ----------
+static void T33_live_class_count_clamps_to_one() {
+    NavMeshConfigComponent def{};
+    EXPECT(NavLiveClassCount(def) == 1);
+    NavMeshConfigComponent two{}; two.ClassCount = 2;
+    EXPECT(NavLiveClassCount(two) == 2);
+    NavMeshConfigComponent zero{}; zero.ClassCount = 0;
+    EXPECT(NavLiveClassCount(zero) == 1);
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -736,6 +747,7 @@ int main() {
     T30_constrain_offmesh_recovers_toward_mesh();
     T31_navservices_movealongsurface_forwards();
     T32_navservices_movealongsurface_no_mesh_returns_desired();
+    T33_live_class_count_clamps_to_one();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

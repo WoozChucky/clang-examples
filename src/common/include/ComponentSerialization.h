@@ -4,6 +4,8 @@
 // WorldManager (save/load) and unit tests. All free functions are `inline` so the
 // header can be included in multiple translation units without ODR violations.
 
+#include <algorithm>
+
 #include <nlohmann/json.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -303,27 +305,47 @@ inline void from_json(const nlohmann::json& j, DayNightConfigComponent& t) {
     if (j.contains("ShowSunDisc"))         j.at("ShowSunDisc").get_to(t.ShowSunDisc);
 }
 
+inline void to_json(nlohmann::json& j, const NavClassConfig& c) {
+    j = nlohmann::json{
+        {"AgentRadius",   c.AgentRadius},
+        {"AgentHeight",   c.AgentHeight},
+        {"AgentMaxClimb", c.AgentMaxClimb}
+    };
+}
+inline void from_json(const nlohmann::json& j, NavClassConfig& c) {
+    if (j.contains("AgentRadius"))   j.at("AgentRadius").get_to(c.AgentRadius);
+    if (j.contains("AgentHeight"))   j.at("AgentHeight").get_to(c.AgentHeight);
+    if (j.contains("AgentMaxClimb")) j.at("AgentMaxClimb").get_to(c.AgentMaxClimb);
+}
+
 inline void to_json(nlohmann::json& j, const NavMeshConfigComponent& t) {
     j = nlohmann::json{
         {"CellSize",      t.CellSize},
         {"CellHeight",    t.CellHeight},
-        {"AgentRadius",   t.AgentRadius},
-        {"AgentHeight",   t.AgentHeight},
-        {"AgentMaxClimb", t.AgentMaxClimb},
         {"AgentMaxSlope", t.AgentMaxSlope},
         {"TileSize",      t.TileSize},
         {"MaxObstacles",  t.MaxObstacles}
     };
+    nlohmann::json classes = nlohmann::json::array();
+    for (uint8_t i = 0; i < t.ClassCount && i < kMaxNavClasses; ++i) classes.push_back(t.Classes[i]);
+    j["Classes"] = std::move(classes);
 }
 inline void from_json(const nlohmann::json& j, NavMeshConfigComponent& t) {
     if (j.contains("CellSize"))      j.at("CellSize").get_to(t.CellSize);
     if (j.contains("CellHeight"))    j.at("CellHeight").get_to(t.CellHeight);
-    if (j.contains("AgentRadius"))   j.at("AgentRadius").get_to(t.AgentRadius);
-    if (j.contains("AgentHeight"))   j.at("AgentHeight").get_to(t.AgentHeight);
-    if (j.contains("AgentMaxClimb")) j.at("AgentMaxClimb").get_to(t.AgentMaxClimb);
     if (j.contains("AgentMaxSlope")) j.at("AgentMaxSlope").get_to(t.AgentMaxSlope);
     if (j.contains("TileSize"))      j.at("TileSize").get_to(t.TileSize);
     if (j.contains("MaxObstacles"))  j.at("MaxObstacles").get_to(t.MaxObstacles);
+
+    if (j.contains("Classes") && j.at("Classes").is_array() && !j.at("Classes").empty()) {
+        const auto& arr = j.at("Classes");
+        const size_t n = std::min<size_t>(arr.size(), kMaxNavClasses);
+        for (size_t i = 0; i < n; ++i) t.Classes[i] = arr.at(i).get<NavClassConfig>();
+        t.ClassCount = static_cast<uint8_t>(n);
+    } else {
+        t.Classes[0] = NavClassConfig{};
+        t.ClassCount = 1;
+    }
 }
 
 // ----- world.json top-level "Environment" block -----

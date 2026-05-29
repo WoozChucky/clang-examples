@@ -279,17 +279,30 @@ struct NavMeshSourceComponent {
     NavMeshGeometrySource  Geometry = NavMeshGeometrySource::Unset;
 };
 
+inline constexpr int kMaxNavClasses = 8;
+
+// One agent-radius class. Fixed-cap + trivially-copyable (no heap) so it rides
+// in the ECS snapshot like NavAgentComponent::CachedPath[]. Single source of
+// truth for agent footprint — NavMesh::Build reads these directly.
+struct NavClassConfig {
+    float AgentRadius   = 0.5f;   // agent capsule radius (m) — drives Recast erosion
+    float AgentHeight   = 1.8f;   // agent capsule height (m)
+    float AgentMaxClimb = 0.4f;   // step-up height (m)
+};
+
 // Singleton (one per scene, persisted in world.json Environment block). Recast/Detour
 // build knobs — tune per scene. Indoor/outdoor scenes want very different cell sizes.
 struct NavMeshConfigComponent {
-    float CellSize       = 0.3f;   // voxel XZ size (m)
-    float CellHeight     = 0.2f;   // voxel Y size (m)
-    float AgentRadius    = 0.5f;   // agent capsule radius (m)
-    float AgentHeight    = 1.8f;   // agent capsule height (m)
-    float AgentMaxClimb  = 0.4f;   // step-up height (m)
-    float AgentMaxSlope  = 45.0f;  // max walkable slope (degrees)
-    float TileSize       = 32.0f;  // tile XZ size (voxels per tile edge)
-    int   MaxObstacles   = 128;    // dtTileCache pre-alloc (unused in Spec 1; plumbed for Spec 2)
+    float CellSize      = 0.3f;   // voxel XZ size (m)        — shared across classes
+    float CellHeight    = 0.2f;   // voxel Y size (m)         — shared
+    float AgentMaxSlope = 45.0f;  // max walkable slope (deg) — shared
+    float TileSize      = 32.0f;  // tile XZ size (voxels)    — shared
+    int   MaxObstacles  = 128;    // dtTileCache pre-alloc    — shared
+
+    // Per-radius classes. Invariant: ClassCount >= 1 (a default config has one
+    // class). ClassId on an entity indexes here.
+    NavClassConfig Classes[kMaxNavClasses]{};
+    uint8_t        ClassCount = 1;
 };
 
 // Recast TileCache obstacle shapes. Distinct from ColliderShape because Recast has

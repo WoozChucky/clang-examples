@@ -20,6 +20,7 @@ struct dtTileCacheMeshProcess;
 
 struct NavMeshTriangleSoup;          // from NavMeshBuilder.h
 struct NavMeshConfigComponent;       // from ECS.h
+struct NavClassConfig;               // from ECS.h
 
 // Owning RAII wrapper for the per-NavMesh allocator/compressor/process objects
 // so rebuild teardown is clean and we don't leak on shutdown.
@@ -49,7 +50,8 @@ public:
     // Build a navmesh from a triangle soup + config. Returns nullptr on failure
     // (already logged via SM_WARN). Caller atomic-publishes through NavMeshSystem.
     static std::unique_ptr<NavMesh> Build(const NavMeshTriangleSoup& soup,
-                                          const NavMeshConfigComponent& cfg);
+                                          const NavMeshConfigComponent& cfg,
+                                          const NavClassConfig& cls);
 
     NavMesh();
     ~NavMesh();

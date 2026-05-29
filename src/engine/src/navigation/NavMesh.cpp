@@ -115,7 +115,8 @@ NavMesh::~NavMesh() {
 
 // ---------- Build ----------
 std::unique_ptr<NavMesh> NavMesh::Build(const NavMeshTriangleSoup& soup,
-                                        const NavMeshConfigComponent& cfg)
+                                        const NavMeshConfigComponent& cfg,
+                                        const NavClassConfig& cls)
 {
     if (soup.Empty || soup.Tris.empty()) {
         SM_WARN("NavMesh::Build called with empty soup; returning null");
@@ -129,9 +130,9 @@ std::unique_ptr<NavMesh> NavMesh::Build(const NavMeshTriangleSoup& soup,
     rcc.cs                     = cfg.CellSize;
     rcc.ch                     = cfg.CellHeight;
     rcc.walkableSlopeAngle     = cfg.AgentMaxSlope;
-    rcc.walkableHeight         = (int)std::ceil(cfg.AgentHeight / cfg.CellHeight);
-    rcc.walkableClimb          = (int)std::floor(cfg.AgentMaxClimb / cfg.CellHeight);
-    rcc.walkableRadius         = (int)std::ceil(cfg.AgentRadius / cfg.CellSize);
+    rcc.walkableHeight         = (int)std::ceil(cls.AgentHeight / cfg.CellHeight);
+    rcc.walkableClimb          = (int)std::floor(cls.AgentMaxClimb / cfg.CellHeight);
+    rcc.walkableRadius         = (int)std::ceil(cls.AgentRadius / cfg.CellSize);
     rcc.maxEdgeLen             = (int)(12.0f / cfg.CellSize);
     rcc.maxSimplificationError = 1.3f;
     rcc.minRegionArea          = (int)rcSqr(8);
@@ -153,7 +154,7 @@ std::unique_ptr<NavMesh> NavMesh::Build(const NavMeshTriangleSoup& soup,
     // cases at exact voxel boundaries.
     const float bmin[3] = { soup.AabbMin.x, soup.AabbMin.y, soup.AabbMin.z };
     const float bmax[3] = { soup.AabbMax.x,
-                            soup.AabbMax.y + cfg.AgentHeight + 1.0f,
+                            soup.AabbMax.y + cls.AgentHeight + 1.0f,
                             soup.AabbMax.z };
     int gw = 0, gh = 0;
     rcCalcGridSize(bmin, bmax, rcc.cs, &gw, &gh);
@@ -167,9 +168,9 @@ std::unique_ptr<NavMesh> NavMesh::Build(const NavMeshTriangleSoup& soup,
     tcParams.ch                     = cfg.CellHeight;
     tcParams.width                  = rcc.tileSize;
     tcParams.height                 = rcc.tileSize;
-    tcParams.walkableHeight         = cfg.AgentHeight;
-    tcParams.walkableRadius         = cfg.AgentRadius;
-    tcParams.walkableClimb          = cfg.AgentMaxClimb;
+    tcParams.walkableHeight         = cls.AgentHeight;
+    tcParams.walkableRadius         = cls.AgentRadius;
+    tcParams.walkableClimb          = cls.AgentMaxClimb;
     tcParams.maxSimplificationError = 1.3f;
     tcParams.maxTiles               = tw * th * 4;        // 4 layers max per tile (Recast sample default)
     tcParams.maxObstacles           = cfg.MaxObstacles;

@@ -103,9 +103,9 @@ void DrawNavigationPanel(const EditorContext& ctx, bool* open)
     bool changed = false;
     changed |= ImGui::DragFloat("Cell Size",     &edited.CellSize,      0.01f, 0.05f, 2.0f,   "%.2f m");
     changed |= ImGui::DragFloat("Cell Height",   &edited.CellHeight,    0.01f, 0.05f, 2.0f,   "%.2f m");
-    changed |= ImGui::DragFloat("Agent Radius",  &edited.AgentRadius,   0.05f, 0.05f, 5.0f,   "%.2f m");
-    changed |= ImGui::DragFloat("Agent Height",  &edited.AgentHeight,   0.05f, 0.10f, 5.0f,   "%.2f m");
-    changed |= ImGui::DragFloat("Max Climb",     &edited.AgentMaxClimb, 0.05f, 0.00f, 2.0f,   "%.2f m");
+    changed |= ImGui::DragFloat("Agent Radius",  &edited.Classes[0].AgentRadius,   0.05f, 0.05f, 5.0f,   "%.2f m");
+    changed |= ImGui::DragFloat("Agent Height",  &edited.Classes[0].AgentHeight,   0.05f, 0.10f, 5.0f,   "%.2f m");
+    changed |= ImGui::DragFloat("Max Climb",     &edited.Classes[0].AgentMaxClimb, 0.05f, 0.00f, 2.0f,   "%.2f m");
     changed |= ImGui::DragFloat("Max Slope",     &edited.AgentMaxSlope, 1.00f, 0.00f, 85.0f,  "%.0f deg");
     changed |= ImGui::DragFloat("Tile Size",     &edited.TileSize,      1.00f, 8.00f, 128.0f, "%.0f voxels");
     changed |= ImGui::DragInt  ("Max Obstacles", &edited.MaxObstacles,  1.0f,  0,     4096);

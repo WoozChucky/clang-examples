@@ -54,7 +54,7 @@ void NavMeshSystem::Rebuild(const ECS& world,
         PublishNavMesh(std::shared_ptr<const NavMesh>{});
         return;
     }
-    auto fresh = NavMesh::Build(soup, cfg);
+    auto fresh = NavMesh::Build(soup, cfg, cfg.Classes[0]);
     if (!fresh) {
         SM_WARN("NavMeshSystem::Rebuild: NavMesh::Build returned null; keeping previous navmesh");
         return;
