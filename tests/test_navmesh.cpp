@@ -729,6 +729,37 @@ static void T34_resolve_nav_class() {
     EXPECT(ResolveNavClass(w, c1,   0) == 0);   // count 0 → 0
 }
 
+// ---------- Multi-class navmesh: T35 ----------
+static void T35_multiclass_build_distinct_erosion() {
+    ECS w;
+    // Floor with a narrow corridor: two walls leave a ~2m-wide gap at the center.
+    // A small agent (r=0.3) fits through; a large agent (r=2.0) is eroded out of
+    // the gap, producing fewer/no walkable polys there. This makes the two class
+    // meshes genuinely diverge (a flat open floor degenerates to 1 poly for both).
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));  // 10x10 floor
+    SpawnNavBox(w, glm::vec3(0, 1.0f,  3.0f), glm::vec3(5.0f, 1.0f, 1.0f));  // wall, +Z side
+    SpawnNavBox(w, glm::vec3(0, 1.0f, -3.0f), glm::vec3(5.0f, 1.0f, 1.0f));  // wall, -Z side
+    NavMeshConfigComponent cfg = DefaultCfg();
+    cfg.ClassCount = 2;
+    cfg.Classes[0] = NavClassConfig{ 0.3f, 1.8f, 0.4f };  // small radius
+    cfg.Classes[1] = NavClassConfig{ 2.0f, 1.8f, 0.4f };  // large radius → erodes more
+    NavMeshSystem::Instance().Rebuild(w, cfg);
+
+    auto small = NavMeshSystem::Instance().Current(0);
+    auto large = NavMeshSystem::Instance().Current(1);
+    EXPECT(small != nullptr);
+    EXPECT(large != nullptr);
+    if (!small || !large) return;
+    const auto ss = small->GetStats();
+    const auto ls = large->GetStats();
+    std::printf("T35: small(r=0.3) Poly=%d Vert=%d | large(r=2.0) Poly=%d Vert=%d\n",
+                ss.PolyCount, ss.VertCount, ls.PolyCount, ls.VertCount);
+    // More erosion → strictly fewer polys for this corridor geometry (verified:
+    // small builds a connected mesh through the gap; large erodes the 2m gap shut).
+    EXPECT(ls.PolyCount < ss.PolyCount);
+    EXPECT(NavMeshSystem::Instance().Current(7) == nullptr);              // out-of-range slot
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -764,6 +795,7 @@ int main() {
     T32_navservices_movealongsurface_no_mesh_returns_desired();
     T33_live_class_count_clamps_to_one();
     T34_resolve_nav_class();
+    T35_multiclass_build_distinct_erosion();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

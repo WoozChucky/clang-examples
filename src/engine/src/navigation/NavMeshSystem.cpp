@@ -7,6 +7,7 @@
 #include "navigation/NavMesh.h"
 #include "navigation/NavMeshBuilder.h"
 #include "ECS.h"
+#include "NavClass.h"
 #include "lib.h"
 
 namespace {
@@ -48,39 +49,58 @@ void NavMeshSystem::Rebuild(const ECS& world,
                             const NavMeshConfigComponent& cfg)
 {
     const NavMeshTriangleSoup soup = NavMeshBuilder::CollectTriangles(world);
+    const uint8_t liveCount = NavLiveClassCount(cfg);
+
     if (soup.Empty || soup.Tris.empty()) {
         SM_WARN("NavMeshSystem::Rebuild: no NavMeshSource entities; publishing empty navmesh");
         m_EntityToObstacle.clear();   // old dtObstacleRefs invalid against new dtTileCache
-        PublishNavMesh(std::shared_ptr<const NavMesh>{});
+        for (uint8_t i = 0; i < kMaxNavClasses; ++i) PublishNavMesh(i, {});
+        m_ClassCount = 0;
         return;
     }
-    auto fresh = NavMesh::Build(soup, cfg, cfg.Classes[0]);
-    if (!fresh) {
-        SM_WARN("NavMeshSystem::Rebuild: NavMesh::Build returned null; keeping previous navmesh");
+
+    bool anyBuilt = false;
+    for (uint8_t i = 0; i < liveCount; ++i) {
+        auto fresh = NavMesh::Build(soup, cfg, cfg.Classes[i]);
+        if (!fresh) {
+            SM_WARN("NavMeshSystem::Rebuild: NavMesh::Build returned null for class %u", (unsigned)i);
+            continue;
+        }
+        PublishNavMesh(i, std::shared_ptr<const NavMesh>(std::move(fresh)));
+        anyBuilt = true;
+    }
+    for (uint8_t i = liveCount; i < kMaxNavClasses; ++i) PublishNavMesh(i, {});   // clear stale slots
+
+    if (!anyBuilt) {
+        SM_WARN("NavMeshSystem::Rebuild: no class meshes built; keeping previous");
         return;
     }
     m_EntityToObstacle.clear();   // old dtObstacleRefs invalid against new dtTileCache
-    std::shared_ptr<const NavMesh> shared(std::move(fresh));
-    PublishNavMesh(shared);
+    m_ClassCount = liveCount;
 
-    // Spec 4: auto-bake to disk so subsequent startups can skip Rebuild.
+    // Disk auto-bake (single-mesh format) only for the single-class case.
+    // Multi-class disk bake is the deferred follow-up (see spec non-goals).
     // Skips silently when no world path is known (e.g., test harness calling
     // Rebuild without prior SetWorldPath).
-    if (!m_LastWorldPath.empty()) {
-        const std::string bakePath = DeriveBakePath(m_LastWorldPath);
-        const uint64_t worldMtime = GetFileMtimeEpoch(m_LastWorldPath);
-        if (!shared->SaveToFile(bakePath, worldMtime)) {
-            SM_WARN("NavMeshSystem::Rebuild: failed to write disk bake to '%s'", bakePath.c_str());
+    if (liveCount == 1 && !m_LastWorldPath.empty()) {
+        auto cur = Current(0);
+        if (cur) {
+            const std::string bakePath = DeriveBakePath(m_LastWorldPath);
+            const uint64_t worldMtime = GetFileMtimeEpoch(m_LastWorldPath);
+            if (!cur->SaveToFile(bakePath, worldMtime)) {
+                SM_WARN("NavMeshSystem::Rebuild: failed to write disk bake to '%s'", bakePath.c_str());
+            }
         }
     }
 }
 
-std::shared_ptr<const NavMesh> NavMeshSystem::Current() const {
-    return std::atomic_load(&m_Current);
+std::shared_ptr<const NavMesh> NavMeshSystem::Current(uint8_t classId) const {
+    if (classId >= kMaxNavClasses) return {};
+    return std::atomic_load(&m_Classes[classId]);
 }
 
 void NavMeshSystem::Tick(float dt) {
-    auto cur = std::atomic_load(&m_Current);
+    auto cur = Current(0);
     if (!cur) return;
     // const_cast: NavMesh::Tick is a mutating operation on the dtTileCache.
     // shared_ptr<const NavMesh> is the snapshot type for cross-thread reads;
@@ -91,7 +111,7 @@ void NavMeshSystem::Tick(float dt) {
 NavMeshSystem::ObstacleHandle NavMeshSystem::AddCylinderObstacle(
     const glm::vec3& pos, float radius, float height)
 {
-    auto cur = std::atomic_load(&m_Current);
+    auto cur = Current(0);
     if (!cur) return 0;
     return const_cast<NavMesh*>(cur.get())->AddCylinderObstacle(pos, radius, height);
 }
@@ -99,13 +119,13 @@ NavMeshSystem::ObstacleHandle NavMeshSystem::AddCylinderObstacle(
 NavMeshSystem::ObstacleHandle NavMeshSystem::AddBoxObstacle(
     const glm::vec3& bmin, const glm::vec3& bmax)
 {
-    auto cur = std::atomic_load(&m_Current);
+    auto cur = Current(0);
     if (!cur) return 0;
     return const_cast<NavMesh*>(cur.get())->AddBoxObstacle(bmin, bmax);
 }
 
 void NavMeshSystem::RemoveObstacle(ObstacleHandle h) {
-    auto cur = std::atomic_load(&m_Current);
+    auto cur = Current(0);
     if (!cur || h == 0) return;
     const_cast<NavMesh*>(cur.get())->RemoveObstacle(h);
 }
@@ -137,7 +157,7 @@ const std::string& NavMeshSystem::GetWorldPath() const {
 }
 
 bool NavMeshSystem::SaveCurrentToDisk() {
-    auto cur = std::atomic_load(&m_Current);
+    auto cur = Current(0);
     if (!cur) {
         SM_WARN("NavMeshSystem::SaveCurrentToDisk: no current NavMesh; nothing to save");
         return false;
@@ -181,7 +201,9 @@ bool NavMeshSystem::TryLoadFromDisk(const std::string& worldPath) {
     m_EntityToObstacle.clear();   // same invariant as Rebuild — new tilecache, old refs invalid
     m_LastWorldPath = worldPath;
     std::shared_ptr<const NavMesh> shared(std::move(fresh));
-    PublishNavMesh(shared);
+    PublishNavMesh(0, shared);
+    for (uint8_t i = 1; i < kMaxNavClasses; ++i) PublishNavMesh(i, {});   // clear stale slots
+    m_ClassCount = 1;   // disk bake is single-mesh format → one live slot
     SM_TRACE("NavMeshSystem::TryLoadFromDisk: loaded '%s'", bakePath.c_str());
     return true;
 }
@@ -208,7 +230,8 @@ bool NavMeshSystem::GetMeshCpuData(uint32_t meshId,
     return true;
 }
 
-void NavMeshSystem::PublishNavMesh(std::shared_ptr<const NavMesh> mesh) {
-    std::atomic_store(&m_Current, std::move(mesh));
+void NavMeshSystem::PublishNavMesh(uint8_t classId, std::shared_ptr<const NavMesh> mesh) {
+    if (classId >= kMaxNavClasses) return;
+    std::atomic_store(&m_Classes[classId], std::move(mesh));
     m_NavVersion.fetch_add(1, std::memory_order_relaxed);
 }

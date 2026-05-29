@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <string>
@@ -28,7 +29,8 @@ public:
     // entities pull CPU data from the cache populated via StoreMeshCpuData.
     void Rebuild(const ECS& world, const NavMeshConfigComponent& cfg);
 
-    std::shared_ptr<const NavMesh> Current() const;
+    // Published mesh for a class slot. Out-of-range classId → nullptr.
+    std::shared_ptr<const NavMesh> Current(uint8_t classId = 0) const;
 
     // Monotonic version counter; bumped every time the published NavMesh
     // shared_ptr is replaced (Rebuild success, Rebuild empty-soup clear,
@@ -87,7 +89,8 @@ public:
 
 private:
     NavMeshSystem() = default;
-    std::shared_ptr<const NavMesh>               m_Current;
+    std::array<std::shared_ptr<const NavMesh>, kMaxNavClasses> m_Classes{};
+    uint8_t m_ClassCount = 0;   // live class slots after the last Rebuild
     std::unordered_map<EntityId, ObstacleHandle> m_EntityToObstacle;
     std::string                                  m_LastWorldPath;
 
@@ -99,7 +102,7 @@ private:
 
     std::atomic<uint32_t> m_NavVersion{0};
 
-    // All m_Current publish sites route through here so the version bump
+    // All publish sites route through here so the version bump
     // can't be forgotten on a future publish site.
-    void PublishNavMesh(std::shared_ptr<const NavMesh> mesh);
+    void PublishNavMesh(uint8_t classId, std::shared_ptr<const NavMesh> mesh);
 };
