@@ -27,8 +27,10 @@ struct DebugDrawSettings {
 };
 
 struct ShadowSettings {
-    bool  Enabled = true;
-    float Bias    = 0.0015f;
+    bool  Enabled        = true;
+    float Bias           = 0.0015f;
+    float ShadowDistance = 80.0f;   // world units of camera-frustum slice the shadow map covers
+    float NearExtend     = 50.0f;   // light-space near-plane pull-back toward the sun
 };
 
 enum class AAMode : int { Off = 0, FXAA = 1, SMAA = 2 };

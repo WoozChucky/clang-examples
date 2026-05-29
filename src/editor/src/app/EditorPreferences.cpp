@@ -21,13 +21,13 @@ bool Load(const std::string& path, EditorCameraState& camera) {
         SM_WARN("EditorPreferences: failed to parse '%s': %s", path.c_str(), ex.what());
         return false;
     }
-    PrefsFromJson(j, GetCullingSettings(), GetDebugDrawSettings(), GetShadowSettings(), camera);
+    PrefsFromJson(j, GetCullingSettings(), GetDebugDrawSettings(), camera);
     SM_TRACE("EditorPreferences: loaded '%s'", path.c_str());
     return true;
 }
 
 bool Save(const std::string& path, const EditorCameraState& camera) {
-    const json j = PrefsToJson(GetCullingSettings(), GetDebugDrawSettings(), GetShadowSettings(), camera);
+    const json j = PrefsToJson(GetCullingSettings(), GetDebugDrawSettings(), camera);
     std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
     if (!ofs.is_open()) {
         SM_WARN("EditorPreferences: could not open '%s' for writing", path.c_str());
