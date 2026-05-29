@@ -342,6 +342,12 @@ struct NavTargetComponent {
     glm::vec3 Destination{0.0f};
 };
 
+// Opt-in marker: KinematicMovementSystem clamps this entity's per-tick move to
+// the walkable navmesh (wall-slide via NavServices::MoveAlongSurface) before the
+// AABB collider resolve. No fields. Added to directly-controlled movers (the
+// player). Without it, movement is not navmesh-constrained (today's behavior).
+struct NavConstrainedComponent {};
+
 // X-macro: single source of truth for the set of component types that get
 // explicit template instantiations in ecs.dll. Adding a new component type
 // requires (1) declaring the struct above, (2) adding an X(NewType) line here,
@@ -378,7 +384,8 @@ struct NavTargetComponent {
     X(NavMeshConfigComponent) \
     X(NavObstacleComponent) \
     X(NavAgentComponent) \
-    X(NavTargetComponent)
+    X(NavTargetComponent) \
+    X(NavConstrainedComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

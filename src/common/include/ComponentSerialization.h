@@ -115,6 +115,9 @@ inline void from_json(const nlohmann::json& j, TextComponent& t) {
 inline void to_json(nlohmann::json& j, const SunMarker&) { j = nlohmann::json::object(); }
 inline void from_json(const nlohmann::json&, SunMarker&) {}
 
+inline void to_json(nlohmann::json& j, const NavConstrainedComponent&) { j = nlohmann::json::object(); }
+inline void from_json(const nlohmann::json&, NavConstrainedComponent&) {}
+
 inline void to_json(nlohmann::json& j, const PlayerComponent& t) {
     j = nlohmann::json{{"MoveSpeed", t.MoveSpeed}};
 }
