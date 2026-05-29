@@ -790,24 +790,27 @@ static void T41_container_roundtrip_multiclass() {
 
     ECS w;
     SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    SpawnNavBox(w, glm::vec3(0, 1.0f, 0), glm::vec3(0.3f, 1.0f, 2.0f));  // wall → multi-poly, class-dependent erosion
     NavMeshConfigComponent cfg = DefaultCfg();
     cfg.ClassCount = 2;
     cfg.Classes[0] = NavClassConfig{ 0.3f, 1.8f, 0.4f };
-    cfg.Classes[1] = NavClassConfig{ 0.5f, 1.8f, 0.4f };
+    cfg.Classes[1] = NavClassConfig{ 0.8f, 1.8f, 0.4f };
 
     NavMeshSystem::Instance().SetWorldPath(world);     // enables auto-bake to <world>.navmesh.bin
     NavMeshSystem::Instance().Rebuild(w, cfg);          // builds 2 classes + auto-bakes the container
     const int poly0 = NavMeshSystem::Instance().Current(0)->GetStats().PolyCount;
     const int poly1 = NavMeshSystem::Instance().Current(1)->GetStats().PolyCount;
 
+    EXPECT(poly0 > 1);                 // non-trivial fixture (wall → multiple polys)
+    EXPECT(poly0 != poly1);            // classes genuinely differ (catches section swap)
     const bool loaded = NavMeshSystem::Instance().TryLoadFromDisk(world);
     EXPECT(loaded);
     auto c0 = NavMeshSystem::Instance().Current(0);
     auto c1 = NavMeshSystem::Instance().Current(1);
     EXPECT(c0 && c1);
     if (c0 && c1) {
-        EXPECT(c0->GetStats().PolyCount == poly0);
-        EXPECT(c1->GetStats().PolyCount == poly1);
+        EXPECT(c0->GetStats().PolyCount == poly0);   // class 0 section round-trips exactly
+        EXPECT(c1->GetStats().PolyCount == poly1);   // class 1 section round-trips exactly
     }
     NavMeshSystem::Instance().SetWorldPath("");          // disable auto-bake for later tests
     fs::remove(world); fs::remove(bake);
