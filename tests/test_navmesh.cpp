@@ -422,107 +422,6 @@ static void T18_agent_routes_around_obstacle() {
     }
 }
 
-// ---------- Spec 4: bake (T19-T22 file-format + load behavior) ----------
-
-static std::string TempBakePath(const char* suffix = "test_navmesh_bake.bin") {
-    auto tmp = std::filesystem::temp_directory_path() / suffix;
-    return tmp.string();
-}
-
-static void T19_save_and_load_roundtrip_produces_equivalent_navmesh() {
-    ECS w;
-    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
-    auto built = NavMeshSystem::Instance().Current();
-    EXPECT(built != nullptr);
-    if (!built) return;
-
-    const auto builtStats = built->GetStats();
-    const std::string path = TempBakePath("test_navmesh_T19.bin");
-    EXPECT(built->SaveToFile(path, /*worldMtime*/ 12345ULL));
-
-    uint64_t storedMtime = 0;
-    auto loaded = NavMesh::LoadFromFile(path, &storedMtime);
-    EXPECT(loaded != nullptr);
-    EXPECT(storedMtime == 12345ULL);
-    if (!loaded) { std::filesystem::remove(path); return; }
-
-    const auto loadedStats = loaded->GetStats();
-    EXPECT(loadedStats.TilesBuilt == builtStats.TilesBuilt);
-    EXPECT(loadedStats.PolyCount  == builtStats.PolyCount);
-    EXPECT(loadedStats.VertCount  == builtStats.VertCount);
-
-    // Smoke: FindPath on loaded navmesh works same as built.
-    auto pathBuilt  = built->FindPath(glm::vec3(-4, 0.5f, 0), glm::vec3(4, 0.5f, 0));
-    auto pathLoaded = loaded->FindPath(glm::vec3(-4, 0.5f, 0), glm::vec3(4, 0.5f, 0));
-    EXPECT(pathBuilt.size() == pathLoaded.size());
-
-    std::filesystem::remove(path);
-}
-
-static void T20_load_bad_magic_returns_null() {
-    const std::string path = TempBakePath("test_navmesh_T20.bin");
-    {
-        std::ofstream ofs(path, std::ios::binary);
-        const uint32_t badMagic = 0xDEADBEEF;
-        ofs.write(reinterpret_cast<const char*>(&badMagic), 4);
-    }
-    uint64_t unused = 0;
-    auto loaded = NavMesh::LoadFromFile(path, &unused);
-    EXPECT(loaded == nullptr);
-    std::filesystem::remove(path);
-}
-
-static void T21_load_bad_version_returns_null() {
-    const std::string path = TempBakePath("test_navmesh_T21.bin");
-    {
-        std::ofstream ofs(path, std::ios::binary);
-        const uint32_t kMagic = 0x484D534E;
-        const uint32_t badVer = 999;
-        ofs.write(reinterpret_cast<const char*>(&kMagic), 4);
-        ofs.write(reinterpret_cast<const char*>(&badVer), 4);
-    }
-    uint64_t unused = 0;
-    auto loaded = NavMesh::LoadFromFile(path, &unused);
-    EXPECT(loaded == nullptr);
-    std::filesystem::remove(path);
-}
-
-static void T22_load_missing_file_returns_null() {
-    uint64_t unused = 0;
-    auto loaded = NavMesh::LoadFromFile("Z:/definitely_does_not_exist_navmesh.bin", &unused);
-    EXPECT(loaded == nullptr);
-}
-
-static void T23_try_load_from_disk_stale_returns_false() {
-    namespace fs = std::filesystem;
-    auto worldPath = fs::temp_directory_path() / "test_navmesh_T23_world.json";
-    auto bakePath  = fs::temp_directory_path() / "test_navmesh_T23_world.navmesh.bin";
-
-    // Initial world.json.
-    { std::ofstream wf(worldPath); wf << "{}\n"; }
-
-    ECS w;
-    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
-    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
-    auto built = NavMeshSystem::Instance().Current();
-    EXPECT(built != nullptr);
-    if (built) {
-        // Save with a deliberately-stale worldMtime (much older than the file's actual mtime).
-        EXPECT(built->SaveToFile(bakePath.string(), /*stale*/ 100ULL));
-    }
-
-    // Touch world.json forward so fs::mtime is well above stored 100.
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    { std::ofstream wf(worldPath); wf << "{\"changed\":true}\n"; }
-
-    const bool loaded = NavMeshSystem::Instance().TryLoadFromDisk(worldPath.string());
-    EXPECT(!loaded);  // stale → returns false; caller falls back to Rebuild
-
-    fs::remove(worldPath);
-    fs::remove(bakePath);
-}
-
 // ---------- NavServices decoupling: T24-T25 ----------
 
 static void T24_navservices_table_forwards_to_navmeshsystem() {
@@ -878,6 +777,87 @@ static void T40_navmesh_section_roundtrip() {
     EXPECT(pa.size() == pb.size());
 }
 
+// ---------- Multi-class container bake: T41-T45 ----------
+static std::string TempWorldPath(const char* suffix) {
+    return (std::filesystem::temp_directory_path() / suffix).string();
+}
+
+static void T41_container_roundtrip_multiclass() {
+    namespace fs = std::filesystem;
+    const std::string world = TempWorldPath("test_navbake_T41_world.json");
+    const std::string bake  = TempWorldPath("test_navbake_T41_world.navmesh.bin");
+    { std::ofstream wf(world); wf << "{}\n"; }
+
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshConfigComponent cfg = DefaultCfg();
+    cfg.ClassCount = 2;
+    cfg.Classes[0] = NavClassConfig{ 0.3f, 1.8f, 0.4f };
+    cfg.Classes[1] = NavClassConfig{ 0.5f, 1.8f, 0.4f };
+
+    NavMeshSystem::Instance().SetWorldPath(world);     // enables auto-bake to <world>.navmesh.bin
+    NavMeshSystem::Instance().Rebuild(w, cfg);          // builds 2 classes + auto-bakes the container
+    const int poly0 = NavMeshSystem::Instance().Current(0)->GetStats().PolyCount;
+    const int poly1 = NavMeshSystem::Instance().Current(1)->GetStats().PolyCount;
+
+    const bool loaded = NavMeshSystem::Instance().TryLoadFromDisk(world);
+    EXPECT(loaded);
+    auto c0 = NavMeshSystem::Instance().Current(0);
+    auto c1 = NavMeshSystem::Instance().Current(1);
+    EXPECT(c0 && c1);
+    if (c0 && c1) {
+        EXPECT(c0->GetStats().PolyCount == poly0);
+        EXPECT(c1->GetStats().PolyCount == poly1);
+    }
+    NavMeshSystem::Instance().SetWorldPath("");          // disable auto-bake for later tests
+    fs::remove(world); fs::remove(bake);
+}
+
+static void T42_container_stale_returns_false() {
+    namespace fs = std::filesystem;
+    const std::string world = TempWorldPath("test_navbake_T42_world.json");
+    const std::string bake  = TempWorldPath("test_navbake_T42_world.navmesh.bin");
+    { std::ofstream wf(world); wf << "{}\n"; }
+
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().SetWorldPath(world);
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());  // bakes with current mtime
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    { std::ofstream wf(world); wf << "{\"changed\":true}\n"; }  // bump mtime → stale
+
+    EXPECT(!NavMeshSystem::Instance().TryLoadFromDisk(world));
+    NavMeshSystem::Instance().SetWorldPath("");
+    fs::remove(world); fs::remove(bake);
+}
+
+static void T43_container_bad_magic_returns_false() {
+    namespace fs = std::filesystem;
+    const std::string world = TempWorldPath("test_navbake_T43_world.json");
+    const std::string bake  = TempWorldPath("test_navbake_T43_world.navmesh.bin");
+    { std::ofstream wf(world); wf << "{}\n"; }
+    { std::ofstream bf(bake, std::ios::binary); const uint32_t bad = 0xDEADBEEF; bf.write((const char*)&bad, 4); }
+    EXPECT(!NavMeshSystem::Instance().TryLoadFromDisk(world));
+    fs::remove(world); fs::remove(bake);
+}
+
+static void T44_container_bad_version_returns_false() {
+    namespace fs = std::filesystem;
+    const std::string world = TempWorldPath("test_navbake_T44_world.json");
+    const std::string bake  = TempWorldPath("test_navbake_T44_world.navmesh.bin");
+    { std::ofstream wf(world); wf << "{}\n"; }
+    { std::ofstream bf(bake, std::ios::binary);
+      const uint32_t magic = 0x484D534E; const uint32_t ver = 1;   // old v1 → rejected
+      bf.write((const char*)&magic, 4); bf.write((const char*)&ver, 4); }
+    EXPECT(!NavMeshSystem::Instance().TryLoadFromDisk(world));
+    fs::remove(world); fs::remove(bake);
+}
+
+static void T45_container_missing_returns_false() {
+    EXPECT(!NavMeshSystem::Instance().TryLoadFromDisk("Z:/definitely_missing_world.json"));
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -897,11 +877,6 @@ int main() {
     T16_agent_reached_target_stops_emitting();
     T17_agent_unreachable_target_no_intent();
     T18_agent_routes_around_obstacle();
-    T19_save_and_load_roundtrip_produces_equivalent_navmesh();
-    T20_load_bad_magic_returns_null();
-    T21_load_bad_version_returns_null();
-    T22_load_missing_file_returns_null();
-    T23_try_load_from_disk_stale_returns_false();
     T24_navservices_table_forwards_to_navmeshsystem();
     T25_navservices_findpath_empty_when_no_mesh();
     T26_geometry_mesh_uses_cached_cpu_data();
@@ -919,6 +894,11 @@ int main() {
     T38_navservices_legacy_fns_map_to_class0();
     T39_obstacle_dilated_by_agent_radius();
     T40_navmesh_section_roundtrip();
+    T41_container_roundtrip_multiclass();
+    T42_container_stale_returns_false();
+    T43_container_bad_magic_returns_false();
+    T44_container_bad_version_returns_false();
+    T45_container_missing_returns_false();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

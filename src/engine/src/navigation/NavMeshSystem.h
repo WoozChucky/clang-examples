@@ -110,4 +110,7 @@ private:
     // All publish sites route through here so the version bump
     // can't be forgotten on a future publish site.
     void PublishNavMesh(uint8_t classId, std::shared_ptr<const NavMesh> mesh);
+
+    // Write the full multi-class container (header + N sections) to bakePath.
+    bool WriteBake(const std::string& bakePath, uint64_t worldMtime) const;
 };

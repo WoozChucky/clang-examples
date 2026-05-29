@@ -98,21 +98,6 @@ public:
     };
     Stats GetStats() const;
 
-    // Save the current dtTileCache + dtNavMesh state to a binary file. Captures
-    // post-Build / pre-obstacle state (obstacles are runtime ECS state reapplied
-    // after load by NavObstacleSyncSystem). worldMtimeAtBake is stored in the
-    // file header as the staleness signal — caller passes fs::mtime(world.json)
-    // at the moment of bake. Returns false on null cache or IO error.
-    bool SaveToFile(const std::string& path, uint64_t worldMtimeAtBake) const;
-
-    // Read a previously-saved bake from disk and reconstruct a NavMesh. Outputs
-    // the stored WorldMtimeAtBakeTime via outWorldMtime (caller compares to
-    // current fs::mtime to decide staleness). Returns nullptr on missing file,
-    // bad magic, version mismatch, IO error, or malformed data. Logs SM_WARN
-    // with cause on every failure path.
-    static std::unique_ptr<NavMesh> LoadFromFile(const std::string& path,
-                                                 uint64_t* outWorldMtime);
-
     // Serialize this mesh's tilecache state to a stream (no file header — the
     // container header is owned by NavMeshSystem). Returns false on null cache /
     // stream error. GameThread only.
