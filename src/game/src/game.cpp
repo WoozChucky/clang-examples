@@ -274,22 +274,28 @@ public:
             const auto* transform = ctx.world.GetComponent<TransformComponent>(e);
             if (!transform) return;
 
-            // Navmesh constraint (opt-in via NavConstrainedComponent): clamp the
-            // desired move to the walkable surface (wall-slide) BEFORE the AABB
-            // resolve. Skipped when no marker / no nav table / no mesh built.
+            // Navmesh constraint (opt-in via NavConstrainedComponent): wall-slide
+            // the X/Z move along the walkable surface, and ground-snap Y to the
+            // surface height (follows ramps/stairs, rests on the floor). Skipped
+            // when no marker / no nav table / no mesh built.
             glm::vec3 navDesired = desired;
+            bool  groundSnap = false;
+            float groundY    = 0.0f;
             if (ctx.world.HasComponent<NavConstrainedComponent>(e)
                 && ctx.Nav && ctx.Nav->HasMesh()) {
                 const glm::vec3 end     = transform->Position + desired;
-                const uint8_t navClass = ResolveNavClass(ctx.world, e, classCount);
-                const glm::vec3 clamped = ctx.Nav->MoveAlongSurfaceForClass(navClass, transform->Position, end);
-                // Keep the move planar: take the navmesh-constrained X/Z (wall-slide)
-                // but preserve the input's Y (moveAlongSurface returns the surface
-                // height, which would otherwise snap/fight the entity's Y every tick;
-                // player input is planar — Y stays 0).
+                const uint8_t navClass  = ResolveNavClass(ctx.world, e, classCount);
+                const glm::vec3 clamped  = ctx.Nav->MoveAlongSurfaceForClass(navClass, transform->Position, end);
+                // X/Z from the navmesh wall-slide; Y set directly below (ground-snap),
+                // NOT through the AABB resolver — pure floor placement, no vertical physics.
                 navDesired = glm::vec3(clamped.x - transform->Position.x,
-                                       desired.y,
+                                       0.0f,
                                        clamped.z - transform->Position.z);
+                groundSnap = true;
+                if (const auto* col = ctx.world.GetComponent<ColliderComponent>(e))
+                    groundY = clamped.y + GroundOffset(*transform, *col);
+                else
+                    groundY = clamped.y;
             }
 
             glm::vec3 applied = navDesired;
@@ -297,9 +303,10 @@ public:
                 applied = ResolveKinematicMove(ctx.world, e, *transform, *collider, navDesired).AppliedDelta;
             }
 
-            if (applied.x != 0.0f || applied.y != 0.0f || applied.z != 0.0f) {
+            if (applied.x != 0.0f || applied.y != 0.0f || applied.z != 0.0f || groundSnap) {
                 ctx.world.Modify<TransformComponent>(e, [&](TransformComponent& t){
-                    t.Position += applied;
+                    t.Position += applied;                 // applied.y is 0 on the nav path; full delta for non-nav movers
+                    if (groundSnap) t.Position.y = groundY; // direct ground placement (overrides nav path's 0-Y)
                 });
             }
 
