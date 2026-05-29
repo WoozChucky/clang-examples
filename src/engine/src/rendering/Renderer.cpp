@@ -148,6 +148,12 @@ bool Renderer::Init(const RendererAPI api) {
         return false;
     }
 
+    m_SmaaPass = std::make_unique<SmaaRenderPass>();
+    if (!m_SmaaPass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize SmaaRenderPass");
+        m_SmaaPass.reset(); // SMAA unavailable; AA switch falls back with a one-shot warn
+    }
+
     Engine::Registry().Register(&m_FrameAllocator);
 
     return true;
@@ -175,6 +181,7 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     }
     m_RenderPasses.clear();
     if (m_FxaaPass) { m_FxaaPass->Shutdown(); m_FxaaPass.reset(); }
+    if (m_SmaaPass) { m_SmaaPass->Shutdown(); m_SmaaPass.reset(); }
 
     // Cleanup resource systems
     m_MaterialSystem.Shutdown();
@@ -262,12 +269,19 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                 // Always resolve fog: LightingRenderPass reads m_FrameFog regardless of Enabled.
                 m_FrameFog = ComputeFog(sunDir, fogComp);
 
-                // FXAA path: world passes render into an offscreen scene-color SRV,
-                // which the FXAA pass then resolves into sceneBuffer. UI draws on top,
-                // un-AA'd. When disabled, worldTarget == sceneBuffer (today's path).
-                bool fxaa = GetAntiAliasingSettings().Mode == AAMode::FXAA && m_FxaaPass != nullptr;
+                // AA path: world passes render into an offscreen scene-color SRV, which the
+                // selected AA pass (FXAA or SMAA) then resolves into sceneBuffer. UI draws on
+                // top, un-AA'd. When disabled, worldTarget == sceneBuffer (today's path).
+                const AAMode aaMode = GetAntiAliasingSettings().Mode;
+                bool useFxaa = (aaMode == AAMode::FXAA) && m_FxaaPass != nullptr;
+                bool useSmaa = (aaMode == AAMode::SMAA) && m_SmaaPass != nullptr;
+                if (aaMode == AAMode::SMAA && m_SmaaPass == nullptr) {
+                    static bool s_warnedSmaa = false;
+                    if (!s_warnedSmaa) { SM_WARN("SMAA selected but pass unavailable; rendering without AA"); s_warnedSmaa = true; }
+                }
+                bool offscreen = useFxaa || useSmaa; // both resolve from an offscreen scene-color SRV
                 nvrhi::IFramebuffer* worldTarget = sceneBuffer;
-                if (fxaa) {
+                if (offscreen) {
                     const auto& sfbi = sceneBuffer->getFramebufferInfo();
                     nvrhi::ITexture* sharedDepth = sceneBuffer->getDesc().depthAttachment.texture;
                     EnsureSceneColor(sfbi.width, sfbi.height, sharedDepth, sfbi.colorFormats[0]);
@@ -278,10 +292,10 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                         // then fall back to direct rendering so the frame still presents.
                         static bool s_warnedFxaaAlloc = false;
                         if (!s_warnedFxaaAlloc) {
-                            SM_WARN("FXAA enabled but scene-color target unavailable; falling back to direct rendering (no AA)");
+                            SM_WARN("AA enabled but scene-color target unavailable; falling back to direct rendering (no AA)");
                             s_warnedFxaaAlloc = true;
                         }
-                        fxaa = false;
+                        offscreen = useFxaa = useSmaa = false;
                     }
                 }
 
@@ -309,7 +323,7 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                     m_ActiveCamera = active;
                 }
 
-                // World passes -> world target (offscreen scene color when FXAA on, else sceneBuffer).
+                // World passes -> world target (offscreen scene color when AA on, else sceneBuffer).
                 for (auto& pass : m_RenderPasses) {
                     ZoneScopedN("RenderPass Rec N");
                     if (pass && pass->Stage() == IRenderPass::RenderStage::World) {
@@ -317,9 +331,11 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                     }
                 }
 
-                // FXAA resolve: scene-color SRV -> sceneBuffer.
-                if (fxaa) {
+                // AA resolve: scene-color SRV -> sceneBuffer.
+                if (useFxaa) {
                     m_FxaaPass->Render(m_CommandList, sceneBuffer, snapshot, world, deltaTime, &m_FrameAllocator);
+                } else if (useSmaa) {
+                    m_SmaaPass->Render(m_CommandList, sceneBuffer, snapshot, world, deltaTime, &m_FrameAllocator);
                 }
 
                 // Overlay passes (UI) on top of sceneBuffer, after the resolve.
@@ -374,6 +390,7 @@ void Renderer::Resize(const uint32_t width, const uint32_t height) {
     if (m_FxaaPass) {
         m_FxaaPass->OnResize(width, height);
     }
+    if (m_SmaaPass) { m_SmaaPass->OnResize(width, height); }
 
     if (m_Backend) {
         m_Backend->ResizeSwapChain(width, height);
@@ -612,6 +629,7 @@ void Renderer::TeardownForSwap()
     }
     m_RenderPasses.clear();
     if (m_FxaaPass) { m_FxaaPass->Shutdown(); m_FxaaPass.reset(); }
+    if (m_SmaaPass) { m_SmaaPass->Shutdown(); m_SmaaPass.reset(); }
 
     // Release GPU resources but keep CPU caches + entry slots.
     m_MaterialSystem.DestroyGpuResources();
@@ -717,6 +735,12 @@ bool Renderer::InitForSwap(RendererAPI newApi)
 
     m_FxaaPass = std::make_unique<FxaaRenderPass>();
     if (!m_FxaaPass->Initialize(m_Device, this)) { SM_ERROR("InitForSwap: FxaaPass failed"); return false; }
+
+    m_SmaaPass = std::make_unique<SmaaRenderPass>();
+    if (!m_SmaaPass->Initialize(m_Device, this)) {
+        SM_ERROR("InitForSwap: SmaaPass failed");
+        m_SmaaPass.reset(); // SMAA unavailable; AA switch falls back with a one-shot warn
+    }
 
     // Frame index reset so the first post-swap frame is treated like a warm-up
     // (Render() skips frame 0; see m_FrameIndex guard).
