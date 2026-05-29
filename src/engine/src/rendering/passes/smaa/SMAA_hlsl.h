@@ -2,6 +2,9 @@
 // Copied from third_party/smaa/SMAA.hlsl (MIT, Jimenez et al.) and wrapped as a string
 // literal for inline DXC compilation (CreateShader has no #include handler). Editable:
 // patch here if DXC rejects something. Re-copy from the submodule if it is bumped.
+// NOTE: the shader body below is split into multiple adjacent raw-string literals (see the
+// "literal split" markers) to dodge MSVC's C2026 16380-byte per-string-literal cap. A re-copy
+// from the submodule MUST re-apply those splits, or the build will fail.
 static const char* SMAA_HLSL_SOURCE = R"SMAA(
 /**
  * Copyright (C) 2013 Jorge Jimenez (jorge@iryoku.com)
@@ -55,7 +58,7 @@ static const char* SMAA_HLSL_SOURCE = R"SMAA(
  *
  * The shader has three passes, chained together as follows:
  *
- *                           |input|------------------�
+ *                           |input|------------------.
  *                              v                     |
  *                    [ SMAA*EdgeDetection ]          |
  *                              v                     |
@@ -65,7 +68,7 @@ static const char* SMAA_HLSL_SOURCE = R"SMAA(
  *                              v                     |
  *                          |blendTex|                |
  *                              v                     |
- *                [ SMAANeighborhoodBlending ] <------�
+ *                [ SMAANeighborhoodBlending ] <------.
  *                              v
  *                           |output|
  *
