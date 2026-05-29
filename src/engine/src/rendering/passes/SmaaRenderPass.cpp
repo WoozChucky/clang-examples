@@ -192,7 +192,80 @@ void SmaaRenderPass::OnResize(uint32_t /*width*/, uint32_t /*height*/)
     m_Width = m_Height = 0;
 }
 
-void SmaaRenderPass::Render(nvrhi::ICommandList*, nvrhi::IFramebuffer*, SimulationSnapshot&, const ECS*, double, FrameAllocator*)
+void SmaaRenderPass::Render(nvrhi::ICommandList* commandList,
+                            nvrhi::IFramebuffer* frameBuffer,
+                            SimulationSnapshot& /*snapshot*/,
+                            const ECS* /*world*/,
+                            double /*deltaTime*/,
+                            FrameAllocator* /*frameAllocator*/)
 {
-    // Implemented in the next task.
+    nvrhi::ITexture* scene = m_Renderer->GetSceneColorTexture();
+    if (!scene) return;
+
+    const auto fbi = frameBuffer->getFramebufferInfo();
+    if (!EnsureTargets(fbi.width, fbi.height)) return;
+
+    // Lazy pipelines (rebuilt on resize). Each sub-pass: no depth, no cull, no blend.
+    auto makePipe = [&](nvrhi::IShader* vs, nvrhi::IShader* ps, nvrhi::IBindingLayout* layout, nvrhi::IFramebuffer* fb) {
+        nvrhi::GraphicsPipelineDesc pso;
+        pso.VS = vs; pso.PS = ps; pso.bindingLayouts = { layout };
+        pso.primType = nvrhi::PrimitiveType::TriangleList;
+        pso.renderState.depthStencilState.depthTestEnable = false;
+        pso.renderState.depthStencilState.depthWriteEnable = false;
+        pso.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+        nvrhi::BlendState::RenderTarget rt; rt.setBlendEnable(false).setColorWriteMask(nvrhi::ColorMask::All);
+        pso.renderState.blendState.setRenderTarget(0, rt);
+        return m_Device->createGraphicsPipeline(pso, fb->getFramebufferInfo());
+    };
+    if (!m_EdgePipeline)   m_EdgePipeline   = makePipe(m_EdgeVS,   m_EdgePS,   m_EdgeLayout,   m_EdgesFb);
+    if (!m_WeightPipeline) m_WeightPipeline = makePipe(m_WeightVS, m_WeightPS, m_WeightLayout, m_BlendFb);
+    if (!m_BlendPipeline)  m_BlendPipeline  = makePipe(m_BlendVS,  m_BlendPS,  m_BlendLayout,  frameBuffer);
+
+    commandList->beginMarker("SmaaRenderPass");
+
+    SmaaFrameCB cb{};
+    cb.RtMetrics = glm::vec4(1.0f / fbi.width, 1.0f / fbi.height, (float)fbi.width, (float)fbi.height);
+    commandList->writeBuffer(m_FrameCB, &cb, sizeof(cb));
+
+    auto draw = [&](nvrhi::IGraphicsPipeline* pipe, nvrhi::IFramebuffer* fb, nvrhi::BindingSetHandle bs) {
+        nvrhi::GraphicsState st; st.pipeline = pipe; st.framebuffer = fb; st.bindings = { bs };
+        st.viewport.addViewportAndScissorRect(fb->getFramebufferInfo().getViewport());
+        commandList->setGraphicsState(st);
+        nvrhi::DrawArguments a; a.vertexCount = 3; commandList->draw(a);
+    };
+
+    // 1) Edge detection: scene -> edges. Clear edges first (SMAA expects fresh edges).
+    commandList->clearTextureFloat(m_EdgesTex, nvrhi::AllSubresources, nvrhi::Color(0.f));
+    {
+        nvrhi::BindingSetDesc d; d.bindings = {
+            nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
+            nvrhi::BindingSetItem::Texture_SRV(1, scene),
+            nvrhi::BindingSetItem::Sampler(4, m_LinearClamp),
+            nvrhi::BindingSetItem::Sampler(5, m_PointClamp) };
+        draw(m_EdgePipeline, m_EdgesFb, m_Device->createBindingSet(d, m_EdgeLayout));
+    }
+    // 2) Blend-weight calc: edges + area + search -> blend. Clear blend first.
+    commandList->clearTextureFloat(m_BlendTex, nvrhi::AllSubresources, nvrhi::Color(0.f));
+    {
+        nvrhi::BindingSetDesc d; d.bindings = {
+            nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
+            nvrhi::BindingSetItem::Texture_SRV(1, m_EdgesTex),
+            nvrhi::BindingSetItem::Texture_SRV(2, m_AreaTex),
+            nvrhi::BindingSetItem::Texture_SRV(3, m_SearchTex),
+            nvrhi::BindingSetItem::Sampler(4, m_LinearClamp),
+            nvrhi::BindingSetItem::Sampler(5, m_PointClamp) };
+        draw(m_WeightPipeline, m_BlendFb, m_Device->createBindingSet(d, m_WeightLayout));
+    }
+    // 3) Neighborhood blend: scene + blend -> swapchain.
+    {
+        nvrhi::BindingSetDesc d; d.bindings = {
+            nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
+            nvrhi::BindingSetItem::Texture_SRV(1, scene),
+            nvrhi::BindingSetItem::Texture_SRV(2, m_BlendTex),
+            nvrhi::BindingSetItem::Sampler(4, m_LinearClamp),
+            nvrhi::BindingSetItem::Sampler(5, m_PointClamp) };
+        draw(m_BlendPipeline, frameBuffer, m_Device->createBindingSet(d, m_BlendLayout));
+    }
+
+    commandList->endMarker();
 }
