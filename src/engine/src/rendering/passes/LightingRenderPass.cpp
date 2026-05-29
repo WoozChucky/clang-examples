@@ -34,6 +34,7 @@ cbuffer PerFrame : register(b0) {
     float4 uFog;
     float4 uAmbientColor;
     uint uPointLightCount; int uShadowEnabled; float uShadowBias; int uFogEnabled;
+    int uSsaoEnabled; int3 _ssaoPad;
 };
 Texture2D uAlbedo   : register(t1);
 Texture2D uNormal   : register(t2);
@@ -42,6 +43,7 @@ SamplerState uSamp  : register(s4);
 StructuredBuffer<PointLight> gPointLights : register(t5);
 Texture2D              uShadowMap  : register(t6);
 SamplerComparisonState uShadowSamp : register(s7);
+Texture2D uSsao : register(t8);
 struct PSIn { float4 PosH:SV_POSITION; float2 UV:TEXCOORD0; };
 
 float ShadowFactor(float3 worldPos, float ndl){
@@ -65,7 +67,8 @@ float4 main_ps(PSIn i) : SV_Target {
     N = normalize(N);
     float3 lightDir = normalize(uDir.Direction.xyz);
     float diffuse = max(dot(N, -lightDir), 0.0);
-    float3 lighting = uAmbientColor.rgb;
+    float ao = (uSsaoEnabled != 0) ? uSsao.Sample(uSamp, i.UV).r : 1.0;
+    float3 lighting = uAmbientColor.rgb * ao;
     lighting += diffuse * uDir.Color.rgb * ShadowFactor(wp, diffuse);
     [loop] for (uint idx=0; idx<uPointLightCount; ++idx){
         PointLight pl = gPointLights[idx];
@@ -121,7 +124,8 @@ bool LightingRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         nvrhi::BindingLayoutItem::Sampler(4),            // gbuffer sampler
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5), // point lights
         nvrhi::BindingLayoutItem::Texture_SRV(6),        // shadow map
-        nvrhi::BindingLayoutItem::Sampler(7)             // shadow cmp sampler
+        nvrhi::BindingLayoutItem::Sampler(7),            // shadow cmp sampler
+        nvrhi::BindingLayoutItem::Texture_SRV(8)         // ssao
     };
     nvrhi::VulkanBindingOffsets& offsets =
         nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
@@ -246,6 +250,7 @@ void LightingRenderPass::Render(nvrhi::ICommandList* commandList,
         if (const auto* f = world->GetSingleton<FogComponent>()) fogEnabled = f->Enabled;
     }
     cb.FogEnabled = fogEnabled ? 1 : 0;
+    cb.SsaoEnabled = GetSsaoSettings().Enabled ? 1 : 0;
     commandList->writeBuffer(m_FrameCB, &cb, sizeof(cb));
 
     if (m_PointLightBuffer && pointLightCount > 0)
@@ -263,7 +268,8 @@ void LightingRenderPass::Render(nvrhi::ICommandList* commandList,
         nvrhi::BindingSetItem::Sampler(4, m_GBufSampler),
         nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_PointLightBuffer),
         nvrhi::BindingSetItem::Texture_SRV(6, m_Renderer->GetShadowDepthTexture(), nvrhi::Format::R32_FLOAT),
-        nvrhi::BindingSetItem::Sampler(7, m_Renderer->GetShadowSampler())
+        nvrhi::BindingSetItem::Sampler(7, m_Renderer->GetShadowSampler()),
+        nvrhi::BindingSetItem::Texture_SRV(8, m_Renderer->GetSsaoTexture()),
     };
     nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
