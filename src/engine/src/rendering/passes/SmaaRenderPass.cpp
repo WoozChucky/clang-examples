@@ -34,6 +34,7 @@ SamplerState PointSampler  : register(s5);
 #define SMAASample(tex, coord) tex.Sample(LinearSampler, coord)
 #define SMAASamplePoint(tex, coord) tex.Sample(PointSampler, coord)
 #define SMAASampleOffset(tex, coord, offset) tex.Sample(LinearSampler, coord, offset)
+#define SMAATexture2DMS2(tex) Texture2DMS<float4, 2> tex
 #define SMAALoad(tex, pos, sample) tex.Load(pos, sample)
 #define SMAAGather(tex, coord) tex.Gather(LinearSampler, coord)
 #define SMAA_FLATTEN [flatten]
