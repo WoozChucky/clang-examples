@@ -190,8 +190,14 @@ std::unique_ptr<NavMesh> NavMesh::Build(const NavMeshTriangleSoup& soup,
     rcVcopy(nmParams.orig, bmin);
     nmParams.tileWidth  = rcc.tileSize * cfg.CellSize;
     nmParams.tileHeight = rcc.tileSize * cfg.CellSize;
-    nmParams.maxTiles   = tw * th;
-    nmParams.maxPolys   = 16384;
+    // Cap maxTiles/maxPolys to Detour's polyref bit budget: tileBits + polyBits = 22,
+    // leaving 10 salt bits (dtNavMesh::init fails if salt < 10). Hardcoding
+    // maxPolys=16384 (polyBits=14) overflowed once tw*th pushed tileBits past 8 on
+    // large/fine scenes. Standard Sample_TempObstacles formula.
+    const int tileBits = rcMin((int)dtIlog2(dtNextPow2((unsigned int)(tw * th))), 14);
+    const int polyBits = 22 - tileBits;
+    nmParams.maxTiles   = 1 << tileBits;
+    nmParams.maxPolys   = 1 << polyBits;
 
     out->m_NavMesh = dtAllocNavMesh();
     if (!out->m_NavMesh) { SM_WARN("dtAllocNavMesh failed"); return nullptr; }
