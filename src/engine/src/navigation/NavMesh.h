@@ -67,6 +67,15 @@ public:
     // search extents (default 2m XZ, 4m Y).
     bool ClosestPoint(const glm::vec3& world, glm::vec3& out) const;
 
+    // Constrain a desired move to the navmesh surface (wall-slide via Detour
+    // moveAlongSurface). If `start` has a poly within near extents, returns the
+    // surface-constrained end position (slides along boundaries, never leaves the
+    // mesh). If off-mesh, searches wider recovery extents and returns the nearest
+    // poly point (pull back onto mesh) with a rate-limited SM_WARN; if even that
+    // misses, returns `start` unchanged (no movement). No query / no mesh →
+    // returns `desiredEnd` (unconstrained). GameThread only.
+    glm::vec3 ConstrainMove(const glm::vec3& start, const glm::vec3& desiredEnd) const;
+
     // Collect poly outline edges as line segments (pairs of vec3 — caller draws
     // as DebugAppendLine pairs). Used by DebugRenderPass ShowNavMesh.
     void CollectPolyEdges(std::vector<glm::vec3>& outLines) const;

@@ -629,6 +629,53 @@ static void T27_geometry_mesh_cache_miss_skips_entity() {
     EXPECT(nm != nullptr);  // floor still built; Mesh-source skipped + SM_WARN
 }
 
+// ---------- Navmesh-constrained movement: T28-T30 ----------
+
+static void T28_constrain_open_move_reaches_target() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (!nm) return;
+    // Move 1m across open floor — result should land ~at the target, on the mesh.
+    const glm::vec3 result = nm->ConstrainMove(glm::vec3(0, 0.1f, 0), glm::vec3(1.0f, 0.1f, 0));
+    EXPECT(std::fabs(result.x - 1.0f) < 0.3f);   // advanced ~1m in +X
+    EXPECT(std::fabs(result.z - 0.0f) < 0.3f);   // no lateral drift
+}
+
+static void T29_constrain_into_boundary_clamps_on_mesh() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (!nm) return;
+    // Push from a valid on-mesh point far past the +X boundary. moveAlongSurface
+    // must clamp/slide along the edge: result stays inside the floor bounds and
+    // does NOT reach the requested x=20.
+    const glm::vec3 result = nm->ConstrainMove(glm::vec3(3.0f, 0.1f, 0), glm::vec3(20.0f, 0.1f, 0));
+    EXPECT(result.x < 6.0f);            // clamped near the eroded edge, not at 20
+    EXPECT(std::fabs(result.x) <= 5.5f); // still within the floor extents (on mesh)
+    EXPECT(std::fabs(result.z) <= 5.5f);
+}
+
+static void T30_constrain_offmesh_recovers_toward_mesh() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshSystem::Instance().Rebuild(w, DefaultCfg());
+    auto nm = NavMeshSystem::Instance().Current();
+    EXPECT(nm != nullptr);
+    if (!nm) return;
+    // Start ~5.5m off the +X edge (beyond the 2m near-extent, inside the 16m
+    // recovery extent). ConstrainMove should return the nearest poly point —
+    // i.e. pulled back TOWARD the mesh (closer to origin than the start).
+    const glm::vec3 start(10.0f, 0.1f, 0);
+    const glm::vec3 result = nm->ConstrainMove(start, glm::vec3(11.0f, 0.1f, 0));
+    EXPECT(glm::length(result) < glm::length(start)); // moved toward the mesh
+    EXPECT(result.x < start.x);
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -657,6 +704,9 @@ int main() {
     T25_navservices_findpath_empty_when_no_mesh();
     T26_geometry_mesh_uses_cached_cpu_data();
     T27_geometry_mesh_cache_miss_skips_entity();
+    T28_constrain_open_move_reaches_target();
+    T29_constrain_into_boundary_clamps_on_mesh();
+    T30_constrain_offmesh_recovers_toward_mesh();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

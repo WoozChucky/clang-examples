@@ -379,6 +379,52 @@ bool NavMesh::ClosestPoint(const glm::vec3& world, glm::vec3& out) const
     return true;
 }
 
+glm::vec3 NavMesh::ConstrainMove(const glm::vec3& start, const glm::vec3& desiredEnd) const
+{
+    SM_ASSERT(std::this_thread::get_id() == NavQueryOwnerThread(),
+              "NavMesh::ConstrainMove called from non-owner thread; dtNavMeshQuery is not thread-safe");
+    if (!m_Query || !m_NavMesh) return desiredEnd;  // no query → unconstrained
+
+    dtQueryFilter filter;
+    filter.setIncludeFlags(0xffff);
+    filter.setExcludeFlags(0);
+
+    const float s[3] = { start.x, start.y, start.z };
+    const float e[3] = { desiredEnd.x, desiredEnd.y, desiredEnd.z };
+
+    // Normal path: small near-extents start-poly lookup, then slide along surface.
+    const float nearExt[3] = { 2.0f, 4.0f, 2.0f };
+    dtPolyRef startRef = 0;
+    float startNearest[3];
+    m_Query->findNearestPoly(s, nearExt, &filter, &startRef, startNearest);
+
+    if (startRef) {
+        float resultPos[3];
+        dtPolyRef visited[16];
+        int nvisited = 0;
+        if (dtStatusFailed(m_Query->moveAlongSurface(startRef, startNearest, e, &filter,
+                                                     resultPos, visited, &nvisited, 16))) {
+            return start;  // query failed → no movement this tick
+        }
+        return glm::vec3(resultPos[0], resultPos[1], resultPos[2]);
+    }
+
+    // Recovery: wider search to pull a displaced entity back toward the mesh.
+    const float recoverExt[3] = { 16.0f, 16.0f, 16.0f };
+    dtPolyRef recoverRef = 0;
+    float recoverNearest[3];
+    m_Query->findNearestPoly(s, recoverExt, &filter, &recoverRef, recoverNearest);
+    if (recoverRef) {
+        // Rate-limit: this fires per tick while off-mesh; log ~once/2s at 60Hz.
+        static int s_offMeshLog = 0;
+        if ((s_offMeshLog++ % 120) == 0) {
+            SM_WARN("NavMesh::ConstrainMove: start off-mesh, recovering toward nearest poly");
+        }
+        return glm::vec3(recoverNearest[0], recoverNearest[1], recoverNearest[2]);
+    }
+    return start;  // fully off-mesh (beyond recovery extents) → freeze this tick
+}
+
 void NavMesh::CollectPolyEdges(std::vector<glm::vec3>& outLines) const
 {
     if (!m_NavMesh) return;
