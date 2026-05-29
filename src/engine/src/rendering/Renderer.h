@@ -144,7 +144,7 @@ public:
     // Per-frame fog resolved at the top of Render() (like GetActiveCamera): drives
     // both the scene clear color and the mesh pass's distance fog.
     const FogFrame&      GetFrameFog() const           { return m_FrameFog; }
-    static constexpr uint32_t kShadowMapSize = 2048;
+    static constexpr uint32_t kShadowMapSize = 4096;
 
 private:
 

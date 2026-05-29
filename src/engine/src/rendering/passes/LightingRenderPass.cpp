@@ -51,10 +51,10 @@ float ShadowFactor(float3 worldPos, float ndl){
     float2 uv = p.xy * 0.5 + 0.5; uv.y = 1.0 - uv.y;
     if (uv.x<0.0||uv.x>1.0||uv.y<0.0||uv.y>1.0) return 1.0;
     float bias = uShadowBias * (1.0 + (1.0-ndl)*2.0);
-    float d = p.z - bias; float sum = 0.0; const float texel = 1.0/2048.0;
-    [unroll] for(int y=-1;y<=1;++y)[unroll] for(int x=-1;x<=1;++x)
-        sum += uShadowMap.SampleCmpLevelZero(uShadowSamp, uv+float2(x,y)*texel, d);
-    return sum/9.0;
+    // Single comparison tap. The shadow sampler is a linear-compare sampler, so the hardware
+    // already does 2x2 bilinear PCF here — the sharpest smooth edge the map resolution allows.
+    // Edge sharpness is resolution-bound (texel = ShadowCoverage / kShadowMapSize), not filter-bound.
+    return uShadowMap.SampleCmpLevelZero(uShadowSamp, uv, p.z - bias);
 }
 
 float4 main_ps(PSIn i) : SV_Target {

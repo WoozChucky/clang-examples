@@ -324,7 +324,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         static bool s_ShowRenderStatsPanel = true;
         if (DrawRenderStatsPanel(&s_ShowRenderStatsPanel)) {
-            // Debug-draw/shadow toggles persist in editor_preferences.json.
+            // Debug-draw toggles persist in editor_preferences.json.
             EditorPreferences::Save(EditorPreferences::DEFAULT_PREFERENCES_PATH, m_EditorCamera.GetState());
             // FXAA persists in engine_settings.json (engine tier). Only write when it
             // actually changed so unrelated panel edits don't rewrite engine settings.
@@ -333,6 +333,22 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                 m_AppContext->Settings.aaMode = aaNow;
                 if (!SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH, m_AppContext->Settings)) {
                     SM_WARN("Failed to persist AA mode to %s", SettingsManager::DEFAULT_SETTINGS_PATH);
+                }
+            }
+
+            // Shadow settings are engine-tier (so runtime.exe honors them); persist on change.
+            const ShadowSettings& sh = GetShadowSettings();
+            if (m_AppContext &&
+                (sh.Enabled        != m_AppContext->Settings.shadowEnabled  ||
+                 sh.Bias           != m_AppContext->Settings.shadowBias     ||
+                 sh.ShadowCoverage != m_AppContext->Settings.shadowCoverage ||
+                 sh.NearExtend     != m_AppContext->Settings.shadowNearExtend)) {
+                m_AppContext->Settings.shadowEnabled    = sh.Enabled;
+                m_AppContext->Settings.shadowBias       = sh.Bias;
+                m_AppContext->Settings.shadowCoverage   = sh.ShadowCoverage;
+                m_AppContext->Settings.shadowNearExtend = sh.NearExtend;
+                if (!SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH, m_AppContext->Settings)) {
+                    SM_WARN("Failed to persist shadow settings to %s", SettingsManager::DEFAULT_SETTINGS_PATH);
                 }
             }
         }

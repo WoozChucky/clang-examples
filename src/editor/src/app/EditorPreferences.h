@@ -5,7 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "RenderStats.h" // CullingSettings, DebugDrawSettings, ShadowSettings (+ ENGINE_API getters)
+#include "RenderStats.h" // CullingSettings, DebugDrawSettings (+ ENGINE_API getters)
 #include "EditorCameraState.h"
 
 // Editor-only persistence of the RenderStats panel toggles + the editor camera pose.
@@ -15,11 +15,10 @@ namespace EditorPreferences {
 constexpr auto     DEFAULT_PREFERENCES_PATH = "editor_preferences.json";
 constexpr uint32_t PREFERENCES_VERSION      = 1;
 
-// Pure: serialize the three RenderStats settings structs to the preferences JSON shape.
+// Pure: serialize the RenderStats settings structs to the preferences JSON shape.
 // No globals touched -> unit-testable without an Engine link.
 inline nlohmann::json PrefsToJson(const CullingSettings& culling,
                                   const DebugDrawSettings& debug,
-                                  const ShadowSettings& shadows,
                                   const EditorCameraState& camera) {
     return nlohmann::json{
         {"version", PREFERENCES_VERSION},
@@ -37,10 +36,6 @@ inline nlohmann::json PrefsToJson(const CullingSettings& culling,
             {"obstacles",     debug.ShowObstacles},
             {"navpaths",      debug.ShowNavPaths},
         }},
-        {"shadows", {
-            {"enabled", shadows.Enabled},
-            {"bias",    shadows.Bias},
-        }},
         {"camera", {
             {"position", { camera.Position.x, camera.Position.y, camera.Position.z }},
             {"yaw",      camera.Yaw},
@@ -56,7 +51,6 @@ inline nlohmann::json PrefsToJson(const CullingSettings& culling,
 inline void PrefsFromJson(const nlohmann::json& j,
                           CullingSettings& culling,
                           DebugDrawSettings& debug,
-                          ShadowSettings& shadows,
                           EditorCameraState& camera) {
     if (j.contains("culling") && j["culling"].is_object()) {
         const auto& c = j["culling"];
@@ -73,11 +67,6 @@ inline void PrefsFromJson(const nlohmann::json& j,
         if (d.contains("navmesh")       && d["navmesh"].is_boolean())       debug.ShowNavMesh       = d["navmesh"].get<bool>();
         if (d.contains("obstacles")     && d["obstacles"].is_boolean())     debug.ShowObstacles     = d["obstacles"].get<bool>();
         if (d.contains("navpaths")      && d["navpaths"].is_boolean())      debug.ShowNavPaths      = d["navpaths"].get<bool>();
-    }
-    if (j.contains("shadows") && j["shadows"].is_object()) {
-        const auto& s = j["shadows"];
-        if (s.contains("enabled") && s["enabled"].is_boolean()) shadows.Enabled = s["enabled"].get<bool>();
-        if (s.contains("bias")    && s["bias"].is_number())     shadows.Bias    = s["bias"].get<float>();
     }
     if (j.contains("camera") && j["camera"].is_object()) {
         const auto& cam = j["camera"];

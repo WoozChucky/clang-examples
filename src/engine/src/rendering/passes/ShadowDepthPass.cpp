@@ -89,31 +89,50 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
     if (!haveSun || !IsSunUp(sunDir))
         return;
 
-    // Fit the light frustum to the world-space AABB of all visible meshes.
-    glm::vec3 mn(std::numeric_limits<float>::max());
-    glm::vec3 mx(-std::numeric_limits<float>::max());
-    bool any = false;
     MeshSystem* ms = m_Renderer->GetMeshSystem();
-    world->Each<TransformComponent, MeshComponent>(
-        [&](EntityId, const TransformComponent& t, const MeshComponent& m)
-        {
-            if (!m.Visible)
-                return;
-            const auto b = ms->GetMeshBounds(m.MeshId);
-            if (!b.valid)
-                return;
-            glm::vec3 wMin, wMax;
-            TransformAABB(ModelMatrix(t), b.min, b.max, wMin, wMax);
-            mn = glm::min(mn, wMin);
-            mx = glm::max(mx, wMax);
-            any = true;
-        });
-    if (!any)
-        return;
 
-    const glm::vec3 center = 0.5f * (mn + mx);
-    const float radius = 0.5f * glm::length(mx - mn);
-    const glm::mat4 lightVP = ComputeLightViewProj(center, radius, sunDir);
+    const ShadowSettings& shadow = GetShadowSettings();
+
+    // Prefer fitting the light ortho to the camera frustum slice (concentrates the fixed-size
+    // shadow map's texels where the camera looks). Fall back to the all-visible-meshes AABB if
+    // the camera is unavailable/degenerate.
+    glm::vec3 center(0.0f);
+    float radius = 0.0f;
+    bool haveFit = false;
+    {
+        const CameraView& cam = m_Renderer->GetActiveCamera();
+        const glm::vec3 fwd  = CameraForward(cam.View);
+        const float coverage = glm::max(shadow.ShadowCoverage, 1.0f); // box width (world units)
+        if (glm::dot(fwd, fwd) > 0.5f) {                              // valid camera basis
+            const glm::vec3 focus = GroundFocus(cam.Position, fwd, coverage);
+            radius = coverage * 0.5f;                                 // ortho half-extent
+            center = SnapToTexelGrid(focus, radius, sunDir, Renderer::kShadowMapSize);
+            haveFit = true;
+        }
+    }
+    if (!haveFit) {
+        // Fallback: fit to the world-space AABB of all visible meshes (the original behavior).
+        glm::vec3 mn(std::numeric_limits<float>::max());
+        glm::vec3 mx(-std::numeric_limits<float>::max());
+        bool any = false;
+        world->Each<TransformComponent, MeshComponent>(
+            [&](EntityId, const TransformComponent& t, const MeshComponent& m)
+            {
+                if (!m.Visible) return;
+                const auto b = ms->GetMeshBounds(m.MeshId);
+                if (!b.valid) return;
+                glm::vec3 wMin, wMax;
+                TransformAABB(ModelMatrix(t), b.min, b.max, wMin, wMax);
+                mn = glm::min(mn, wMin); mx = glm::max(mx, wMax); any = true;
+            });
+        if (!any) return;
+        center = 0.5f * (mn + mx);
+        radius = 0.5f * glm::length(mx - mn);
+        static bool s_warnedShadowFit = false;
+        if (!s_warnedShadowFit) { SM_WARN("ShadowDepthPass: camera frustum fit unavailable; using scene-AABB fallback"); s_warnedShadowFit = true; }
+    }
+
+    const glm::mat4 lightVP = ComputeLightViewProj(center, radius, sunDir, shadow.NearExtend);
     sv.LightVP = lightVP;
     sv.Enabled = 1;
 

@@ -20,6 +20,10 @@ struct ApplicationSettings {
     uint32_t    windowHeight  = 1080;
     bool        vsyncEnabled  = true;
     int         aaMode        = 1;   // 0 = Off, 1 = FXAA, 2 = SMAA (see AaModeMigration.h)
+    bool        shadowEnabled    = true;
+    float       shadowBias       = 0.0015f;
+    float       shadowCoverage   = 80.0f;
+    float       shadowNearExtend = 50.0f;
 };
 
 // Runtime-configurable game thread settings (Render -> Game)

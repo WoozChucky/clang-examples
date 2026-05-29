@@ -21,6 +21,16 @@ bool Application::Init(std::optional<RendererAPI> backendOverride, OverlayFactor
     // boot through here; the RenderThread reads GetAntiAliasingSettings()).
     GetAntiAliasingSettings().Mode = static_cast<AAMode>(m_AppContext->Settings.aaMode);
 
+    // Seed the live shadow settings from the persisted engine-tier values (both exes boot here;
+    // the RenderThread reads GetShadowSettings()).
+    {
+        ShadowSettings& sh = GetShadowSettings();
+        sh.Enabled        = m_AppContext->Settings.shadowEnabled;
+        sh.Bias           = m_AppContext->Settings.shadowBias;
+        sh.ShadowCoverage = m_AppContext->Settings.shadowCoverage;
+        sh.NearExtend     = m_AppContext->Settings.shadowNearExtend;
+    }
+
     if (m_AppContext->Settings.Backend == RendererAPI::Invalid) {
         SM_ERROR("Application: resolved backend is Invalid; aborting");
         return false;
