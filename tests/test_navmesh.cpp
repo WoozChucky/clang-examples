@@ -817,6 +817,44 @@ static void T38_navservices_legacy_fns_map_to_class0() {
     EXPECT(path.size() >= 2);
 }
 
+// ---------- Obstacle dilated per class agent radius: T39 ----------
+static void T39_obstacle_dilated_by_agent_radius() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshConfigComponent cfg = DefaultCfg();
+    cfg.ClassCount = 2;
+    cfg.Classes[0] = NavClassConfig{ 0.2f, 1.8f, 0.4f };   // small agent
+    cfg.Classes[1] = NavClassConfig{ 1.0f, 1.8f, 0.4f };   // large agent
+    NavMeshSystem::Instance().Rebuild(w, cfg);
+
+    // Obstacle radius 0.5 → carved hole ~0.7 (small) vs ~1.5 (large) after dilation.
+    SpawnCylinderObstacle(w, glm::vec3(0, 0, 0), 0.5f, 2.0f);
+    NavObstacleSyncSystem sync;
+    RunSync(w, sync);
+    DrainTileCache(NavMeshSystem::Instance());
+
+    // Probe 1.0 m from the obstacle centre: on-mesh for the small agent (hole ~0.7),
+    // but inside the large agent's dilated hole (~1.5) so ClosestPoint snaps it away.
+    // Compare HORIZONTAL (XZ) distance only — ClosestPoint snaps to the floor surface
+    // (y~0), so a probe Y offset would otherwise dominate.
+    auto xzDist = [](const glm::vec3& a, const glm::vec3& b) {
+        const float dx = a.x - b.x, dz = a.z - b.z;
+        return std::sqrt(dx * dx + dz * dz);
+    };
+    const glm::vec3 probe(1.0f, 0.0f, 0.0f);
+    glm::vec3 outS{}, outL{};
+    auto small = NavMeshSystem::Instance().Current(0);
+    auto large = NavMeshSystem::Instance().Current(1);
+    EXPECT(small && large);
+    if (!small || !large) return;
+    const bool okS = small->ClosestPoint(probe, outS);
+    const bool okL = large->ClosestPoint(probe, outL);
+    EXPECT(okS);
+    EXPECT(okL);
+    if (okS) EXPECT(xzDist(outS, probe) < 0.3f);   // small: probe is walkable (hole ~0.7)
+    if (okL) EXPECT(xzDist(outL, probe) > 0.3f);   // large: probe inside dilated hole (~1.5)
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -856,6 +894,7 @@ int main() {
     T36_obstacle_blocks_all_classes();
     T37_navservices_forclass_queries();
     T38_navservices_legacy_fns_map_to_class0();
+    T39_obstacle_dilated_by_agent_radius();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

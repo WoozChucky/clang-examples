@@ -69,6 +69,12 @@ public:
     // search extents (default 2m XZ, 4m Y).
     bool ClosestPoint(const glm::vec3& world, glm::vec3& out) const;
 
+    // Agent (capsule) radius this mesh was built/eroded for, in world units
+    // (the tilecache's walkableRadius). 0 if no tilecache. Used to dilate dynamic
+    // obstacles by the agent radius — Detour's tilecache carves obstacles at their
+    // literal radius with no agent-radius erosion (unlike static geometry).
+    float AgentRadius() const;
+
     // Constrain a desired move to the navmesh surface (wall-slide via Detour
     // moveAlongSurface). If `start` has a poly within near extents, returns the
     // surface-constrained end position (slides along boundaries, never leaves the

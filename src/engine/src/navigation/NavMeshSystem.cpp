@@ -119,7 +119,11 @@ NavMeshSystem::ObstacleHandle NavMeshSystem::AddCylinderObstacle(
     for (uint8_t i = 0; i < m_ClassCount; ++i) {
         auto cur = Current(i);
         if (!cur) continue;
-        refs[i] = const_cast<NavMesh*>(cur.get())->AddCylinderObstacle(pos, radius, height);
+        // Dilate by this class's agent radius: Detour's tilecache carves obstacles
+        // at their literal radius (no agent-radius erosion), so inflate the carve
+        // to keep each class's agent its radius clear of the obstacle.
+        refs[i] = const_cast<NavMesh*>(cur.get())->AddCylinderObstacle(
+            pos, radius + cur->AgentRadius(), height);
         any = any || (refs[i] != 0);
     }
     if (!any) return 0;
@@ -136,7 +140,11 @@ NavMeshSystem::ObstacleHandle NavMeshSystem::AddBoxObstacle(
     for (uint8_t i = 0; i < m_ClassCount; ++i) {
         auto cur = Current(i);
         if (!cur) continue;
-        refs[i] = const_cast<NavMesh*>(cur.get())->AddBoxObstacle(bmin, bmax);
+        // Dilate XZ by this class's agent radius (see AddCylinderObstacle); height (Y) unchanged.
+        const float r = cur->AgentRadius();
+        const glm::vec3 emin = bmin - glm::vec3(r, 0.0f, r);
+        const glm::vec3 emax = bmax + glm::vec3(r, 0.0f, r);
+        refs[i] = const_cast<NavMesh*>(cur.get())->AddBoxObstacle(emin, emax);
         any = any || (refs[i] != 0);
     }
     if (!any) return 0;

@@ -380,6 +380,11 @@ bool NavMesh::ClosestPoint(const glm::vec3& world, glm::vec3& out) const
     return true;
 }
 
+float NavMesh::AgentRadius() const
+{
+    return m_TileCache ? m_TileCache->getParams()->walkableRadius : 0.0f;
+}
+
 glm::vec3 NavMesh::ConstrainMove(const glm::vec3& start, const glm::vec3& desiredEnd) const
 {
     SM_ASSERT(std::this_thread::get_id() == NavQueryOwnerThread(),
