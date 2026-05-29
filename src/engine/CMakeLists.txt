@@ -42,6 +42,7 @@ add_library(Engine SHARED
     src/rendering/passes/UiRenderPass.cpp
     src/rendering/passes/FxaaRenderPass.cpp
     src/rendering/passes/SmaaRenderPass.cpp
+    src/rendering/passes/SsaoRenderPass.cpp
 
     # Shader Compilation
     src/rendering/shader/ShaderCompiler.cpp

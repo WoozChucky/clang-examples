@@ -33,6 +33,14 @@ struct ShadowSettings {
     float NearExtend     = 50.0f;   // light-space near-plane pull-back toward the sun
 };
 
+struct SsaoSettings {
+    bool  Enabled   = true;
+    float Radius    = 0.5f;    // world units
+    float Intensity = 1.0f;    // occlusion strength
+    float Power     = 2.0f;    // contrast (pow on AO)
+    float Bias      = 0.025f;  // view-depth bias to avoid self-occlusion
+};
+
 enum class AAMode : int { Off = 0, FXAA = 1, SMAA = 2 };
 struct AntiAliasingSettings {
     AAMode Mode = AAMode::FXAA;
@@ -47,4 +55,5 @@ ENGINE_API RenderStats&     GetRenderStats();
 ENGINE_API CullingSettings& GetCullingSettings();
 ENGINE_API DebugDrawSettings& GetDebugDrawSettings();
 ENGINE_API ShadowSettings& GetShadowSettings();
+ENGINE_API SsaoSettings& GetSsaoSettings();
 ENGINE_API AntiAliasingSettings& GetAntiAliasingSettings();

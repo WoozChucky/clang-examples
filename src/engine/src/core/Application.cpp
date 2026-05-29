@@ -30,6 +30,14 @@ bool Application::Init(std::optional<RendererAPI> backendOverride, OverlayFactor
         sh.ShadowCoverage = m_AppContext->Settings.shadowCoverage;
         sh.NearExtend     = m_AppContext->Settings.shadowNearExtend;
     }
+    {
+        SsaoSettings& ao = GetSsaoSettings();
+        ao.Enabled   = m_AppContext->Settings.ssaoEnabled;
+        ao.Radius    = m_AppContext->Settings.ssaoRadius;
+        ao.Intensity = m_AppContext->Settings.ssaoIntensity;
+        ao.Power     = m_AppContext->Settings.ssaoPower;
+        ao.Bias      = m_AppContext->Settings.ssaoBias;
+    }
 
     if (m_AppContext->Settings.Backend == RendererAPI::Invalid) {
         SM_ERROR("Application: resolved backend is Invalid; aborting");

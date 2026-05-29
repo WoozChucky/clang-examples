@@ -24,6 +24,8 @@ ShadowSettings& GetShadowSettings()
     return s;
 }
 
+SsaoSettings& GetSsaoSettings() { static SsaoSettings s; return s; }
+
 AntiAliasingSettings& GetAntiAliasingSettings()
 {
     static AntiAliasingSettings s;

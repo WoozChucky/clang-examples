@@ -351,6 +351,23 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
                     SM_WARN("Failed to persist shadow settings to %s", SettingsManager::DEFAULT_SETTINGS_PATH);
                 }
             }
+
+            const SsaoSettings& ao = GetSsaoSettings();
+            if (m_AppContext &&
+                (ao.Enabled   != m_AppContext->Settings.ssaoEnabled   ||
+                 ao.Radius    != m_AppContext->Settings.ssaoRadius    ||
+                 ao.Intensity != m_AppContext->Settings.ssaoIntensity ||
+                 ao.Power     != m_AppContext->Settings.ssaoPower     ||
+                 ao.Bias      != m_AppContext->Settings.ssaoBias)) {
+                m_AppContext->Settings.ssaoEnabled   = ao.Enabled;
+                m_AppContext->Settings.ssaoRadius    = ao.Radius;
+                m_AppContext->Settings.ssaoIntensity = ao.Intensity;
+                m_AppContext->Settings.ssaoPower     = ao.Power;
+                m_AppContext->Settings.ssaoBias      = ao.Bias;
+                if (!SettingsManager::Save(SettingsManager::DEFAULT_SETTINGS_PATH, m_AppContext->Settings)) {
+                    SM_WARN("Failed to persist SSAO settings to %s", SettingsManager::DEFAULT_SETTINGS_PATH);
+                }
+            }
         }
 
         // Scene viewport: shows the offscreen scene RT. Zero padding so the image fills the panel.

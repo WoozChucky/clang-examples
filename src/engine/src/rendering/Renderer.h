@@ -136,6 +136,11 @@ public:
     nvrhi::ITexture*     GetGBufferWorldPos()    const { return m_GBuffer.WorldPos; }
     nvrhi::IFramebuffer* GetGBufferFramebuffer() const { return m_GBuffer.Fb;       }
 
+    nvrhi::ITexture*     GetSsaoTexture() const { return m_SsaoBlur; }       // blurred AO (R8)
+    nvrhi::ITexture*     GetSsaoRawTexture() const { return m_SsaoRaw; }
+    nvrhi::IFramebuffer* GetSsaoRawFramebuffer() const { return m_SsaoRawFb; }
+    nvrhi::IFramebuffer* GetSsaoBlurFramebuffer() const { return m_SsaoBlurFb; }
+
     // Offscreen scene-color SRV the world passes render into when FXAA is enabled;
     // the FXAA pass samples it and resolves into the final target. Null when FXAA
     // has never been enabled (lazily allocated).
@@ -198,6 +203,14 @@ private:
     // No-op if already matching width/height/depth.
     void EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* sharedDepth);
     void ReleaseGBuffer();
+
+    // SSAO render targets (Renderer-owned, R8_UNORM). m_SsaoRaw holds per-pixel AO from the
+    // SSAO pass; m_SsaoBlur is the box-blurred result the lighting pass will sample (next task).
+    // Size-guarded rebuild via EnsureSsao; nulled on resize/teardown like the G-buffer.
+    nvrhi::TextureHandle     m_SsaoRaw, m_SsaoBlur;
+    nvrhi::FramebufferHandle m_SsaoRawFb, m_SsaoBlurFb;
+    uint32_t                 m_SsaoW = 0, m_SsaoH = 0;
+    void EnsureSsao(uint32_t width, uint32_t height);
 
     // Offscreen scene-color render target for the FXAA path. Mirrors the G-buffer's
     // depth-keyed framebuffer cache (editor uses one stable depth; the swapchain
