@@ -118,7 +118,7 @@ void GameThread::RunLoop() {
 
     {
         // Loop trough all *.obj files in assets/models and enqueue load jobs
-        const std::string modelDir = "assets/models";;
+        const std::string modelDir = "assets/models";
         for (const auto& entry : std::filesystem::directory_iterator(modelDir)) {
             if (entry.is_regular_file() && (entry.path().extension() == ".obj") || (entry.path().extension() == ".gltf")) {
                 const std::string objPath = entry.path().string();
