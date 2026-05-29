@@ -92,6 +92,11 @@ private:
     std::array<std::shared_ptr<const NavMesh>, kMaxNavClasses> m_Classes{};
     uint8_t m_ClassCount = 0;   // live class slots after the last Rebuild
     std::unordered_map<EntityId, ObstacleHandle> m_EntityToObstacle;
+
+    // Logical obstacle id → per-class NavMesh-level obstacle refs (0 = unused slot).
+    std::unordered_map<uint32_t, std::array<uint32_t, kMaxNavClasses>> m_Obstacles;
+    uint32_t m_NextObstacleId = 1;   // 0 reserved as "none"
+
     std::string                                  m_LastWorldPath;
 
     struct CachedMesh {

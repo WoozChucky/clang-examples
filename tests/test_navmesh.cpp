@@ -760,6 +760,28 @@ static void T35_multiclass_build_distinct_erosion() {
     EXPECT(NavMeshSystem::Instance().Current(7) == nullptr);              // out-of-range slot
 }
 
+// ---------- Multi-class obstacle fan-out: T36 ----------
+static void T36_obstacle_blocks_all_classes() {
+    ECS w;
+    SpawnNavBox(w, glm::vec3(0, -0.1f, 0), glm::vec3(5.0f, 0.1f, 5.0f));
+    NavMeshConfigComponent cfg = DefaultCfg();
+    cfg.ClassCount = 2;
+    cfg.Classes[0] = NavClassConfig{ 0.3f, 1.8f, 0.4f };
+    cfg.Classes[1] = NavClassConfig{ 0.5f, 1.8f, 0.4f };
+    NavMeshSystem::Instance().Rebuild(w, cfg);
+
+    EXPECT(NavMeshSystem::Instance().Current(0)->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0)).size() == 2);
+    EXPECT(NavMeshSystem::Instance().Current(1)->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0)).size() == 2);
+
+    SpawnCylinderObstacle(w, glm::vec3(0,0,0), 1.5f, 2.0f);
+    NavObstacleSyncSystem sync;
+    RunSync(w, sync);
+    DrainTileCache(NavMeshSystem::Instance());
+
+    EXPECT(NavMeshSystem::Instance().Current(0)->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0)).size() > 2);
+    EXPECT(NavMeshSystem::Instance().Current(1)->FindPath(glm::vec3(-4,0.5f,0), glm::vec3(4,0.5f,0)).size() > 2);
+}
+
 int main() {
     T01_empty_world_yields_empty_navmesh();
     T02_flat_floor_path_is_straight();
@@ -796,6 +818,7 @@ int main() {
     T33_live_class_count_clamps_to_one();
     T34_resolve_nav_class();
     T35_multiclass_build_distinct_erosion();
+    T36_obstacle_blocks_all_classes();
 
     if (g_Failures) {
         std::fprintf(stderr, "%d test(s) failed.\n", g_Failures);

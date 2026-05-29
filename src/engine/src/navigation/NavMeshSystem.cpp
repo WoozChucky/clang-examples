@@ -54,6 +54,7 @@ void NavMeshSystem::Rebuild(const ECS& world,
     if (soup.Empty || soup.Tris.empty()) {
         SM_WARN("NavMeshSystem::Rebuild: no NavMeshSource entities; publishing empty navmesh");
         m_EntityToObstacle.clear();   // old dtObstacleRefs invalid against new dtTileCache
+        m_Obstacles.clear();          // per-class refs invalid against freshly-built tilecaches
         for (uint8_t i = 0; i < kMaxNavClasses; ++i) PublishNavMesh(i, {});
         m_ClassCount = 0;
         return;
@@ -76,6 +77,7 @@ void NavMeshSystem::Rebuild(const ECS& world,
         return;
     }
     m_EntityToObstacle.clear();   // old dtObstacleRefs invalid against new dtTileCache
+    m_Obstacles.clear();          // per-class refs invalid against freshly-built tilecaches
     m_ClassCount = liveCount;
 
     // Disk auto-bake (single-mesh format) only for the single-class case.
@@ -100,34 +102,60 @@ std::shared_ptr<const NavMesh> NavMeshSystem::Current(uint8_t classId) const {
 }
 
 void NavMeshSystem::Tick(float dt) {
-    auto cur = Current(0);
-    if (!cur) return;
     // const_cast: NavMesh::Tick is a mutating operation on the dtTileCache.
     // shared_ptr<const NavMesh> is the snapshot type for cross-thread reads;
     // the GameThread owner needs the mutable view to drive dtTileCache::update.
-    const_cast<NavMesh*>(cur.get())->Tick(dt);
+    for (uint8_t i = 0; i < m_ClassCount; ++i) {
+        auto cur = Current(i);
+        if (cur) const_cast<NavMesh*>(cur.get())->Tick(dt);
+    }
 }
 
 NavMeshSystem::ObstacleHandle NavMeshSystem::AddCylinderObstacle(
     const glm::vec3& pos, float radius, float height)
 {
-    auto cur = Current(0);
-    if (!cur) return 0;
-    return const_cast<NavMesh*>(cur.get())->AddCylinderObstacle(pos, radius, height);
+    std::array<uint32_t, kMaxNavClasses> refs{};
+    bool any = false;
+    for (uint8_t i = 0; i < m_ClassCount; ++i) {
+        auto cur = Current(i);
+        if (!cur) continue;
+        refs[i] = const_cast<NavMesh*>(cur.get())->AddCylinderObstacle(pos, radius, height);
+        any = any || (refs[i] != 0);
+    }
+    if (!any) return 0;
+    const uint32_t id = m_NextObstacleId++;
+    m_Obstacles[id] = refs;
+    return id;
 }
 
 NavMeshSystem::ObstacleHandle NavMeshSystem::AddBoxObstacle(
     const glm::vec3& bmin, const glm::vec3& bmax)
 {
-    auto cur = Current(0);
-    if (!cur) return 0;
-    return const_cast<NavMesh*>(cur.get())->AddBoxObstacle(bmin, bmax);
+    std::array<uint32_t, kMaxNavClasses> refs{};
+    bool any = false;
+    for (uint8_t i = 0; i < m_ClassCount; ++i) {
+        auto cur = Current(i);
+        if (!cur) continue;
+        refs[i] = const_cast<NavMesh*>(cur.get())->AddBoxObstacle(bmin, bmax);
+        any = any || (refs[i] != 0);
+    }
+    if (!any) return 0;
+    const uint32_t id = m_NextObstacleId++;
+    m_Obstacles[id] = refs;
+    return id;
 }
 
-void NavMeshSystem::RemoveObstacle(ObstacleHandle h) {
-    auto cur = Current(0);
-    if (!cur || h == 0) return;
-    const_cast<NavMesh*>(cur.get())->RemoveObstacle(h);
+void NavMeshSystem::RemoveObstacle(ObstacleHandle id) {
+    if (id == 0) return;
+    auto it = m_Obstacles.find(id);
+    if (it == m_Obstacles.end()) return;
+    for (uint8_t i = 0; i < kMaxNavClasses; ++i) {
+        const uint32_t ref = it->second[i];
+        if (ref == 0) continue;
+        auto cur = Current(i);
+        if (cur) const_cast<NavMesh*>(cur.get())->RemoveObstacle(ref);
+    }
+    m_Obstacles.erase(it);
 }
 
 void NavMeshSystem::TrackObstacleForEntity(EntityId e, ObstacleHandle h) {
@@ -199,6 +227,7 @@ bool NavMeshSystem::TryLoadFromDisk(const std::string& worldPath) {
     }
 
     m_EntityToObstacle.clear();   // same invariant as Rebuild — new tilecache, old refs invalid
+    m_Obstacles.clear();          // per-class refs invalid against freshly-loaded tilecache
     m_LastWorldPath = worldPath;
     std::shared_ptr<const NavMesh> shared(std::move(fresh));
     PublishNavMesh(0, shared);
