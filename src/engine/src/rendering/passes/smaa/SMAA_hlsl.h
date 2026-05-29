@@ -55,7 +55,7 @@ static const char* SMAA_HLSL_SOURCE = R"SMAA(
  *
  * The shader has three passes, chained together as follows:
  *
- *                           |input|------------------·
+ *                           |input|------------------ï¿½
  *                              v                     |
  *                    [ SMAA*EdgeDetection ]          |
  *                              v                     |
@@ -65,7 +65,7 @@ static const char* SMAA_HLSL_SOURCE = R"SMAA(
  *                              v                     |
  *                          |blendTex|                |
  *                              v                     |
- *                [ SMAANeighborhoodBlending ] <------·
+ *                [ SMAANeighborhoodBlending ] <------ï¿½
  *                              v
  *                           |output|
  *
@@ -346,7 +346,9 @@ static const char* SMAA_HLSL_SOURCE = R"SMAA(
 #ifndef SMAA_THRESHOLD
 #define SMAA_THRESHOLD 0.1
 #endif
-
+)SMAA"
+// --- literal split (MSVC C2026: max 16380 bytes per string literal) ---
+R"SMAA(
 /**
  * SMAA_DEPTH_THRESHOLD specifies the threshold for depth edge detection.
  * 
@@ -684,7 +686,9 @@ void SMAANeighborhoodBlendingVS(float2 texcoord,
 #if SMAA_INCLUDE_PS
 //-----------------------------------------------------------------------------
 // Edge Detection Pixel Shaders (First Pass)
-
+)SMAA"
+// --- literal split (MSVC C2026: max 16380 bytes per string literal) ---
+R"SMAA(
 /**
  * Luma Edge Detection
  *
@@ -1013,7 +1017,9 @@ float SMAASearchLength(SMAATexture2D(searchTex), float2 e, float offset) {
     // (We use SMAA_SEARCHTEX_PACKED_SIZE because the texture is cropped)
     scale *= 1.0 / SMAA_SEARCHTEX_PACKED_SIZE;
     bias *= 1.0 / SMAA_SEARCHTEX_PACKED_SIZE;
-
+)SMAA"
+// --- literal split (MSVC C2026: max 16380 bytes per string literal) ---
+R"SMAA(
     // Lookup the search texture:
     return SMAA_SEARCHTEX_SELECT(SMAASampleLevelZero(searchTex, mad(scale, e, bias)));
 }
