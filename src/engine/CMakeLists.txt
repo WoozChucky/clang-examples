@@ -11,6 +11,7 @@ add_library(Engine SHARED
     # Core
     src/core/Application.cpp
     src/core/ServerApplication.cpp
+    src/core/EngineLogSink.cpp
 
     # Threading
     src/threading/PlatformThread.cpp

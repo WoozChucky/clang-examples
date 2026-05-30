@@ -18,6 +18,10 @@
 #include "Application.h"
 #include "ImGuiOverlay.h"
 #include "utilities/SettingsManager.h"
+#include "LogBus.h"
+#include "EngineLogSink.h"
+#include "EcsLogSink.h"
+#include "netlib/log_sink.h"
 
 void platform_debug_break(const char* expr, const char* file, int line, const char* message)
 {
@@ -90,6 +94,14 @@ namespace {
 }
 
 int main(int argc, char** argv) {
+    // Route every in-process module's logs into the editor console (LogBus). Each DLL has its own
+    // header-inlined sink pointer, so each gets installed explicitly. Game.dll is wired by
+    // GameLibrary after it loads. Do this first so startup logs are captured.
+    sm_set_log_sink(&ConsoleLogSink);     // editor.exe's own copy
+    EngineInstallLogSink(&ConsoleLogSink);
+    EcsInstallLogSink(&ConsoleLogSink);
+    netlib::SetLogSink(&ConsoleLogSink);
+
     std::atexit([](){ DumpAllocations(); });
 
     SM_TRACE("Working Directory: %s", std::filesystem::current_path().string().c_str());

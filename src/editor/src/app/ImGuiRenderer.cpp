@@ -25,6 +25,7 @@
 #include "DayNightPanel.h"
 #include "NavigationPanel.h"
 #include "DedicatedServerPanel.h"
+#include "ConsolePanel.h"
 #include "ViewportPicker.h"
 #include "MainMenuBar.h"
 #include "TransformMath.h"   // ModelMatrix
@@ -499,6 +500,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         static bool s_ShowDedicatedServerPanel = true;
         DrawDedicatedServerPanel(m_ServerSupervisor, m_AppContext, &s_ShowDedicatedServerPanel);
+
+        static bool s_ShowConsolePanel = true;
+        m_ConsolePanel.Draw(&s_ShowConsolePanel);
 
         if (m_AppContext)
             m_AppContext->SelectedEntity.store(m_EcsInspector.GetSelectedEntity(), std::memory_order_relaxed);

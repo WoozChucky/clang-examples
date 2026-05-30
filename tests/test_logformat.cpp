@@ -3,6 +3,7 @@
 #include <string>
 
 #include "LogFormat.h"
+#include "lib.h"
 
 static int g_Failures = 0;
 #define EXPECT(cond)                                                     \
@@ -38,12 +39,42 @@ static void T03_literal_without_specifiers()
            == std::string("\x1b[32m TRACE: plain text\033[0m"));
 }
 
+// format_log_body produces the PLAIN "<prefix> <body>" with NO ANSI escape codes.
+static void T04_body_no_ansi()
+{
+    const std::string b = format_log_body("WARN:", "n=%d", 7);
+    EXPECT(b == std::string("WARN: n=7"));
+    EXPECT(b.find('\x1b') == std::string::npos);
+    EXPECT(b.find("\033[0m") == std::string::npos);
+}
+
+static int   g_SinkCalls = 0;
+static LogLevel g_SinkLevel = LogLevel::Trace;
+static std::string g_SinkText;
+static void TestSink(LogLevel lvl, TextColor /*c*/, const char* text) {
+    ++g_SinkCalls; g_SinkLevel = lvl; g_SinkText = text;
+}
+static void T05_sink_hook()
+{
+    g_SinkCalls = 0;
+    sm_set_log_sink(&TestSink);
+    SM_WARN("hello %d", 42);
+    EXPECT(g_SinkCalls == 1);
+    EXPECT(g_SinkLevel == LogLevel::Warn);
+    EXPECT(g_SinkText == std::string("WARN: hello 42"));
+    sm_set_log_sink(nullptr);
+    SM_ERROR("ignored");
+    EXPECT(g_SinkCalls == 1);
+}
+
 int main()
 {
     T00_plain_no_args();
     T01_single_int_arg_not_shifted();
     T02_multiple_mixed_args_in_order();
     T03_literal_without_specifiers();
+    T04_body_no_ansi();
+    T05_sink_hook();
 
     if (g_Failures == 0) { std::printf("All log format tests passed.\n"); return 0; }
     std::printf("%d log format test(s) FAILED.\n", g_Failures);

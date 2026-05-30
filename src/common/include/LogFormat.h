@@ -35,3 +35,16 @@ std::string format_log_line(const char* prefix, const char* msg, TextColor color
     out += "\033[0m";
     return out;
 }
+
+// Like format_log_line but PLAIN: "<prefix> <body>" with no ANSI color codes / reset.
+// Used by the log sink hook so editor-side consumers get clean text.
+template <typename... Args>
+std::string format_log_body(const char* prefix, const char* msg, Args... args) {
+    char body[8192];
+    std::snprintf(body, sizeof(body), msg, args...);
+    std::string out;
+    out += prefix;
+    out += ' ';
+    out += body;
+    return out;
+}

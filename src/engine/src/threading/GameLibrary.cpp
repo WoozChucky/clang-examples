@@ -104,6 +104,13 @@ bool GameLibrary::LoadOrReload(const std::string& sourceDllPath, GameState* stat
 
     SM_TRACE("GameLibrary: loaded '%s' (API v%u)", copyPath.c_str(), v);
 
+    // Forward Engine.dll's installed log sink into the freshly-loaded Game.dll so its logs reach
+    // the editor console (and survive hot-reload). Null in runtime/server → game logs to stdout only.
+    if (auto pInstallLog = reinterpret_cast<void(*)(LogSinkFn)>(
+            GetProcAddress(newModule, "GameInstallLogSink"))) {
+        pInstallLog(g_SmLogSink.load(std::memory_order_relaxed));
+    }
+
     if (m_Scheduler && m_pGameRegisterSystems) {
         m_pGameRegisterSystems(m_Scheduler);
         SM_TRACE("GameLibrary: registered %zu system(s)", m_Scheduler->Count());

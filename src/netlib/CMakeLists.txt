@@ -5,6 +5,7 @@ add_library(netlib SHARED
     src/IocpCore.cpp
     src/TcpServer.cpp
     src/TcpClient.cpp
+    src/LogSink.cpp
 )
 
 target_include_directories(netlib
