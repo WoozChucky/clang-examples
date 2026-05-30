@@ -540,3 +540,22 @@ set_target_properties(test_aamode PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_netlib
+    test_netlib.cpp
+)
+
+target_link_libraries(test_netlib PRIVATE
+    CommonHeaders
+    netlib
+)
+
+target_include_directories(test_netlib PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/netlib/include
+    ${CMAKE_SOURCE_DIR}/src/netlib/src
+)
+
+set_target_properties(test_netlib PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
