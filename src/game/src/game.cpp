@@ -12,6 +12,7 @@
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 
 #include <netlib/netlib.h> // MakeTcpServer/MakeTcpClient factories for the net demo
+#include "ServerControl.h" // kDedicatedServerDefaultPort
 
 #include <memory>
 #include <tuple>
@@ -469,72 +470,103 @@ public:
         const NetServices* net = ctx.Net;
         if (!net) return;   // nullptr in tests / before engine init
 
-        if (!m_Started) {
-            m_Started = true;
-            NetServerConfig sc{};
-            sc.bind = netlib::Endpoint{ "127.0.0.1", 0 };   // 0 = OS picks an ephemeral port
-            sc.gameResident = true;
-            m_Server = net->CreateServer(&netlib::MakeTcpServer, sc);
-            if (m_Server != NetHandle::Invalid) {
-                const uint16_t port = net->BoundPort(m_Server);
-                NetClientConfig cc{};
-                cc.target = netlib::Endpoint{ "127.0.0.1", port };
-                cc.gameResident = true;
-                m_Client = net->CreateClient(&netlib::MakeTcpClient, cc);
-                SM_TRACE("NetDemo: loopback server on 127.0.0.1:%u; client connecting", port);
-            } else {
-                SM_WARN("NetDemo: failed to create loopback server");
-            }
-        }
-
-        // Drain inbound events (all adapters share one ring; tag by ev.adapter).
-        NetEvent ev{};
-        while (net->PollEvent(&ev)) {
-            const bool fromServer = (ev.adapter == m_Server);
-            const char* who = fromServer ? "server" : "client";
-            switch (ev.kind) {
-                case NetEventKind::Connected:
-                    SM_TRACE("NetDemo: %s connected (conn=%llu)", who, (unsigned long long)ev.conn);
-                    if (fromServer) m_ServerConn = ev.conn;   // the client's connection on the server side
-                    break;
-                case NetEventKind::Disconnected:
-                    SM_TRACE("NetDemo: %s disconnected", who);
-                    break;
-                case NetEventKind::Error:
-                    SM_WARN("NetDemo: %s connection error", who);
-                    break;
-                case NetEventKind::Message:
-                    if (fromServer) {
-                        SM_TRACE("NetDemo: server recv opcode=%u len=%u; echoing as opcode 2", ev.opcode, ev.len);
-                        net->Send(m_Server, ev.conn, /*opcode*/ 2, ev.payload, ev.len);  // payload is copied by Send
-                    } else {
-                        SM_TRACE("NetDemo: client recv reply opcode=%u len=%u", ev.opcode, ev.len);
-                    }
-                    break;
-            }
-        }
-
-        // Client pings the server every ~2 seconds.
-        if (m_Client != NetHandle::Invalid) {
-            m_PingTimer += static_cast<float>(ctx.dt);
-            if (m_PingTimer >= 2.0f) {
-                m_PingTimer = 0.0f;
-                static const char kPing[] = "ping";
-                net->Send(m_Client, kNetConnInvalid, /*opcode*/ 1,
-                          reinterpret_cast<const uint8_t*>(kPing), 4);
-                SM_TRACE("NetDemo: client sent ping (opcode 1)");
-            }
-        }
+        if (ctx.role == AppRole::Server) UpdateServer(ctx, net);
+        else                             UpdateClient(ctx, net);
     }
     const char* Name() const override { return "NetDemoSystem"; }
     SystemPhase Phase() const override { return SystemPhase::PreRender; }
 
 private:
-    bool      m_Started   = false;
-    NetHandle m_Server    = NetHandle::Invalid;
-    NetHandle m_Client    = NetHandle::Invalid;
-    NetConnId m_ServerConn = kNetConnInvalid;
-    float     m_PingTimer = 0.0f;
+    // ---- Server: bind once, echo pings (opcode 1 -> opcode 2) ----
+    void UpdateServer(SystemContext& ctx, const NetServices* net) {
+        if (!m_ServerStarted) {
+            m_ServerStarted = true;
+            NetServerConfig sc{};
+            sc.bind = netlib::Endpoint{ "127.0.0.1", kDedicatedServerDefaultPort };
+            sc.gameResident = true;
+            m_Server = net->CreateServer(&netlib::MakeTcpServer, sc);
+            if (m_Server != NetHandle::Invalid)
+                SM_TRACE("NetDemo[server]: listening on 127.0.0.1:%u", (unsigned)kDedicatedServerDefaultPort);
+            else
+                SM_WARN("NetDemo[server]: failed to bind 127.0.0.1:%u", (unsigned)kDedicatedServerDefaultPort);
+        }
+        NetEvent ev{};
+        while (net->PollEvent(&ev)) {
+            if (ev.adapter != m_Server) continue;
+            if (ev.kind == NetEventKind::Message && ev.opcode == 1) {
+                net->Send(m_Server, ev.conn, /*opcode*/ 2, ev.payload, ev.len);   // echo
+                SM_TRACE("NetDemo[server]: echoed ping from conn %llu", (unsigned long long)ev.conn);
+            } else if (ev.kind == NetEventKind::Connected) {
+                SM_TRACE("NetDemo[server]: client connected (conn %llu)", (unsigned long long)ev.conn);
+            }
+        }
+    }
+
+    // ---- Client: connect (bounded retry), ping every 2s ----
+    void UpdateClient(SystemContext& ctx, const NetServices* net) {
+        if (m_Client == NetHandle::Invalid) {
+            m_RetryAccum += ctx.dt;
+            if (m_RetryAccum < kRetryIntervalSec) return;
+            m_RetryAccum = 0.0;
+            if (m_RetryCount >= kMaxRetries) {
+                if (!m_GaveUpLogged) { SM_WARN("NetDemo[client]: gave up connecting after %d tries", kMaxRetries); m_GaveUpLogged = true; }
+                return;
+            }
+            NetClientConfig cc{};
+            cc.target = netlib::Endpoint{ "127.0.0.1", kDedicatedServerDefaultPort };
+            cc.gameResident = true;
+            m_Client = net->CreateClient(&netlib::MakeTcpClient, cc);
+            m_RetryCount++;
+            if (m_Client == NetHandle::Invalid)
+                SM_WARN("NetDemo[client]: CreateClient failed (try %d/%d)", m_RetryCount, kMaxRetries);
+            else
+                SM_TRACE("NetDemo[client]: connecting to 127.0.0.1:%u (try %d)", (unsigned)kDedicatedServerDefaultPort, m_RetryCount);
+            return;
+        }
+
+        NetEvent ev{};
+        while (net->PollEvent(&ev)) {
+            if (ev.adapter != m_Client) continue;
+            if (ev.kind == NetEventKind::Connected) {
+                m_Connected = true; m_GaveUpLogged = false;
+                m_RetryCount = 0;   // replenish budget: bound CONSECUTIVE failures, not lifetime connects
+                SM_TRACE("NetDemo[client]: connected");
+            } else if (ev.kind == NetEventKind::Message && ev.opcode == 2) {
+                SM_TRACE("NetDemo[client]: got echo (%u bytes)", ev.len);
+            } else if (ev.kind == NetEventKind::Disconnected || ev.kind == NetEventKind::Error) {
+                SM_WARN("NetDemo[client]: connection lost/failed; will retry");
+                net->Close(m_Client);
+                m_Client = NetHandle::Invalid;
+                m_Connected = false;
+                m_RetryAccum = 0.0;
+                return;
+            }
+        }
+
+        if (m_Connected) {
+            m_PingAccum += ctx.dt;
+            if (m_PingAccum >= kPingIntervalSec) {
+                m_PingAccum = 0.0;
+                const uint8_t payload[4] = { 'p','i','n','g' };
+                net->Send(m_Client, kNetConnInvalid, /*opcode*/ 1, payload, sizeof(payload));
+                SM_TRACE("NetDemo[client]: sent ping (opcode 1)");
+            }
+        }
+    }
+
+    static constexpr int    kMaxRetries        = 20;
+    static constexpr double kRetryIntervalSec  = 0.5;
+    static constexpr double kPingIntervalSec   = 2.0;
+
+    bool      m_ServerStarted = false;
+    NetHandle m_Server        = NetHandle::Invalid;
+
+    NetHandle m_Client        = NetHandle::Invalid;
+    bool      m_Connected     = false;
+    bool      m_GaveUpLogged  = false;
+    int       m_RetryCount    = 0;
+    double    m_RetryAccum    = 0.0;
+    double    m_PingAccum     = 0.0;
 };
 
 void GameRegisterSystems(SystemScheduler* s) {
