@@ -36,6 +36,8 @@ add_subdirectory(src/game)
 
 # runtime player application (does not link game; loads Game.dll at runtime)
 add_subdirectory(src/runtime)
+# headless dedicated-server application (loads Game.dll; no renderer/window)
+add_subdirectory(src/server)
 # editor application (does not link game; loads Game.dll at runtime)
 add_subdirectory(src/editor)
 
