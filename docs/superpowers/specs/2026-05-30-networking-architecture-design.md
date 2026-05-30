@@ -15,7 +15,7 @@ Give the engine a networking foundation that is **game-agnostic** — the engine
 | Layer | Owns | Knows about |
 |-------|------|-------------|
 | **netlib** (new standalone lib) | Transport abstractions + a concrete TCP impl + an in-memory impl + framing | Bytes, sockets, framing. *Nothing* about games. |
-| **Engine** | IO thread(s), io-object registry + pump, the ring plumbing, the `NetServices` bridge, hot-reload teardown timing | The *abstract* interfaces only. Never names "TCP". |
+| **Engine** | io-object registry, the event **sink** + lock-free MPSC ring + `NetBufferPool`, the `NetServices` bridge, hot-reload teardown timing. Owns **no** IO threads. | The *abstract* interfaces only. Never names "TCP". |
 | **Game** (`Game.dll`) | How many connections, what each connects to, protocol/opcode meaning, the connecting→authed→in-world stage machine | Everything game-specific. Picks which impl to use. |
 
 This is **dependency inversion / ports-and-adapters**: the engine is the port consumer, a transport impl is an adapter, the game wires the adapter in. It mirrors the existing **`NavServices`** bridge (engine owns `NavMeshSystem`; `Game.dll` calls a function-pointer table threaded through `SystemContext`, with zero link dependency on `Engine.dll`).
@@ -35,59 +35,63 @@ editor.exe / runtime.exe / server.exe  ─link→ Engine + ecs + netlib
 
 **Why the engine depends only on interfaces:** a game can supply its own impl (UDP, a mock, a record/replay adapter) and the engine is none the wiser. The TCP and in-memory impls `netlib` ships are a convenience, not a requirement.
 
-## 4. Threading & data flow
+## 4. Threading & data flow — **push/sink, adapter-owned threading**
 
-The engine already runs three coordinated threads (`Application` constructs PlatformThread + GameThread + RenderThread; see `src/engine/src/core/Application.{h,cpp}`). Networking adds **engine-owned IO thread(s)** — a small pool, sized N — *separate* from those three. The game never spawns threads; it asks the engine for capacity.
+The contract is **push, not pull**. The transport adapter owns its own threading and *pushes* events into an engine-provided thread-safe sink; the engine does **not** poll the adapter and does **not** own an IO pump thread. This is required to host **Windows IOCP** for the server: IOCP associates sockets with a completion port and runs N worker threads that block on `GetQueuedCompletionStatus`, waking only when the kernel completes an overlapped `WSARecv`/`WSASend`. IOCP *must* own its threads — a `Poll()` pull contract cannot express it. (See §0-rationale in the Phase-1 spec.)
+
+- **TcpServer** = IOCP: completion port + worker pool, overlapped `WSARecv`/`WSASend`, framing on the completing worker, scales to thousands of connections.
+- **TcpClient** = async non-blocking (overlapped I/O / event-driven), **no busy-spin**. IOCP-single-worker is an acceptable impl, but not required (the game ARPG client holds only 2 connections — auth + world — so IOCP's scale advantage is irrelevant; low latency is what matters).
+- **In-memory** adapter delivers via the same sink (synchronous on the caller thread in tests for determinism).
+
+The **game never owns threads** — that intent is preserved; transport threads live in `netlib` (a stable lib) or a game's stable adapter DLL, never in game gameplay code.
 
 ```
-                 OS socket
-                    │  (bytes)
-   ┌────────────────▼─────────────────┐
-   │  IO thread (engine-owned)         │   adapter->Poll()
-   │  ── runs the adapter ──           │
-   │  • recv bytes                     │
-   │  • FRAME here (transport-specific)│ ← TCP impl: length-prefix reassembly
-   │  • push NetEvent into inbound ring│   in-mem impl: hand up whole blobs
-   └────────────────┬──────────────────┘
-                    │  SpscRing<NetEvent,N>  (IO → Game)
-   ┌────────────────▼──────────────────┐
-   │  GameThread                        │
-   │  • game NetSystem drains inbound   │ ← stage machine + opcode dispatch + ECS mutation
-   │  • enqueues outbound messages      │
-   └────────────────┬──────────────────┘
-                    │  SpscRing<OutMsg,N>   (Game → IO)
-                    ▼  adapter sends on its IO thread
+        OS socket(s)                         netlib adapter (owns its threads)
+            │                          ┌───────────────────────────────────────┐
+   IOCP completion port  ◄────────────┤  TcpServer: IOCP worker pool            │
+            │                          │   • WSARecv completes on a worker       │
+            ▼  (many worker threads)   │   • FRAME here (length-prefix reassembly)│
+   GetQueuedCompletionStatus  ─────────┤   • sink->OnIoEvent(evt)  ◄── MANY threads│
+                                       └───────────────────┬─────────────────────┘
+                                                           │  IIoSink::OnIoEvent (thread-safe!)
+   ┌───────────────────────────────────────────────────────▼──────────────────┐
+   │  Engine sink (IIoSink impl)                                                │
+   │   • copy borrowed payload → NetBufferPool (lock-free, on the adapter thread)│
+   │   • enqueue NetEvent → lock-free bounded MPSC ring  (MANY producers)        │
+   └───────────────────────────────────────────────────────┬──────────────────┘
+                                                            │  MpscRing<NetEvent,N> (Vyukov)
+   ┌────────────────────────────────────────────────────────▼─────────────────┐
+   │  GameThread (single consumer)                                              │
+   │   • game NetSystem drains the MPSC ring via NetServices::PollEvent          │
+   │   • stage machine + opcode dispatch + ECS mutation                          │
+   │   • NetServices::Send → adapter.Send() DIRECTLY (thread-safe; posts WSASend) │
+   └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Where framing lives
-Framing (turning a byte stream into discrete messages) is **transport-specific** and runs **in the adapter, on the IO thread** — *not* in the engine and *not* in GameThread policy:
+### Where framing lives — unchanged
+Framing stays **in the adapter, on the adapter's thread** (the IOCP worker, the client's I/O thread). The TCP adapter does length-prefix reassembly (read a `uint32` length, then exactly that many bytes) as each overlapped recv completes. Engine stays byte-agnostic; the game still owns what bytes *mean* (opcode semantics) on GameThread.
 
-- The TCP adapter does length-prefix reassembly (read a `uint32` length, then exactly that many bytes), solving partial reads at the point bytes arrive.
-- A UDP adapter would surface whole datagrams. A custom adapter frames however it likes.
+### Crossing the thread boundary — lock-free MPSC inbound, direct outbound
+- **Inbound is MPSC**, not per-connection SPSC: many adapter threads (IOCP workers + the client thread) produce; one GameThread consumes. Use a **lock-free bounded MPSC ring** (Vyukov bounded-MPMC: per-cell sequence counter + CAS on the enqueue position; fixed array, no per-op allocation, natural backpressure when full). New primitive `MpscRing.h`, beside `SpscRing.h`. The old per-connection SPSC rings are dropped.
+- **Payloads are pooled, lock-free.** A `NetEvent` carries `{kind, opcode, conn, ptr, len}` (POD). The bytes live in a **lock-free `NetBufferPool`** (fixed-block, atomic free-list) — adapter threads acquire+`memcpy` inside `OnIoEvent`, GameThread releases after consuming. (`SpscRing`/`MpscRing` store `T` by value, so variable-length payloads can never be inline — same reason `RendererCommand` uses `StagingBufferPool`.)
+- **Outbound needs no ring.** `NetServices::Send` calls `adapter.Send()` directly from GameThread; `Send` is thread-safe (posts `WSASend`, serializes per-connection internally). The Game→IO ring is gone.
+- **Backpressure** (MPSC ring full / pool exhausted): `SM_WARN` + policy decided in Phase 2 (never silent — `feedback_logging_over_silent_skip`).
 
-Consequences (all desirable):
-- The engine stays genuinely byte-agnostic (hard requirement).
-- Partial-read / reassembly pain is solved once, in the TCP adapter, reused by every game that picks it.
-- GameThread doesn't burn tick budget scanning bytes — it receives whole messages.
-- The game still owns **what bytes mean** (opcode semantics) — that's GameThread policy, separate from framing.
-
-### Crossing the thread boundary
-Reuse the existing lock-free idiom: per connection, one **inbound** `SpscRing` (IO→Game) and one **outbound** `SpscRing` (Game→IO). `src/common/include/SpscRing.h` is single-producer/single-consumer, power-of-two capacity — the IO-thread↔GameThread pairing fits exactly.
-
-**Critical ring constraint (verified in `SpscRing.h`):** the ring stores `T` **by value** (`data[h & mask] = v`). Variable-length payloads therefore **cannot** live inline in the ring. The codebase's established answer is `RendererCommand` + `StagingBufferPool`: acquire a pooled buffer, `memcpy` the bytes in, put a raw pointer + length in the ring, the consumer returns the buffer to the pool after use (see `GameThread.cpp` mesh-upload path). Net payloads use the **same pattern** — a `NetBufferPool` owned engine-side, payload bytes pooled, the `NetEvent`/`OutMsg` in the ring carries `{opcode, ptr, len}` (POD). Backpressure = pool exhaustion / ring-full → `SM_WARN` + retry-or-drop policy (decided per phase).
+### Perf knobs (real-time MP — squeeze latency)
+`TCP_NODELAY` **on by default** (Nagle batches small sends ~40ms — unacceptable for real-time), configurable per connection; `SO_REUSEADDR`; configurable send/recv buffer sizes. Documented in Phase 1.
 
 ## 5. The inbound unit: `NetEvent` (tagged), not raw bytes
 
-The adapter pushes a small **tagged** record into the inbound ring — the engine is never "raw bytes" *or* a single fixed message rule; it just moves opaque tagged events:
+The adapter's thread (IOCP worker / client I/O thread) pushes a small **tagged** record — via the engine sink — onto the lock-free MPSC ring. The engine is never "raw bytes" *or* a single fixed message rule; it just moves opaque tagged events. `NetEvent` is POD (it must be, to live by-value in the ring; the payload bytes are pooled separately):
 
 ```cpp
 struct NetEvent {
     enum class Kind : uint8_t { Connected, Disconnected, Error, Message };
-    Kind     kind;
-    uint16_t opcode;     // valid when kind == Message
-    uint8_t* payload;    // pooled buffer (NetBufferPool); null for non-Message
-    uint32_t len;        // payload length
-    // + a connection identifier (NetHandle) so the game knows which connection
+    Kind      kind;
+    uint16_t  opcode;    // valid when kind == Message
+    NetHandle conn;      // which connection (servers fan out to many)
+    uint8_t*  payload;   // NetBufferPool block; null for non-Message
+    uint32_t  len;       // payload length
 };
 ```
 
@@ -112,12 +116,12 @@ In both cases the **engine still knows nothing about which impl it runs** — it
 
 ### Wiring & ownership mechanics
 - The game wires an adapter by handing the engine a **factory** (a function that constructs an `IIo*`). *Which DLL the factory lives in* sets the behavior automatically: `netlib::MakeTcpClient` (stable) → survives; a `Game.dll`-local factory → `Game.dll`-bound.
-- The engine owns the **lifecycle slot**: the io-object registry, pump scheduling, and teardown timing. The object's *code* must reside in a DLL alive as long as the engine holds it.
-- `netlib` adapters: always loaded → engine holds them across reloads freely.
+- The engine owns the **lifecycle slot**: the io-object registry, the sink, and teardown timing. The object's *code* (and the threads it spawned) must reside in a DLL alive as long as the engine holds it.
+- `netlib` adapters: always loaded → engine holds them (and their IOCP/client threads) across reloads freely.
 - `Game.dll` adapters: need a **pre-reload teardown hook** — the networking analog of today's `SystemScheduler::Clear()`.
 
 ### Where the teardown hook slots (verified)
-`GameLibrary::LoadOrReload` (`src/engine/src/threading/GameLibrary.cpp:87-95`) on reload runs, in order: `GameExit(state)` → `m_Scheduler->Clear()` (destroys `Game.dll` `ISystem`s while vtables mapped) → `FreeLibrary` → swap → `GameRegisterSystems`. The Net teardown must run in that same pre-`FreeLibrary` window, and must do **more** than destroy objects: it must **quiesce the IO thread off any `Game.dll`-resident adapter** before unload (the IO thread runs adapter code; it cannot be mid-`Poll()` in a `Game.dll` adapter when `FreeLibrary` hits). Two viable placements (chosen in the Phase-2 spec):
+`GameLibrary::LoadOrReload` (`src/engine/src/threading/GameLibrary.cpp:87-95`) on reload runs, in order: `GameExit(state)` → `m_Scheduler->Clear()` (destroys `Game.dll` `ISystem`s while vtables mapped) → `FreeLibrary` → swap → `GameRegisterSystems`. The Net teardown must run in that same pre-`FreeLibrary` window. With the push/sink model the quiesce is **clean**: calling the adapter's **`Stop()` joins its worker threads** — after `Stop()` returns, no adapter thread is running, so no thread can be inside the about-to-be-unmapped `Game.dll` code. `Stop()` itself (and the dtor) live in the adapter's DLL, so they must run *before* `FreeLibrary` — which is exactly the hook window. Two viable placements (chosen in the Phase-2 spec):
   1. `GameLibrary` gains an `OnBeforeUnload` callback (like `SetScheduler`), invoked before `Clear()`.
   2. `GameThread`, on draining `m_ReloadPending`, calls the Net subsystem's pre-reload teardown *before* `m_GameLib.LoadOrReload(...)`.
 
@@ -133,11 +137,14 @@ struct NetServices {
     NetHandle (*CreateServer)(IoServerFactory factory, const ServerConfig& cfg);
     void      (*Close)(NetHandle);
 
-    // Drain inbound (returns false when empty). Payload buffer is borrowed from
-    // the NetBufferPool and valid until the next PollEvent on this handle.
-    bool      (*PollEvent)(NetHandle, NetEvent* out);
+    // Drain the lock-free MPSC inbound ring (returns false when empty). Drains
+    // ALL connections' events from one ring; `out->conn` says which. The payload
+    // block is owned by the NetBufferPool and released back when GameThread is
+    // done with it (PollEvent hands ownership to the caller for this event).
+    bool      (*PollEvent)(NetEvent* out);
 
-    // Enqueue an outbound message (copies into the pool). False on backpressure.
+    // Send directly into the adapter (thread-safe; posts WSASend / queues).
+    // Copies `data` before returning. False on backpressure.
     bool      (*Send)(NetHandle, uint16_t opcode, const uint8_t* data, size_t len);
 };
 ```
@@ -164,11 +171,12 @@ In-process dual-world (Phase 4) is gated on de-singletoning. `NavMeshSystem::Ins
 
 1. **Engine never names a transport.** It manipulates `IIoClient*` / `IIoServer*` and never downcasts to TCP.
 2. **`Game.dll` never links `Engine.dll`.** All engine networking reaches the game through the `NetServices` bridge; the game reaches `netlib` directly to pick impls.
-3. **Framing lives in the adapter, on the IO thread.** Never in the engine; never in GameThread policy.
-4. **The game never spawns threads.** It requests N io-servers / M client-connections; the engine owns all IO threads.
-5. **Adapter residence decides reload survival** (Model B). `Game.dll`-resident adapters are torn down + IO-thread-quiesced before every `FreeLibrary`.
+3. **Framing lives in the adapter, on the adapter's thread.** Never in the engine; never in GameThread policy.
+4. **The *game* owns no threads; transport threading is the adapter's concern.** The adapter (in `netlib` or a stable game adapter DLL) owns its IOCP/client threads and *pushes* events into the engine sink. The engine owns no IO pump thread.
+5. **Adapter residence decides reload survival** (Model B). `Game.dll`-resident adapters are `Stop()`-joined (threads quiesced) + destroyed before every `FreeLibrary`.
 6. **`NetServices` is append-only.** Same ABI discipline as `NavServices`.
-7. **Variable-length payloads never go inline in a ring.** Pooled buffer + `{ptr,len}` in the ring (the `StagingBufferPool` pattern).
+7. **Inbound is one lock-free bounded MPSC ring; payloads are pooled, never inline.** Many adapter threads produce, GameThread consumes; `NetEvent` is POD with a `NetBufferPool` `{ptr,len}` (the `StagingBufferPool` pattern). Outbound is a direct thread-safe `Send()`, no ring.
+8. **Sink callbacks must be thread-safe and fast.** `IIoSink::OnIoEvent` runs on adapter threads (many, for IOCP); it copies into the pool + enqueues, nothing heavy.
 
 ## 11. Phasing
 
@@ -177,7 +185,7 @@ Each phase produces working, independently-testable software and has its own **c
 | Phase | Deliverable | Proof of done | Context spec |
 |-------|-------------|---------------|--------------|
 | **1. netlib standalone** | Interfaces (`IIoClient`/`IIoServer`/stream/framing) + TCP impl (with length-prefix framing) + in-memory adapter. Zero engine dependency. | Unit tests: framing reassembly (partial reads, coalesced reads), in-memory loopback round-trip, TCP loopback round-trip. | `2026-05-30-netlib-standalone-design.md` |
-| **2. Engine integration** | IO thread pool, io-object registry + pump, inbound/outbound rings + `NetBufferPool`, `NetServices` bridge (+ `SystemContext.Net`), Model-B pre-reload teardown + IO quiesce. | **Loopback round-trip**: a game `NetSystem` sends a message client↔server in one process via the in-memory adapter and observes it on GameThread; survives a `Game.dll` hot-reload when the adapter is `netlib`-resident. | `2026-05-30-net-engine-integration-design.md` |
+| **2. Engine integration** | io-object registry, engine `IIoSink`, lock-free MPSC ring + `NetBufferPool`, `NetServices` bridge (+ `SystemContext.Net`), Model-B teardown via adapter `Stop()`. No engine IO pump thread. | **Loopback round-trip**: a game `NetSystem` sends a message client↔server in one process via the in-memory adapter and observes it on GameThread; survives a `Game.dll` hot-reload when the adapter is `netlib`-resident. | `2026-05-30-net-engine-integration-design.md` |
 | **3. Dedicated server (out-of-process)** | Headless boot path + `server.exe` target + editor spawn/supervise control + loopback-TCP client↔server wiring. | Editor launches `server.exe`; the in-editor client connects over loopback TCP and exchanges a message round-trip. | `2026-05-30-dedicated-server-out-of-process-design.md` |
 | **4. In-process server (additive)** | `ServerHost` instantiated in-editor behind an in-memory adapter — **after** de-singletoning `NavMeshSystem` et al. | Deferred. Documented as a stub; not planned until Phase 3 lands and the singleton work is scoped. | (later) |
 

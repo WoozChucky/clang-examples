@@ -2,7 +2,7 @@
 
 **Umbrella:** `2026-05-30-networking-architecture-design.md`
 **Date:** 2026-05-30
-**Depends on:** Phase 2 (engine Net plumbing + `NetServices` + `netlib` TCP adapter).
+**Depends on:** Phase 2 (engine Net plumbing + `NetServices`) + Phase 1 netlib adapters (server uses the **IOCP `TcpServer`**; the editor client uses the **async `TcpClient`**).
 **Blocks:** Phase 4 (in-process server reuses `ServerHost`); real multiplayer gameplay.
 
 ---
