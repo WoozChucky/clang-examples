@@ -10,6 +10,7 @@
 #include "StateScope.h"  // ScopeAllows
 #include "Actions.h"     // ActionCategory / Actions::
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
+#include "WireCodec.h"  // protobuf wire-format encode/decode (plumbing demo)
 
 #include <netlib/netlib.h> // MakeTcpServer/MakeTcpClient factories for the net demo
 #include "ServerControl.h" // kDedicatedServerDefaultPort
@@ -645,6 +646,30 @@ void GameUpdate(GameState* state) {
     // GameStateComponent.Current is authoritative (AppFlowSystem drives transitions).
     if (g_GameState->StateId == GameStateId::Uninitialized) {
         SM_TRACE("[GAMEDLL] Initializing game...");
+
+        // One-time protobuf wire-format smoke test. Proves the protoc-generated
+        // code + libprotobuf-lite link and round-trip over the byte API. NOT wired
+        // into the live net systems — this is plumbing validation only.
+        // Logs (not SM_ASSERT): the game target has no platform_debug_break, so
+        // SM_ASSERT would fail to link in Game.dll.
+        {
+            wire::Ping ping;
+            ping.set_seq(42);
+            ping.set_client_time_ms(123456);
+
+            const std::vector<uint8_t> bytes = wirecodec::Encode(ping);
+
+            wire::Ping back;
+            const bool ok = wirecodec::Decode(bytes.data(),
+                                              static_cast<uint32_t>(bytes.size()), back);
+            if (ok && back.seq() == 42u && back.client_time_ms() == 123456ull) {
+                SM_TRACE("[GAMEDLL] protobuf smoke test OK: Ping seq=%u, %zu bytes, opcode=%d",
+                         back.seq(), bytes.size(),
+                         static_cast<int>(wirecodec::OpcodeOf<wire::Ping>()));
+            } else {
+                SM_ERROR("[GAMEDLL] protobuf wire round-trip FAILED");
+            }
+        }
 
         // Game-owned singletons.
         g_GameState->World.SetSingleton(WorldCameraComponent{});
