@@ -7,6 +7,12 @@ namespace {
 
 // Shared channel between the linked in-memory client + server. Synchronous:
 // a Send immediately invokes the peer's sink on the caller's thread.
+//
+// THREAD-SAFETY: this is a SYNCHRONOUS, SINGLE-THREADED loopback. The channel
+// state below (serverUp/clientUp/sink pointers) is unsynchronized, so Send/Start/Stop
+// on the pair must be called from one thread at a time. Intended for deterministic
+// tests and single-threaded in-process use; the sink contract still requires the *sink*
+// itself be thread-safe. Concurrent use from multiple threads is unsupported (unlike TCP).
 struct InMemChannel {
     IIoSink* serverSink = nullptr;   // server's sink (receives client->server)
     IIoSink* clientSink = nullptr;   // client's sink (receives server->client)

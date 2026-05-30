@@ -543,6 +543,7 @@ set_target_properties(test_aamode PROPERTIES
 
 add_executable(test_netlib
     test_netlib.cpp
+    # Framer is an internal (non-exported) class, so the test compiles its own copy rather than importing it from netlib.dll (keeps the DLL ABI clean).
     ${CMAKE_SOURCE_DIR}/src/netlib/src/Framer.cpp
 )
 
