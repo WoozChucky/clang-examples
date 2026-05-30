@@ -543,6 +543,7 @@ set_target_properties(test_aamode PROPERTIES
 
 add_executable(test_netlib
     test_netlib.cpp
+    ${CMAKE_SOURCE_DIR}/src/netlib/src/Framer.cpp
 )
 
 target_link_libraries(test_netlib PRIVATE

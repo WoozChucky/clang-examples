@@ -1,5 +1,6 @@
 add_library(netlib SHARED
     src/WinsockGuard.cpp
+    src/Framer.cpp
 )
 
 target_include_directories(netlib
