@@ -11,6 +11,8 @@
 #include "Actions.h"     // ActionCategory / Actions::
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 
+#include <netlib/netlib.h> // MakeTcpServer/MakeTcpClient factories for the net demo
+
 #include <memory>
 #include <tuple>
 
@@ -442,6 +444,99 @@ private:
 
 } // namespace
 
+// ---------------------------------------------------------------------------
+// NetDemoSystem — minimal loopback networking demo to build on.
+//
+// On first tick it stands up a local TCP server (ephemeral port) and a client
+// that connects to it, both through the engine NetServices bridge (ctx.Net).
+// The client pings the server every 2s (opcode 1); the server echoes (opcode 2);
+// both log what they receive. This exercises the whole Phase-2 path end-to-end
+// in a running editor: CreateServer/CreateClient → adapter threads → engine sink
+// → lock-free ring → PollEvent on GameThread → Send (opcode-framed) both ways.
+//
+// Adapters are marked gameResident=true: on a Game.dll hot-reload this system is
+// destroyed and recreated, so its handles are lost — the Model-B teardown
+// (GameThread → NetSubsystem::ReleaseGameResidentConnections) closes them before
+// the DLL unloads, and the fresh instance re-creates them. Edit/extend freely:
+// split client and server into separate systems, swap the loopback target for a
+// real server address, add your own opcodes, etc.
+//
+// NOTE: the first listen()/connect() may raise a Windows Firewall prompt — accept
+// it once. Loopback usually skips it.
+class NetDemoSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const NetServices* net = ctx.Net;
+        if (!net) return;   // nullptr in tests / before engine init
+
+        if (!m_Started) {
+            m_Started = true;
+            NetServerConfig sc{};
+            sc.bind = netlib::Endpoint{ "127.0.0.1", 0 };   // 0 = OS picks an ephemeral port
+            sc.gameResident = true;
+            m_Server = net->CreateServer(&netlib::MakeTcpServer, sc);
+            if (m_Server != NetHandle::Invalid) {
+                const uint16_t port = net->BoundPort(m_Server);
+                NetClientConfig cc{};
+                cc.target = netlib::Endpoint{ "127.0.0.1", port };
+                cc.gameResident = true;
+                m_Client = net->CreateClient(&netlib::MakeTcpClient, cc);
+                SM_TRACE("NetDemo: loopback server on 127.0.0.1:%u; client connecting", port);
+            } else {
+                SM_WARN("NetDemo: failed to create loopback server");
+            }
+        }
+
+        // Drain inbound events (all adapters share one ring; tag by ev.adapter).
+        NetEvent ev{};
+        while (net->PollEvent(&ev)) {
+            const bool fromServer = (ev.adapter == m_Server);
+            const char* who = fromServer ? "server" : "client";
+            switch (ev.kind) {
+                case NetEventKind::Connected:
+                    SM_TRACE("NetDemo: %s connected (conn=%llu)", who, (unsigned long long)ev.conn);
+                    if (fromServer) m_ServerConn = ev.conn;   // the client's connection on the server side
+                    break;
+                case NetEventKind::Disconnected:
+                    SM_TRACE("NetDemo: %s disconnected", who);
+                    break;
+                case NetEventKind::Error:
+                    SM_WARN("NetDemo: %s connection error", who);
+                    break;
+                case NetEventKind::Message:
+                    if (fromServer) {
+                        SM_TRACE("NetDemo: server recv opcode=%u len=%u; echoing as opcode 2", ev.opcode, ev.len);
+                        net->Send(m_Server, ev.conn, /*opcode*/ 2, ev.payload, ev.len);  // payload is copied by Send
+                    } else {
+                        SM_TRACE("NetDemo: client recv reply opcode=%u len=%u", ev.opcode, ev.len);
+                    }
+                    break;
+            }
+        }
+
+        // Client pings the server every ~2 seconds.
+        if (m_Client != NetHandle::Invalid) {
+            m_PingTimer += static_cast<float>(ctx.dt);
+            if (m_PingTimer >= 2.0f) {
+                m_PingTimer = 0.0f;
+                static const char kPing[] = "ping";
+                net->Send(m_Client, kNetConnInvalid, /*opcode*/ 1,
+                          reinterpret_cast<const uint8_t*>(kPing), 4);
+                SM_TRACE("NetDemo: client sent ping (opcode 1)");
+            }
+        }
+    }
+    const char* Name() const override { return "NetDemoSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PreRender; }
+
+private:
+    bool      m_Started   = false;
+    NetHandle m_Server    = NetHandle::Invalid;
+    NetHandle m_Client    = NetHandle::Invalid;
+    NetConnId m_ServerConn = kNetConnInvalid;
+    float     m_PingTimer = 0.0f;
+};
+
 void GameRegisterSystems(SystemScheduler* s) {
     if (!s) return;
     s->Register(std::make_unique<TextRotationSystem>());
@@ -455,6 +550,7 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<NavObstacleSyncSystem>());           // Physics: syncs NavObstacleComponent → dtTileCache
     s->Register(std::make_unique<CameraZoomSystem>());                // PostSimulation: before follow (sets distance)
     s->Register(std::make_unique<IsometricFollowCameraSystem>());     // PostSimulation: reads post-resolution Transform
+    s->Register(std::make_unique<NetDemoSystem>());                   // PreRender: loopback net demo (build on this)
 }
 
 static GameState* g_GameState = nullptr;
