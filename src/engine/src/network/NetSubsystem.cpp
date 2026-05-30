@@ -107,6 +107,9 @@ bool NetSubsystem::Send(NetHandle h, NetConnId conn, uint16_t opcode, const uint
 }
 
 void NetSubsystem::OnAdapterEvent(NetHandle h, const netlib::IoEvent& ev) {
+    // NOTE: this null-check is NOT the thread-safety mechanism. Safety comes from Shutdown()/Init()
+    // joining all adapter threads (via netlib Stop()) BEFORE resetting m_Ring/m_Pool, so no adapter
+    // thread runs concurrently with a reset; this guard only handles the not-yet-Init'd case.
     if (!m_Ring || !m_Pool) return;
     RingEvent re{};
     re.adapter = h;

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 // Bounded lock-free queue (Dmitry Vyukov's MPMC algorithm). Safe for multiple
 // producers AND multiple consumers; used here MPSC (many adapter threads enqueue,
@@ -12,6 +13,7 @@
 template <typename T, size_t N>
 class MpscRing {
     static_assert((N & (N - 1)) == 0, "N must be a power of two");
+    static_assert(std::is_trivially_copyable_v<T>, "MpscRing<T>: T must be trivially copyable (it is copied by plain assignment under concurrency)");
     static constexpr size_t kLine = 64;   // cache-line (avoid false sharing)
 
     struct alignas(kLine) Cell {
