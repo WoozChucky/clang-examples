@@ -1,5 +1,7 @@
+#include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <span>
 #include <vector>
 
@@ -97,10 +99,54 @@ static void test_framer() {
     }
 }
 
+// Thread-safe recording sink (reused for socket tests later).
+struct RecordingSink : netlib::IIoSink {
+    std::mutex mx;
+    std::vector<netlib::IoEvent::Kind> kinds;
+    std::vector<std::vector<std::byte>> messages;
+    std::atomic<int> connected{0}, disconnected{0};
+
+    void OnIoEvent(const netlib::IoEvent& ev) override {
+        std::scoped_lock lk(mx);
+        kinds.push_back(ev.kind);
+        if (ev.kind == netlib::IoEvent::Kind::Connected)    ++connected;
+        if (ev.kind == netlib::IoEvent::Kind::Disconnected) ++disconnected;
+        if (ev.kind == netlib::IoEvent::Kind::Message)
+            messages.emplace_back(ev.payload.begin(), ev.payload.end());
+    }
+    size_t msgCount() { std::scoped_lock lk(mx); return messages.size(); }
+};
+
+static void test_inmemory() {
+    auto pair = netlib::MakeInMemoryPair();
+    RecordingSink serverSink, clientSink;
+
+    netlib::ConnConfig cfg{};
+    CHECK(pair.server->Start(netlib::Endpoint{}, cfg, &serverSink), "inmem: server Start");
+    CHECK(pair.client->Start(netlib::Endpoint{}, cfg, &clientSink), "inmem: client Start");
+    CHECK(serverSink.connected == 1, "inmem: server saw Connected");
+    CHECK(clientSink.connected == 1, "inmem: client saw Connected");
+
+    auto msg = bytes_of("ping");
+    pair.client->Send(msg);
+    CHECK(serverSink.msgCount() == 1, "inmem: server received 1 msg");
+    CHECK(serverSink.messages[0] == bytes_of("ping"), "inmem: server payload correct");
+
+    auto reply = bytes_of("pong");
+    // server replies to the single client connection (ConnId 1 by convention).
+    pair.server->Send(netlib::ConnId{1}, reply);
+    CHECK(clientSink.msgCount() == 1, "inmem: client received reply");
+    CHECK(clientSink.messages[0] == bytes_of("pong"), "inmem: client reply correct");
+
+    pair.client->Stop();
+    CHECK(serverSink.disconnected == 1, "inmem: server saw Disconnected after client Stop");
+}
+
 int main() {
     test_version();
     test_value_types();
     test_framer();
+    test_inmemory();
 
     if (g_Failures == 0) { std::printf("All netlib tests passed.\n"); return 0; }
     std::printf("%d netlib test(s) FAILED.\n", g_Failures);

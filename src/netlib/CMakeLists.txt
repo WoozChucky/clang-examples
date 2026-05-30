@@ -1,6 +1,7 @@
 add_library(netlib SHARED
     src/WinsockGuard.cpp
     src/Framer.cpp
+    src/InMemoryAdapter.cpp
 )
 
 target_include_directories(netlib
