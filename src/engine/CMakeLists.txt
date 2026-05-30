@@ -10,6 +10,7 @@ add_library(Engine SHARED
 
     # Core
     src/core/Application.cpp
+    src/core/ServerApplication.cpp
 
     # Threading
     src/threading/PlatformThread.cpp
