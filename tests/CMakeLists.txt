@@ -549,6 +549,7 @@ add_executable(test_netlib
 target_link_libraries(test_netlib PRIVATE
     CommonHeaders
     netlib
+    ws2_32
 )
 
 target_include_directories(test_netlib PRIVATE

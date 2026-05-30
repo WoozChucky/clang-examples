@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
 
 #include "netlib/Endpoint.h"
@@ -39,6 +40,8 @@ public:
     virtual void Send(ConnId conn, std::span<const std::byte> payload) = 0;
     virtual void Close(ConnId conn) = 0;     // drop one connection
     virtual void Stop() = 0;                 // stop accepting + join all workers
+    // Port actually bound (resolves an ephemeral port chosen for port 0). 0 if not started.
+    virtual uint16_t BoundPort() const = 0;
 };
 
 } // namespace netlib

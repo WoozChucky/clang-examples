@@ -40,6 +40,7 @@ public:
         if (m_Ch->clientUp) Emit(m_Ch->clientSink, IoEvent::Kind::Message, ConnId::Invalid, payload);
     }
     void Close(ConnId) override { Stop(); }
+    uint16_t BoundPort() const override { return 0; }
     void Stop() override {
         if (!m_Ch->serverUp) return;
         m_Ch->serverUp = false;

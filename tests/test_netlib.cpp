@@ -1,8 +1,13 @@
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <span>
+#include <thread>
 #include <vector>
 
 #include "netlib/netlib.h"
@@ -105,8 +110,13 @@ struct RecordingSink : netlib::IIoSink {
     std::vector<netlib::IoEvent::Kind> kinds;
     std::vector<std::vector<std::byte>> messages;
     std::atomic<int> connected{0}, disconnected{0};
+    // When set, the sink echoes every received Message back on its connection,
+    // exercising Send()/PostSend() concurrently with disconnects.
+    netlib::IIoServer* echoServer = nullptr;
 
     void OnIoEvent(const netlib::IoEvent& ev) override {
+        if (ev.kind == netlib::IoEvent::Kind::Message && echoServer)
+            echoServer->Send(ev.conn, ev.payload);   // Send copies the borrowed span
         std::scoped_lock lk(mx);
         kinds.push_back(ev.kind);
         if (ev.kind == netlib::IoEvent::Kind::Connected)    ++connected;
@@ -142,11 +152,167 @@ static void test_inmemory() {
     CHECK(serverSink.disconnected == 1, "inmem: server saw Disconnected after client Stop");
 }
 
+// Wait until `pred()` or timeout. Returns pred() final value. Avoids sleep-and-hope.
+template <typename Pred>
+static bool wait_until(Pred pred, int timeoutMs = 3000) {
+    using clock = std::chrono::steady_clock;
+    auto start = clock::now();
+    while (!pred()) {
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - start).count() > timeoutMs)
+            return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return true;
+}
+
+// Connect a raw blocking socket to 127.0.0.1:port, return the socket or INVALID_SOCKET.
+static SOCKET raw_connect(uint16_t port) {
+    SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) return s;
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (::connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+        ::closesocket(s); return INVALID_SOCKET;
+    }
+    return s;
+}
+
+static void send_framed(SOCKET s, const char* payload) {
+    auto p = bytes_of(payload);
+    uint32_t len = static_cast<uint32_t>(p.size());
+    ::send(s, reinterpret_cast<const char*>(&len), 4, 0);   // x64 LE
+    ::send(s, reinterpret_cast<const char*>(p.data()), static_cast<int>(p.size()), 0);
+}
+
+static void test_tcp_server() {
+    // The raw-socket helpers need WSAStartup in THIS exe too (netlib has its own).
+    WSADATA wsa{}; WSAStartup(MAKEWORD(2,2), &wsa);
+
+    auto server = netlib::MakeTcpServer();
+    RecordingSink sink;
+    netlib::ConnConfig cfg{};
+    // Port 0 => OS picks an ephemeral port; we read it back via BoundPort().
+    netlib::Endpoint bind{ "127.0.0.1", 0 };
+    CHECK(server->Start(bind, cfg, &sink), "tcpsrv: Start");
+
+    uint16_t port = server->BoundPort();
+    CHECK(port != 0, "tcpsrv: bound to a real port");
+
+    SOCKET c = raw_connect(port);
+    CHECK(c != INVALID_SOCKET, "tcpsrv: raw client connected");
+    CHECK(wait_until([&]{ return sink.connected.load() == 1; }), "tcpsrv: server saw Connected");
+
+    send_framed(c, "hello-server");
+    CHECK(wait_until([&]{ return sink.msgCount() == 1; }), "tcpsrv: server received frame");
+    {
+        std::scoped_lock lk(sink.mx);
+        CHECK(sink.messages.size() == 1 && sink.messages[0] == bytes_of("hello-server"),
+              "tcpsrv: server payload correct");
+    }
+
+    ::closesocket(c);
+    CHECK(wait_until([&]{ return sink.disconnected.load() == 1; }), "tcpsrv: server saw Disconnected");
+
+    server->Stop();
+    WSACleanup();
+}
+
+// Concurrency stress: N raw clients connect, send 3 frames, then abruptly close.
+// Exercises the recv-error + in-flight-op reap races in IocpCore's lifetime model.
+// The real assertion is "we got here without crashing/hanging" + balanced conn counts.
+static void test_tcp_stress() {
+    WSADATA wsa{}; WSAStartup(MAKEWORD(2,2), &wsa);
+
+    auto server = netlib::MakeTcpServer();
+    RecordingSink sink;
+    netlib::ConnConfig cfg{};
+    netlib::Endpoint bind{ "127.0.0.1", 0 };
+    CHECK(server->Start(bind, cfg, &sink), "stress: Start");
+    uint16_t port = server->BoundPort();
+    CHECK(port != 0, "stress: bound to a real port");
+
+    constexpr int N = 20;
+    std::vector<std::thread> clients;
+    clients.reserve(N);
+    for (int i = 0; i < N; ++i) {
+        clients.emplace_back([port] {
+            SOCKET s = raw_connect(port);
+            if (s == INVALID_SOCKET) return;
+            send_framed(s, "msg-one");
+            send_framed(s, "msg-two");
+            send_framed(s, "msg-three");
+            ::closesocket(s);   // abrupt close — races the in-flight recv/op reap
+        });
+    }
+    for (auto& t : clients) t.join();
+
+    // Every connection must open and close exactly once — balanced, no crash.
+    CHECK(wait_until([&]{ return sink.connected.load() == N && sink.disconnected.load() == N; }, 5000),
+          "stress: all connections opened and closed");
+    CHECK(sink.connected.load() == N, "stress: connected == 20");
+    CHECK(sink.disconnected.load() == N, "stress: disconnected == 20");
+    // Message count may be < 60 if a close races a partial send; don't over-constrain.
+    CHECK(sink.msgCount() <= static_cast<size_t>(N * 3), "stress: msgCount <= 60");
+
+    server->Stop();
+    WSACleanup();
+}
+
+// Concurrency stress with server-side echo: N clients connect, send 3 frames,
+// then abruptly close. The sink echoes every received Message back via
+// server->Send(), so PostSend()/the Conn::sock path runs concurrently with the
+// abrupt client disconnects (echoing to a connection that may already be closing).
+// Real assertion: balanced conn counts, no crash. Don't constrain echo receipt.
+static void test_tcp_stress_echo() {
+    WSADATA wsa{}; WSAStartup(MAKEWORD(2,2), &wsa);
+
+    auto server = netlib::MakeTcpServer();
+    RecordingSink sink;
+    sink.echoServer = server.get();   // sink echoes back through the server
+    netlib::ConnConfig cfg{};
+    netlib::Endpoint bind{ "127.0.0.1", 0 };
+    CHECK(server->Start(bind, cfg, &sink), "echo: Start");
+    uint16_t port = server->BoundPort();
+    CHECK(port != 0, "echo: bound to a real port");
+
+    constexpr int N = 20;
+    std::vector<std::thread> clients;
+    clients.reserve(N);
+    for (int i = 0; i < N; ++i) {
+        clients.emplace_back([port, i] {
+            SOCKET s = raw_connect(port);
+            if (s == INVALID_SOCKET) return;
+            send_framed(s, "echo-one");
+            send_framed(s, "echo-two");
+            send_framed(s, "echo-three");
+            // Some clients close immediately (racing the server's echo back to a
+            // closing connection); others linger briefly to let an echo arrive.
+            if (i % 2 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(3));
+            ::closesocket(s);
+        });
+    }
+    for (auto& t : clients) t.join();
+
+    // Every connection must open and close exactly once — balanced, no crash.
+    CHECK(wait_until([&]{ return sink.connected.load() == N && sink.disconnected.load() == N; }, 5000),
+          "echo: all connections opened and closed");
+    CHECK(sink.connected.load() == N, "echo: connected == 20");
+    CHECK(sink.disconnected.load() == N, "echo: disconnected == 20");
+
+    server->Stop();
+    WSACleanup();
+}
+
 int main() {
     test_version();
     test_value_types();
     test_framer();
     test_inmemory();
+    test_tcp_server();
+    test_tcp_stress();
+    test_tcp_stress_echo();
 
     if (g_Failures == 0) { std::printf("All netlib tests passed.\n"); return 0; }
     std::printf("%d netlib test(s) FAILED.\n", g_Failures);
