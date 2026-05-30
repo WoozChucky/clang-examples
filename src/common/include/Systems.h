@@ -6,6 +6,9 @@
 
 #include "ECS.h"   // ECS + ECS_API
 #include "NavServices.h"   // pulls full struct + std::vector/glm dependencies
+#include "NetServices.h"
+#include "AppRole.h"
+#include "ServerControl.h"   // kDedicatedServerDefaultPort
 
 // Minimal per-tick context handed to every system.
 struct SystemContext {
@@ -13,6 +16,9 @@ struct SystemContext {
     double dt;        // seconds since last tick (clamped by GameThread)
     double gameTime;  // absolute time
     const NavServices* Nav = nullptr;  // engine-provided nav table; nullptr in test harness or pre-init
+    const NetServices* Net = nullptr;  // engine-provided net table; nullptr in tests/pre-init
+    AppRole role = AppRole::Client;    // process role; Server only inside server.exe
+    uint16_t serverPort = kDedicatedServerDefaultPort;  // dedicated-server bind/connect port (set by bootstrap)
 };
 
 // Coarse run-order buckets. Systems sort by (phase, registration index).

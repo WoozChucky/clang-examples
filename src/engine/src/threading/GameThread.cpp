@@ -28,6 +28,8 @@
 #include "WorldManager.h"
 #include "navigation/NavMeshSystem.h"
 #include "navigation/NavServicesImpl.h"
+#include "network/NetServicesImpl.h"
+#include "network/NetSubsystem.h"
 
 using namespace std::chrono_literals;
 
@@ -59,6 +61,7 @@ void GameThread::RunLoop() {
 
     GameState gameState{};
     gameState.Settings = &m_AppContext->Settings;
+    gameState.Role = AppRole::Client;   // editor.exe / runtime.exe boot through GameThread
 
     // Load default world before any GameUpdate call. Guarded by WorldLoaded so
     // reload (which doesn't reconstruct GameState) doesn't reload the world.
@@ -163,6 +166,11 @@ void GameThread::RunLoop() {
     NavServices navServices{};
     NavServicesImpl::Init(navServices);
 
+    // NetServices function-pointer table — engine networking surface for game systems.
+    NetServices netServices{};
+    NetServicesImpl::Init(netServices);
+    NetSubsystem::Instance().Init();
+
     // Spec 5: per-MeshId verts/indices in flight from the mesh-upload command
     // (GameThread sends to RenderThread) → the MeshUpload response (RenderThread
     // sends back). Keyed by ticketId (entityId) at upload time, transferred to
@@ -193,6 +201,9 @@ void GameThread::RunLoop() {
 		// runs on the new code.
 		if (m_ReloadPending.exchange(false, std::memory_order_acquire)) {
 			ZoneScopedN("Game:Reload");
+			// Model B: release Game.dll-resident network adapters (joins their threads) before
+			// the DLL is unloaded — the networking analog of SystemScheduler::Clear().
+			NetSubsystem::Instance().ReleaseGameResidentConnections();
 			if (m_GameLib.LoadOrReload("Game.dll", &gameState)) {
 				SM_TRACE("GameThread: Game.dll reloaded successfully");
 			}
@@ -444,7 +455,8 @@ void GameThread::RunLoop() {
             }
 
 			{
-                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices };
+                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices, &netServices, gameState.Role,
+                                      m_AppContext->NetServerPort.load(std::memory_order_relaxed) };
                 m_Scheduler.Run(sysCtx);
             }
 
@@ -528,6 +540,15 @@ void GameThread::RunLoop() {
 			}
 		}
 	}
+
+    // Tear down networking BEFORE unloading Game.dll. The net adapters and their IOCP
+    // worker threads are created while Game.dll is loaded (the game spins them up via
+    // NetServices). Those threads must be fully stopped + joined while Game.dll is still
+    // mapped: a worker thread that was alive during Game.dll's lifetime, exiting AFTER
+    // FreeLibrary(Game.dll), runs per-thread teardown (FLS/thread_local/DLL-detach) that
+    // can dispatch into the now-unmapped module → DEP/execute access violation. This is
+    // the Model-B ordering (game-tied resources released before the game DLL unloads).
+    NetSubsystem::Instance().Shutdown();
 
     m_GameLib.Unload(&gameState);
 

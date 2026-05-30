@@ -540,3 +540,86 @@ set_target_properties(test_aamode PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_netlib
+    test_netlib.cpp
+    # Framer is an internal (non-exported) class, so the test compiles its own copy rather than importing it from netlib.dll (keeps the DLL ABI clean).
+    ${CMAKE_SOURCE_DIR}/src/netlib/src/Framer.cpp
+)
+
+target_link_libraries(test_netlib PRIVATE
+    CommonHeaders
+    netlib
+    ws2_32
+)
+
+target_include_directories(test_netlib PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/netlib/include
+    ${CMAKE_SOURCE_DIR}/src/netlib/src
+)
+
+set_target_properties(test_netlib PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
+
+add_executable(test_net
+    test_net.cpp
+)
+
+target_link_libraries(test_net PRIVATE
+    CommonHeaders
+    Engine
+    netlib
+)
+
+target_include_directories(test_net PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/engine/src
+    ${CMAKE_SOURCE_DIR}/src/engine/src/network
+    ${CMAKE_SOURCE_DIR}/src/netlib/include
+)
+
+set_target_properties(test_net PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
+
+add_executable(test_servercontrol
+    test_servercontrol.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor/src/app/ServerSupervisor.cpp
+)
+
+target_link_libraries(test_servercontrol PRIVATE
+    Engine
+)
+
+target_include_directories(test_servercontrol PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/editor/src/app
+)
+
+set_target_properties(test_servercontrol PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
+
+add_executable(test_dedicated_server
+    test_dedicated_server.cpp
+)
+
+target_link_libraries(test_dedicated_server PRIVATE
+    CommonHeaders
+    ws2_32
+)
+
+target_include_directories(test_dedicated_server PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+add_dependencies(test_dedicated_server server game)
+
+set_target_properties(test_dedicated_server PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)

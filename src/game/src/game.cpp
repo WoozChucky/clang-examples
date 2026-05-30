@@ -11,6 +11,9 @@
 #include "Actions.h"     // ActionCategory / Actions::
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 
+#include <netlib/netlib.h> // MakeTcpServer/MakeTcpClient factories for the net demo
+#include "ServerControl.h" // kDedicatedServerDefaultPort
+
 #include <memory>
 #include <tuple>
 
@@ -442,6 +445,149 @@ private:
 
 } // namespace
 
+// ---------------------------------------------------------------------------
+// NetDemoSystem — minimal loopback networking demo to build on.
+//
+// On first tick it stands up a local TCP server (ephemeral port) and a client
+// that connects to it, both through the engine NetServices bridge (ctx.Net).
+// The client pings the server every 2s (opcode 1); the server echoes (opcode 2);
+// both log what they receive. This exercises the whole Phase-2 path end-to-end
+// in a running editor: CreateServer/CreateClient → adapter threads → engine sink
+// → lock-free ring → PollEvent on GameThread → Send (opcode-framed) both ways.
+//
+// Adapters are marked gameResident=true: on a Game.dll hot-reload this system is
+// destroyed and recreated, so its handles are lost — the Model-B teardown
+// (GameThread → NetSubsystem::ReleaseGameResidentConnections) closes them before
+// the DLL unloads, and the fresh instance re-creates them. Edit/extend freely:
+// split client and server into separate systems, swap the loopback target for a
+// real server address, add your own opcodes, etc.
+//
+// NOTE: the first listen()/connect() may raise a Windows Firewall prompt — accept
+// it once. Loopback usually skips it.
+class NetDemoSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const NetServices* net = ctx.Net;
+        if (!net) return;   // nullptr in tests / before engine init
+
+        if (ctx.role == AppRole::Server) UpdateServer(ctx, net);
+        else                             UpdateClient(ctx, net);
+    }
+    const char* Name() const override { return "NetDemoSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PreRender; }
+
+private:
+    // ---- Server: bind once (to ctx.serverPort), echo pings (opcode 1 -> opcode 2) ----
+    void UpdateServer(SystemContext& ctx, const NetServices* net) {
+        if (!m_ServerStarted) {
+            m_ServerStarted = true;
+            NetServerConfig sc{};
+            sc.bind = netlib::Endpoint{ "127.0.0.1", ctx.serverPort };   // port from the bootstrap (server.exe --port)
+            sc.gameResident = true;
+            m_Server = net->CreateServer(&netlib::MakeTcpServer, sc);
+            if (m_Server != NetHandle::Invalid)
+                SM_TRACE("NetDemo[server]: listening on 127.0.0.1:%u", (unsigned)ctx.serverPort);
+            else
+                SM_WARN("NetDemo[server]: failed to bind 127.0.0.1:%u", (unsigned)ctx.serverPort);
+        }
+        NetEvent ev{};
+        while (net->PollEvent(&ev)) {
+            if (ev.adapter != m_Server) continue;
+            if (ev.kind == NetEventKind::Message && ev.opcode == 1) {
+                net->Send(m_Server, ev.conn, /*opcode*/ 2, ev.payload, ev.len);   // echo
+                SM_TRACE("NetDemo[server]: echoed ping from conn %llu", (unsigned long long)ev.conn);
+            } else if (ev.kind == NetEventKind::Connected) {
+                SM_TRACE("NetDemo[server]: client connected (conn %llu)", (unsigned long long)ev.conn);
+            }
+        }
+    }
+
+    // ---- Client: connect to ctx.serverPort, ping every 2s ----
+    // Retry is fast for the first kMaxFastRetries, then slows (never permanently gives up) so the
+    // editor client reconnects whenever a server appears — no editor restart needed. A change to
+    // ctx.serverPort (the panel's Start writes ApplicationContext::NetServerPort) drops the current
+    // handle and reconnects fresh to the new port.
+    void UpdateClient(SystemContext& ctx, const NetServices* net) {
+        const uint16_t port = ctx.serverPort;
+        if (port != m_LastPort) {
+            if (m_Client != NetHandle::Invalid) net->Close(m_Client);
+            m_Client       = NetHandle::Invalid;
+            m_Connected    = false;
+            m_RetryCount   = 0;
+            m_RetryAccum   = 0.0;
+            m_GaveUpLogged = false;
+            m_LastPort     = port;
+        }
+
+        if (m_Client == NetHandle::Invalid) {
+            m_RetryAccum += ctx.dt;
+            const double interval = (m_RetryCount < kMaxFastRetries) ? kFastRetrySec : kSlowRetrySec;
+            if (m_RetryAccum < interval) return;
+            m_RetryAccum = 0.0;
+            if (m_RetryCount == kMaxFastRetries && !m_GaveUpLogged) {
+                SM_WARN("NetDemo[client]: no server on %u after %d tries; slow-retrying every %.0fs",
+                        (unsigned)port, kMaxFastRetries, kSlowRetrySec);
+                m_GaveUpLogged = true;
+            }
+            NetClientConfig cc{};
+            cc.target = netlib::Endpoint{ "127.0.0.1", port };
+            cc.gameResident = true;
+            m_Client = net->CreateClient(&netlib::MakeTcpClient, cc);
+            if (m_RetryCount < kMaxFastRetries) m_RetryCount++;
+            if (m_Client == NetHandle::Invalid)
+                SM_WARN("NetDemo[client]: CreateClient failed (port %u)", (unsigned)port);
+            else
+                SM_TRACE("NetDemo[client]: connecting to 127.0.0.1:%u", (unsigned)port);
+            return;
+        }
+
+        NetEvent ev{};
+        while (net->PollEvent(&ev)) {
+            if (ev.adapter != m_Client) continue;
+            if (ev.kind == NetEventKind::Connected) {
+                m_Connected = true; m_GaveUpLogged = false;
+                m_RetryCount = 0;   // replenish budget: bound CONSECUTIVE failures, not lifetime connects
+                SM_TRACE("NetDemo[client]: connected");
+            } else if (ev.kind == NetEventKind::Message && ev.opcode == 2) {
+                SM_TRACE("NetDemo[client]: got echo (%u bytes)", ev.len);
+            } else if (ev.kind == NetEventKind::Disconnected || ev.kind == NetEventKind::Error) {
+                SM_WARN("NetDemo[client]: connection lost/failed; will retry");
+                net->Close(m_Client);
+                m_Client = NetHandle::Invalid;
+                m_Connected = false;
+                m_RetryAccum = 0.0;
+                return;
+            }
+        }
+
+        if (m_Connected) {
+            m_PingAccum += ctx.dt;
+            if (m_PingAccum >= kPingIntervalSec) {
+                m_PingAccum = 0.0;
+                const uint8_t payload[4] = { 'p','i','n','g' };
+                net->Send(m_Client, kNetConnInvalid, /*opcode*/ 1, payload, sizeof(payload));
+                SM_TRACE("NetDemo[client]: sent ping (opcode 1)");
+            }
+        }
+    }
+
+    static constexpr int    kMaxFastRetries  = 20;
+    static constexpr double kFastRetrySec    = 0.5;
+    static constexpr double kSlowRetrySec    = 5.0;
+    static constexpr double kPingIntervalSec = 2.0;
+
+    bool      m_ServerStarted = false;
+    NetHandle m_Server        = NetHandle::Invalid;
+
+    NetHandle m_Client        = NetHandle::Invalid;
+    bool      m_Connected     = false;
+    bool      m_GaveUpLogged  = false;
+    int       m_RetryCount    = 0;
+    double    m_RetryAccum    = 0.0;
+    double    m_PingAccum     = 0.0;
+    uint16_t  m_LastPort      = kDedicatedServerDefaultPort;   // detect port change → reconnect
+};
+
 void GameRegisterSystems(SystemScheduler* s) {
     if (!s) return;
     s->Register(std::make_unique<TextRotationSystem>());
@@ -455,6 +601,7 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<NavObstacleSyncSystem>());           // Physics: syncs NavObstacleComponent → dtTileCache
     s->Register(std::make_unique<CameraZoomSystem>());                // PostSimulation: before follow (sets distance)
     s->Register(std::make_unique<IsometricFollowCameraSystem>());     // PostSimulation: reads post-resolution Transform
+    s->Register(std::make_unique<NetDemoSystem>());                   // PreRender: loopback net demo (build on this)
 }
 
 static GameState* g_GameState = nullptr;

@@ -34,6 +34,10 @@ static int g_Failures = 0;
 
 static int g_FindPathCallCount = 0;
 
+// Snapshot of the real engine NavServices, captured in MakeCountingServices so the
+// counting wrappers can delegate to the genuine implementation after overriding.
+static NavServices g_RealServices{};
+
 // Wrapped FindPath that records the call count for perf-assertion tests.
 // Delegates to the real engine FindPath under the hood.
 static void CountingFindPath(const glm::vec3& start, const glm::vec3& end,
@@ -48,10 +52,24 @@ static void CountingFindPath(const glm::vec3& start, const glm::vec3& end,
     for (const auto& pt : path) outPath->push_back(pt.Position);
 }
 
+// Wrapped FindPathForClass — this is the call NavAgentSystem actually makes
+// (post the class-aware nav refactor), so it is the one that must be counted.
+// Delegates to the real engine per-class query captured in g_RealServices.
+static void CountingFindPathForClass(uint8_t classId, const glm::vec3& start, const glm::vec3& end,
+                                     float maxSearchRadius, std::vector<glm::vec3>* outPath) {
+    ++g_FindPathCallCount;
+    if (g_RealServices.FindPathForClass)
+        g_RealServices.FindPathForClass(classId, start, end, maxSearchRadius, outPath);
+    else if (outPath)
+        outPath->clear();
+}
+
 static NavServices MakeCountingServices() {
     NavServices svc{};
     NavServicesImpl::Init(svc);          // real forwarders for everything else
-    svc.FindPath = &CountingFindPath;    // override to count calls
+    g_RealServices = svc;                // snapshot real fn-ptrs for delegation
+    svc.FindPath         = &CountingFindPath;          // legacy class-0 path (kept for completeness)
+    svc.FindPathForClass = &CountingFindPathForClass;  // the path NavAgentSystem invokes — counted
     return svc;
 }
 

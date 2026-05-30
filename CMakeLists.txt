@@ -22,6 +22,9 @@ add_subdirectory(third_party)
 # add common headers interface library
 add_subdirectory(src/common)
 
+# netlib networking library (standalone; no engine dependency)
+add_subdirectory(src/netlib)
+
 # ECS shared library (must be configured before game/editor link it)
 add_subdirectory(src/ecs)
 
@@ -33,6 +36,8 @@ add_subdirectory(src/game)
 
 # runtime player application (does not link game; loads Game.dll at runtime)
 add_subdirectory(src/runtime)
+# headless dedicated-server application (loads Game.dll; no renderer/window)
+add_subdirectory(src/server)
 # editor application (does not link game; loads Game.dll at runtime)
 add_subdirectory(src/editor)
 

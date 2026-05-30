@@ -73,7 +73,14 @@ void DebugRenderPass::EnsureVertexCapacity(size_t vertexCount)
     nvrhi::BufferDesc desc;
     desc.byteSize = cap * sizeof(DebugVertex);
     desc.isVertexBuffer = true;
-    desc.initialState = nvrhi::ResourceStates::VertexBuffer;
+    // This VB is re-written every frame via writeBuffer (which leaves it in COPY_DEST),
+    // so its "resting" kept-state must be COPY_DEST — nvrhi then auto-transitions it to
+    // VERTEX_AND_CONSTANT_BUFFER at setGraphicsState for the draw and back to COPY_DEST
+    // after. Resting it in VertexBuffer (the old value) desynced nvrhi's tracked state
+    // from the actual COPY_DEST left by writeBuffer, so the CopyDest->VertexBuffer barrier
+    // was skipped -> D3D12 #538 INVALID_SUBRESOURCE_STATE at draw. Mirrors the per-frame
+    // UIRenderPass instance buffer (initialState=CopyDest + keepInitialState).
+    desc.initialState = nvrhi::ResourceStates::CopyDest;
     desc.keepInitialState = true;
     desc.debugName = "DebugRenderPass VB";
     m_VertexBuffer = m_Device->createBuffer(desc);
@@ -255,6 +262,16 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
     DebugCB cb{}; cb.VP = cam.Projection * cam.View;
     commandList->writeBuffer(m_CB, &cb, sizeof(cb));
     commandList->writeBuffer(m_VertexBuffer, m_Verts.data(), m_Verts.size() * sizeof(DebugVertex));
+
+    // writeBuffer leaves the VB in COPY_DEST. nvrhi's setGraphicsState auto-transitions
+    // binding-set resources + framebuffer targets, but NOT state.vertexBuffers — so we
+    // must explicitly request the vertex-buffer state ourselves each frame (the queued
+    // barrier is flushed by setGraphicsState below). Without this the draw uses the VB
+    // while still in COPY_DEST -> D3D12 #538 INVALID_SUBRESOURCE_STATE. (The CB needs no
+    // such call: it's bound via the binding set, which setGraphicsState does transition.
+    // UIRenderPass sidesteps this for its STATIC quad VB via setPermanentBufferState,
+    // which a per-frame-written buffer cannot use.)
+    commandList->setBufferState(m_VertexBuffer, nvrhi::ResourceStates::VertexBuffer);
 
     nvrhi::GraphicsState state;
     state.pipeline = m_Pipeline;
