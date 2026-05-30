@@ -16,6 +16,9 @@
 
 #include <print>
 #include <ostream>
+#include <atomic>
+#include <cstdint>
+#include <string>
 
 #include "LogFormat.h"
 
@@ -85,15 +88,27 @@ struct DebugCycleCounter
 // Aparently works on Windows, Linux and Mac
 // TextColor / color table now live in LogFormat.h.
 
+enum class LogLevel : uint8_t { Trace, Warn, Error };
+
+using LogSinkFn = void(*)(LogLevel level, TextColor color, const char* text);
+// Atomic so a shutdown-time clear (or a Game.dll reload re-install) can't race a concurrent
+// log from another thread. Lock-free on x64; relaxed load on the hot path is effectively free.
+inline std::atomic<LogSinkFn> g_SmLogSink{nullptr};
+inline void sm_set_log_sink(LogSinkFn fn) { g_SmLogSink.store(fn, std::memory_order_release); }
+
 template <typename... Args>
-void _log(const char* prefix, const char* msg, TextColor color, Args... args)
+void _log(LogLevel level, const char* prefix, const char* msg, TextColor color, Args... args)
 {
     std::println("{}", format_log_line(prefix, msg, color, args...));
+    if (LogSinkFn sink = g_SmLogSink.load(std::memory_order_relaxed)) {
+        const std::string body = format_log_body(prefix, msg, args...);
+        sink(level, color, body.c_str());
+    }
 }
 
-#define SM_TRACE(msg, ...) do { _log("TRACE:", msg, TEXT_COLOR_GREEN, ##__VA_ARGS__); } while(0)
-#define SM_WARN(msg, ...)  do { _log("WARN:",  msg, TEXT_COLOR_YELLOW, ##__VA_ARGS__); } while(0)
-#define SM_ERROR(msg, ...) do { _log("ERROR:", msg, TEXT_COLOR_RED,    ##__VA_ARGS__); } while(0)
+#define SM_TRACE(msg, ...) do { _log(LogLevel::Trace, "TRACE:", msg, TEXT_COLOR_GREEN,  ##__VA_ARGS__); } while(0)
+#define SM_WARN(msg, ...)  do { _log(LogLevel::Warn,  "WARN:",  msg, TEXT_COLOR_YELLOW, ##__VA_ARGS__); } while(0)
+#define SM_ERROR(msg, ...) do { _log(LogLevel::Error, "ERROR:", msg, TEXT_COLOR_RED,    ##__VA_ARGS__); } while(0)
 
 // Forward-declare a platform-specific debug break that can show dialogs, etc.
 void platform_debug_break(const char* expr, const char* file, int line, const char* message);
@@ -106,7 +121,7 @@ inline void sm_assert_fail(const char* expr, const char* file, int line, const c
   char formatted[1024] = {};
   std::snprintf(formatted, sizeof(formatted), fmt, args...);
   // Log through our normal logger
-  _log("ERROR:", "%s", TEXT_COLOR_RED, formatted);
+  _log(LogLevel::Error, "ERROR:", "%s", TEXT_COLOR_RED, formatted);
   // Delegate to platform to decide how to break/notify
   platform_debug_break(expr, file, line, formatted);
 }
