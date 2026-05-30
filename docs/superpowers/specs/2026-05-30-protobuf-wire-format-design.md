@@ -28,14 +28,21 @@ The transport is layered:
 
 ### 1. Dependency / build
 
-- **Submodule:** `third_party/protobuf` → `https://github.com/protocolbuffers/protobuf`, pinned to tag **`v3.21.12`**.
-  - Rationale: protobuf **≥ 22.0 hard-depends on abseil** (a second large source tree). **v3.21.x is the last self-contained release** — no external abseil — so it stays a single submodule, matching the vendored-source idiom.
-- Wired in `third_party/CMakeLists.txt` via `add_subdirectory` of the protobuf tree (exact entry point — repo root vs `protobuf/cmake` — confirmed against the pinned tag during implementation) with options set before the call:
-  - `protobuf_BUILD_TESTS = OFF`
-  - `protobuf_BUILD_PROTOC_BINARIES = ON` (we need the `protoc` target for codegen)
-  - `protobuf_BUILD_LIBPROTOC = OFF`, build the lite runtime; link target `libprotobuf-lite`.
-  - Build shared/static consistent with the rest of the tree (static lib into `Game.dll` is fine; see hot-reload notes).
-- Two artifacts consumed: `libprotobuf-lite` (link) and `protoc` (codegen tool target).
+- **Pin: latest stable, protobuf `v35.0`** (released 2026-05-19). Confirmed latest via the GitHub releases page before pinning.
+- **Direct-dependency submodules (both added by us):**
+  - `third_party/protobuf` → `https://github.com/protocolbuffers/protobuf`, tag **`v35.0`**.
+  - `third_party/abseil-cpp` → `https://github.com/abseil/abseil-cpp`, tag **`20250512.1`** (the exact abseil version protobuf v35.0 pins in `cmake/dependencies.cmake`).
+  - Rationale: protobuf **≥ 22.0 hard-depends on abseil**, and **libprotobuf-lite does not exempt this** — abseil is a base dependency even for the lite runtime. v35's CMake otherwise FetchContent-downloads abseil at configure time; we instead vendor abseil as our own submodule to keep the offline / all-submodules idiom. Per project decision: **direct deps (protobuf, abseil) are submodules we add; any deeper transitive deps may self-fetch/self-configure** — acceptable.
+- Wired in `third_party/CMakeLists.txt`:
+  - `add_subdirectory(abseil-cpp)` **before** protobuf so abseil's targets already exist and protobuf consumes the local copy (no fetch).
+  - `add_subdirectory` of the protobuf tree (exact entry point — repo root vs `protobuf/cmake` — confirmed against the pinned tag during implementation), with options set before the call:
+    - `protobuf_BUILD_TESTS = OFF` (avoids the googletest/jsoncpp transitive pulls)
+    - `protobuf_BUILD_PROTOC_BINARIES = ON` (we need the `protoc` target for codegen)
+    - `protobuf_BUILD_LIBPROTOC = OFF`; build the lite runtime; link target `libprotobuf-lite`.
+    - Point protobuf at the local abseil (e.g. via `add_subdirectory` ordering + `CMAKE_PREFIX_PATH`, or `protobuf_ABSL_PROVIDER`/target reuse — exact knob confirmed against v35's CMake during implementation). Optionally `protobuf_LOCAL_DEPENDENCIES_ONLY=ON` to turn any accidental fetch into a hard error.
+    - Build shared/static consistent with the rest of the tree (static into `Game.dll` is fine; see hot-reload notes).
+- Artifacts consumed: `libprotobuf-lite` (link), `protoc` (codegen tool target), and abseil's targets (transitively, via protobuf-lite).
+- **Build cost is notably higher than the original v3.21 plan** — abseil is a large tree. One-off configure/build; flagged so it isn't a surprise.
 
 ### 2. Schema
 
@@ -82,19 +89,19 @@ message Snapshot    { uint32 tick = 1; repeated PlayerState players = 2; }
 
 ### 5. Hot-reload / risks
 
-- `libprotobuf-lite` + generated code link **into `Game.dll`**. Message objects are **per-tick scratch** — never stored in editor-owned `GameState` — so a hot-reload that destroys/recreates systems is reload-safe.
-- **Risk to watch:** protobuf runs static initialization (one-time registration) on DLL load. protobuf-lite global state is minimal and fully contained in the DLL (unloaded with it), so repeated hot-reloads should be clean. Verify on the first reload after integration.
-- **Build cost:** first configure/build compiles protobuf + `protoc` once. One-off, acceptable.
+- `libprotobuf-lite` + abseil + generated code link **into `Game.dll`**. Message objects are **per-tick scratch** — never stored in editor-owned `GameState` — so a hot-reload that destroys/recreates systems is reload-safe.
+- **Risk to watch:** protobuf and abseil run static initialization (one-time registration, abseil flags/once-init) on DLL load. This state is fully contained in the DLL (unloaded with it), so repeated hot-reloads should be clean — but the abseil surface is larger than the original lite-only plan, so explicitly verify on the first reload after integration.
+- **Build cost:** first configure/build compiles abseil + protobuf + `protoc` once. Heavier than the dropped v3.21 plan (abseil); one-off, acceptable.
 - **`.proto` changes** are codegen, not the `Game.h` ABI — editing `wire.proto` rebuilds `wire.pb.*` into `Game.dll`; a `.cpp`-only Game change still hot-reloads. Changing the schema does **not** require a `GAME_API_VERSION` bump (no `Game.h`/`GameState` layout change).
 
 ## Out of scope
 
 - Wiring protobuf into the live `NetClientSystem` / `NetServerSystem` send/recv path (future work — would replace the raw `"ping"` payload with `wire::Ping`).
 - Sharing the schema with `server.exe` via `src/common/` (proto stays game-owned per decision; `Game.dll` is already the shared net code both `editor` and `server` load).
-- abseil / full reflection / JSON / descriptor features (lite runtime only).
+- Full reflection / JSON / descriptor features (lite runtime only). Note: abseil is **not** out of scope — it is a mandatory base dependency of modern protobuf, vendored as a submodule per section 1.
 
 ## Decisions locked
 
-- Runtime: **libprotobuf-lite**, protobuf **v3.21.12** submodule.
+- Runtime: **libprotobuf-lite**, protobuf **v35.0** (latest stable, confirmed online).
+- Dependencies as **git submodules** for direct deps: `third_party/protobuf` (`v35.0`) + `third_party/abseil-cpp` (`20250512.1`). Deeper transitive deps may self-fetch.
 - Proto location: **`src/game/proto/wire.proto`** (game-owned).
-- Dependency form: **git submodule** under `third_party/protobuf`.
