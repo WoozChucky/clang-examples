@@ -477,18 +477,18 @@ public:
     SystemPhase Phase() const override { return SystemPhase::PreRender; }
 
 private:
-    // ---- Server: bind once, echo pings (opcode 1 -> opcode 2) ----
+    // ---- Server: bind once (to ctx.serverPort), echo pings (opcode 1 -> opcode 2) ----
     void UpdateServer(SystemContext& ctx, const NetServices* net) {
         if (!m_ServerStarted) {
             m_ServerStarted = true;
             NetServerConfig sc{};
-            sc.bind = netlib::Endpoint{ "127.0.0.1", kDedicatedServerDefaultPort };
+            sc.bind = netlib::Endpoint{ "127.0.0.1", ctx.serverPort };   // port from the bootstrap (server.exe --port)
             sc.gameResident = true;
             m_Server = net->CreateServer(&netlib::MakeTcpServer, sc);
             if (m_Server != NetHandle::Invalid)
-                SM_TRACE("NetDemo[server]: listening on 127.0.0.1:%u", (unsigned)kDedicatedServerDefaultPort);
+                SM_TRACE("NetDemo[server]: listening on 127.0.0.1:%u", (unsigned)ctx.serverPort);
             else
-                SM_WARN("NetDemo[server]: failed to bind 127.0.0.1:%u", (unsigned)kDedicatedServerDefaultPort);
+                SM_WARN("NetDemo[server]: failed to bind 127.0.0.1:%u", (unsigned)ctx.serverPort);
         }
         NetEvent ev{};
         while (net->PollEvent(&ev)) {
@@ -502,25 +502,42 @@ private:
         }
     }
 
-    // ---- Client: connect (bounded retry), ping every 2s ----
+    // ---- Client: connect to ctx.serverPort, ping every 2s ----
+    // Retry is fast for the first kMaxFastRetries, then slows (never permanently gives up) so the
+    // editor client reconnects whenever a server appears — no editor restart needed. A change to
+    // ctx.serverPort (the panel's Start writes ApplicationContext::NetServerPort) drops the current
+    // handle and reconnects fresh to the new port.
     void UpdateClient(SystemContext& ctx, const NetServices* net) {
+        const uint16_t port = ctx.serverPort;
+        if (port != m_LastPort) {
+            if (m_Client != NetHandle::Invalid) net->Close(m_Client);
+            m_Client       = NetHandle::Invalid;
+            m_Connected    = false;
+            m_RetryCount   = 0;
+            m_RetryAccum   = 0.0;
+            m_GaveUpLogged = false;
+            m_LastPort     = port;
+        }
+
         if (m_Client == NetHandle::Invalid) {
             m_RetryAccum += ctx.dt;
-            if (m_RetryAccum < kRetryIntervalSec) return;
+            const double interval = (m_RetryCount < kMaxFastRetries) ? kFastRetrySec : kSlowRetrySec;
+            if (m_RetryAccum < interval) return;
             m_RetryAccum = 0.0;
-            if (m_RetryCount >= kMaxRetries) {
-                if (!m_GaveUpLogged) { SM_WARN("NetDemo[client]: gave up connecting after %d tries", kMaxRetries); m_GaveUpLogged = true; }
-                return;
+            if (m_RetryCount == kMaxFastRetries && !m_GaveUpLogged) {
+                SM_WARN("NetDemo[client]: no server on %u after %d tries; slow-retrying every %.0fs",
+                        (unsigned)port, kMaxFastRetries, kSlowRetrySec);
+                m_GaveUpLogged = true;
             }
             NetClientConfig cc{};
-            cc.target = netlib::Endpoint{ "127.0.0.1", kDedicatedServerDefaultPort };
+            cc.target = netlib::Endpoint{ "127.0.0.1", port };
             cc.gameResident = true;
             m_Client = net->CreateClient(&netlib::MakeTcpClient, cc);
-            m_RetryCount++;
+            if (m_RetryCount < kMaxFastRetries) m_RetryCount++;
             if (m_Client == NetHandle::Invalid)
-                SM_WARN("NetDemo[client]: CreateClient failed (try %d/%d)", m_RetryCount, kMaxRetries);
+                SM_WARN("NetDemo[client]: CreateClient failed (port %u)", (unsigned)port);
             else
-                SM_TRACE("NetDemo[client]: connecting to 127.0.0.1:%u (try %d)", (unsigned)kDedicatedServerDefaultPort, m_RetryCount);
+                SM_TRACE("NetDemo[client]: connecting to 127.0.0.1:%u", (unsigned)port);
             return;
         }
 
@@ -554,9 +571,10 @@ private:
         }
     }
 
-    static constexpr int    kMaxRetries        = 20;
-    static constexpr double kRetryIntervalSec  = 0.5;
-    static constexpr double kPingIntervalSec   = 2.0;
+    static constexpr int    kMaxFastRetries  = 20;
+    static constexpr double kFastRetrySec    = 0.5;
+    static constexpr double kSlowRetrySec    = 5.0;
+    static constexpr double kPingIntervalSec = 2.0;
 
     bool      m_ServerStarted = false;
     NetHandle m_Server        = NetHandle::Invalid;
@@ -567,6 +585,7 @@ private:
     int       m_RetryCount    = 0;
     double    m_RetryAccum    = 0.0;
     double    m_PingAccum     = 0.0;
+    uint16_t  m_LastPort      = kDedicatedServerDefaultPort;   // detect port change → reconnect
 };
 
 void GameRegisterSystems(SystemScheduler* s) {

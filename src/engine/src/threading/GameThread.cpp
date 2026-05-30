@@ -455,7 +455,8 @@ void GameThread::RunLoop() {
             }
 
 			{
-                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices, &netServices, gameState.Role };
+                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices, &netServices, gameState.Role,
+                                      m_AppContext->NetServerPort.load(std::memory_order_relaxed) };
                 m_Scheduler.Run(sysCtx);
             }
 

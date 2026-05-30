@@ -498,7 +498,7 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
         DrawNavigationPanel(ctx, &s_ShowNavigationPanel);
 
         static bool s_ShowDedicatedServerPanel = true;
-        DrawDedicatedServerPanel(m_ServerSupervisor, &s_ShowDedicatedServerPanel);
+        DrawDedicatedServerPanel(m_ServerSupervisor, m_AppContext, &s_ShowDedicatedServerPanel);
 
         if (m_AppContext)
             m_AppContext->SelectedEntity.store(m_EcsInspector.GetSelectedEntity(), std::memory_order_relaxed);

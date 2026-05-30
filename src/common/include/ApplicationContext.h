@@ -13,6 +13,7 @@
 #include "ECS.h"
 #include "ECSCommands.h"
 #include "lib.h"
+#include "ServerControl.h"   // kDedicatedServerDefaultPort
 
 struct ApplicationSettings {
     RendererAPI Backend    = RendererAPI::DirectX12;
@@ -181,6 +182,13 @@ struct ApplicationContext {
     // Runtime never sets these, so it is unaffected.
     std::atomic<bool> RequestSceneReload{false};
     std::atomic<bool> RequestSceneNew{false};
+
+    // Dedicated-server target port the in-editor client connects to (and that the editor's
+    // ServerSupervisor launched server.exe on). The Dedicated Server panel (RenderThread) writes
+    // it on Start; GameThread reads it each tick into SystemContext::serverPort so NetDemoSystem's
+    // client retargets. Defaults to the demo port. The runtime never writes it (stays default);
+    // server.exe gets its port from --port directly, not via this field.
+    std::atomic<uint16_t> NetServerPort{ kDedicatedServerDefaultPort };
 
     // Editor free-look camera override (editor only). The overlay (RenderThread) writes both each
     // frame; Renderer (RenderThread, earlier in the next frame) reads them -> 1-frame lag, like

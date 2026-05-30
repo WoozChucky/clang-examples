@@ -1,10 +1,11 @@
 #include "DedicatedServerPanel.h"
 #include "ServerSupervisor.h"
-#include "ServerControl.h"   // kDedicatedServerDefaultPort
+#include "ServerControl.h"        // kDedicatedServerDefaultPort
+#include "ApplicationContext.h"   // NetServerPort atomic (editor client target)
 
 #include <imgui.h>
 
-void DrawDedicatedServerPanel(ServerSupervisor& supervisor, bool* open) {
+void DrawDedicatedServerPanel(ServerSupervisor& supervisor, ApplicationContext* app, bool* open) {
     if (open && !*open) return;
     if (!ImGui::Begin("Dedicated Server", open)) { ImGui::End(); return; }
 
@@ -18,7 +19,11 @@ void DrawDedicatedServerPanel(ServerSupervisor& supervisor, bool* open) {
 
     ImGui::BeginDisabled(running);
     if (ImGui::Button("Start", ImVec2(120, 0))) {
-        supervisor.Start(static_cast<uint16_t>(s_Port));
+        const uint16_t port = static_cast<uint16_t>(s_Port);
+        // Point the in-editor client at the same port BEFORE launching the server, so the
+        // GameThread's NetDemoSystem retargets (a port change resets its connect state).
+        if (app) app->NetServerPort.store(port, std::memory_order_relaxed);
+        supervisor.Start(port);
     }
     ImGui::EndDisabled();
 
@@ -36,16 +41,7 @@ void DrawDedicatedServerPanel(ServerSupervisor& supervisor, bool* open) {
         case ServerStatus::Stopped:    ImGui::TextUnformatted("Stopped"); break;
         case ServerStatus::Crashed:    ImGui::TextColored(ImVec4(1,0.4f,0.4f,1), "Crashed (exit 0x%08lX)", supervisor.LastExitCode()); break;
     }
-    ImGui::TextDisabled("The in-editor client auto-connects to 127.0.0.1:%u (see log).",
-                        (unsigned)kDedicatedServerDefaultPort);
-    if (s_Port != kDedicatedServerDefaultPort) {
-        // The game-side client is compiled against the fixed default port (variable-port
-        // editor->client wiring is a documented Phase-3 follow-up), so a custom port binds
-        // the server but the in-editor client won't reach it.
-        ImGui::TextColored(ImVec4(1, 0.6f, 0.2f, 1),
-                           "Note: in-editor client only connects to the default port %u.",
-                           (unsigned)kDedicatedServerDefaultPort);
-    }
+    ImGui::TextDisabled("The in-editor client auto-connects to 127.0.0.1:%d (see log).", s_Port);
 
     ImGui::End();
 }

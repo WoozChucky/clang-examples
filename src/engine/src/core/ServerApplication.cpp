@@ -10,6 +10,7 @@
 #include "lib.h"
 #include "Timing.h"
 #include "WorldManager.h"
+#include "ServerControl.h"   // kDedicatedServerDefaultPort (port guard + bind plumbing)
 #include "utilities/SettingsManager.h"
 #include "navigation/NavMeshSystem.h"
 #include "navigation/NavServicesImpl.h"
@@ -27,6 +28,10 @@ bool ServerApplication::Init(const Config& cfg) {
     if (m_Config.targetTps <= 0.0) {
         SM_WARN("ServerApplication: invalid targetTps %.2f; resetting to 60", m_Config.targetTps);
         m_Config.targetTps = 60.0;
+    }
+    if (m_Config.port == 0) {
+        SM_WARN("ServerApplication: port 0; using default %u", (unsigned)kDedicatedServerDefaultPort);
+        m_Config.port = kDedicatedServerDefaultPort;
     }
     if (m_Config.worldPath.empty())
         m_Config.worldPath = WorldManager::DEFAULT_WORLD_SNAPSHOT_PATH;
@@ -100,7 +105,7 @@ void ServerApplication::Tick() {
         m_GameLib.Update(&m_GameState);
 
     SystemContext ctx{ m_GameState.World, m_GameState.DeltaTime, m_GameState.GameTime,
-                       &m_NavServices, &m_NetServices, m_GameState.Role };
+                       &m_NavServices, &m_NetServices, m_GameState.Role, m_Config.port };
     m_Scheduler.Run(ctx);
 
     NavMeshSystem::Instance().Tick(static_cast<float>(dt));
