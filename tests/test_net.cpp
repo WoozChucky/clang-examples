@@ -223,6 +223,36 @@ static void test_netsub_shutdown_while_connected() {
     CHECK(true, "shutdown-live: Shutdown() of a connected pair did not crash/hang");
 }
 
+// Faithful repro of the editor's NetDemoSystem at close: continuous BIDIRECTIONAL
+// traffic (client pings, server echoes) so both adapters have in-flight ops, then
+// straight to Shutdown() WITHOUT draining (the app destroys the system then Shutdowns).
+static void test_netsub_traffic_then_shutdown() {
+    NetServices net{}; NetServicesImpl::Init(net);
+    NetSubsystem::Instance().Init();
+
+    NetServerConfig sc{}; sc.bind = netlib::Endpoint{ "127.0.0.1", 0 }; sc.gameResident = true;
+    NetHandle srv = net.CreateServer(&netlib::MakeTcpServer, sc);
+    uint16_t port = net.BoundPort(srv);
+    NetClientConfig cc{}; cc.target = netlib::Endpoint{ "127.0.0.1", port }; cc.gameResident = true;
+    NetHandle cli = net.CreateClient(&netlib::MakeTcpClient, cc);
+    CHECK(srv != NetHandle::Invalid && cli != NetHandle::Invalid, "traffic: created");
+
+    using clock = std::chrono::steady_clock;
+    auto start = clock::now();
+    auto m = u8("ping");
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - start).count() < 400) {
+        NetEvent ev{};
+        while (net.PollEvent(&ev)) {
+            if (ev.adapter == srv && ev.kind == NetEventKind::Message)
+                net.Send(srv, ev.conn, 2, ev.payload, ev.len);   // server echoes
+        }
+        net.Send(cli, kNetConnInvalid, 1, m.data(), m.size());   // client pings hard (no 2s gap)
+    }
+    // Close path: straight to Shutdown with traffic in flight, no final drain.
+    NetSubsystem::Instance().Shutdown();
+    CHECK(true, "traffic-then-shutdown: did not crash");
+}
+
 int main() {
     test_net_types();
     test_mpsc_basic();
@@ -233,6 +263,7 @@ int main() {
     test_netsub_roundtrip();
     test_release_game_resident();
     test_netsub_shutdown_while_connected();
+    test_netsub_traffic_then_shutdown();
     if (g_Failures == 0) { std::printf("All net tests passed.\n"); return 0; }
     std::printf("%d net test(s) FAILED.\n", g_Failures);
     return 1;

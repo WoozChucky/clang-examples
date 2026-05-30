@@ -539,9 +539,16 @@ void GameThread::RunLoop() {
 		}
 	}
 
-    m_GameLib.Unload(&gameState);
-
+    // Tear down networking BEFORE unloading Game.dll. The net adapters and their IOCP
+    // worker threads are created while Game.dll is loaded (the game spins them up via
+    // NetServices). Those threads must be fully stopped + joined while Game.dll is still
+    // mapped: a worker thread that was alive during Game.dll's lifetime, exiting AFTER
+    // FreeLibrary(Game.dll), runs per-thread teardown (FLS/thread_local/DLL-detach) that
+    // can dispatch into the now-unmapped module → DEP/execute access violation. This is
+    // the Model-B ordering (game-tied resources released before the game DLL unloads).
     NetSubsystem::Instance().Shutdown();
+
+    m_GameLib.Unload(&gameState);
 
     gameState.World.Clear();
 
