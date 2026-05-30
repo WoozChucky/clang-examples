@@ -196,6 +196,33 @@ static void test_release_game_resident() {
     NetSubsystem::Instance().Shutdown();
 }
 
+// Mimics the application-close path: a connected server+client pair torn down by
+// a single Shutdown() WITHOUT individually Close()-ing first (the round-trip test
+// Closes each before Shutdown; the editor/runtime does NOT — it goes straight to
+// NetSubsystem::Shutdown with both adapters live + connected to each other).
+static void test_netsub_shutdown_while_connected() {
+    NetServices net{}; NetServicesImpl::Init(net);
+    NetSubsystem::Instance().Init();
+
+    NetServerConfig sc{}; sc.bind = netlib::Endpoint{ "127.0.0.1", 0 }; sc.gameResident = true;
+    NetHandle srv = net.CreateServer(&netlib::MakeTcpServer, sc);
+    CHECK(srv != NetHandle::Invalid, "shutdown-live: server created");
+    uint16_t port = net.BoundPort(srv);
+    NetClientConfig cc{}; cc.target = netlib::Endpoint{ "127.0.0.1", port }; cc.gameResident = true;
+    NetHandle cli = net.CreateClient(&netlib::MakeTcpClient, cc);
+    CHECK(cli != NetHandle::Invalid, "shutdown-live: client created");
+
+    int conns = 0;
+    net_wait_until([&]{ NetEvent ev{}; while (net.PollEvent(&ev)) if (ev.kind == NetEventKind::Connected) ++conns; return conns >= 2; });
+    auto m = u8("hi");
+    net.Send(cli, kNetConnInvalid, 1, m.data(), m.size());
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Tear down with BOTH adapters still live + connected — the app-close path.
+    NetSubsystem::Instance().Shutdown();
+    CHECK(true, "shutdown-live: Shutdown() of a connected pair did not crash/hang");
+}
+
 int main() {
     test_net_types();
     test_mpsc_basic();
@@ -205,6 +232,7 @@ int main() {
     test_pool_concurrent();
     test_netsub_roundtrip();
     test_release_game_resident();
+    test_netsub_shutdown_while_connected();
     if (g_Failures == 0) { std::printf("All net tests passed.\n"); return 0; }
     std::printf("%d net test(s) FAILED.\n", g_Failures);
     return 1;
