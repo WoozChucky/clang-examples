@@ -587,10 +587,16 @@ set_target_properties(test_net PROPERTIES
 
 add_executable(test_servercontrol
     test_servercontrol.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor/src/app/ServerSupervisor.cpp
+)
+
+target_link_libraries(test_servercontrol PRIVATE
+    Engine
 )
 
 target_include_directories(test_servercontrol PRIVATE
     ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/editor/src/app
 )
 
 set_target_properties(test_servercontrol PROPERTIES

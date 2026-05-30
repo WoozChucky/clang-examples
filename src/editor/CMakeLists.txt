@@ -5,6 +5,7 @@ add_executable(editor
 
     # App / orchestration layer
     src/app/EditorPreferences.cpp
+    src/app/ServerSupervisor.cpp
     src/app/ImGuiRenderer.cpp
     src/app/ImGuiOverlay.cpp
 
