@@ -603,3 +603,23 @@ set_target_properties(test_servercontrol PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_dedicated_server
+    test_dedicated_server.cpp
+)
+
+target_link_libraries(test_dedicated_server PRIVATE
+    CommonHeaders
+    ws2_32
+)
+
+target_include_directories(test_dedicated_server PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+add_dependencies(test_dedicated_server server game)
+
+set_target_properties(test_dedicated_server PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
