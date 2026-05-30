@@ -17,7 +17,7 @@ template <class M>
 std::vector<uint8_t> Encode(const M& msg) {
     std::vector<uint8_t> out(msg.ByteSizeLong());
     if (!out.empty())
-        msg.SerializeToArray(out.data(), static_cast<int>(out.size()));
+        (void)msg.SerializeToArray(out.data(), static_cast<int>(out.size()));
     return out;
 }
 
