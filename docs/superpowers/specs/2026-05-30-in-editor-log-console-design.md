@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-30
 **Branch:** `feat/log-console`
-**Status:** design approved; plan + implementation pending.
+**Status:** IMPLEMENTED 2026-05-30 (commits `dfaba59`..`66375eb` on `feat/log-console`). Automated tests green (`test_logformat` sink-hook + plain-body, `test_logbus` round-trip/truncate/overflow; full regression suite passes). Structured sink hook + per-module installers (Engine/ecs/netlib/Game-via-GameLibrary) + `LogBus` lock-free ring + `ConsolePanel` all landed. `g_SmLogSink` hardened to `std::atomic`. **Pending: user-owned interactive GUI smoke** (logs from each module appear in the panel; filters/search/autoscroll/clear; flood→dropped-count; Game.dll hot-reload still logs). Deferred (YAGNI, per plan): `ImGuiListClipper`/pre-filtered index for the render loop. MainMenuBar toggle skipped (panel default-visible — no existing per-panel menu plumbing).
 
 ## Goal
 
