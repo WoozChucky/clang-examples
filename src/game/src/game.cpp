@@ -604,6 +604,8 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<NetDemoSystem>());                   // PreRender: loopback net demo (build on this)
 }
 
+extern "C" EXPORT_FN void GameInstallLogSink(LogSinkFn fn) { sm_set_log_sink(fn); }
+
 static GameState* g_GameState = nullptr;
 
 uint32_t GameGetVersion() {
