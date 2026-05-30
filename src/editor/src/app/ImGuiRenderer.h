@@ -13,6 +13,7 @@
 #include "EcsInspectorPanel.h"
 #include "MainMenuBar.h"
 #include "EditorCamera.h"
+#include "ServerSupervisor.h"
 #include "lib.h"
 
 class MeshSystem;
@@ -72,6 +73,8 @@ private:
     MaterialManagerPanel m_MaterialManager;
     MeshManagerPanel m_MeshManager;
     EcsInspectorPanel m_EcsInspector;
+
+    ServerSupervisor m_ServerSupervisor; // out-of-process dedicated server; dtor kills child on teardown
 
     EditorCamera m_EditorCamera;
     bool         m_EditMode = true; // default to Edit (free camera) on launch

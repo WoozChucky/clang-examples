@@ -14,6 +14,7 @@ add_executable(editor
     src/panels/MaterialManagerPanel.cpp
     src/panels/MeshManagerPanel.cpp
     src/panels/NavigationPanel.cpp
+    src/panels/DedicatedServerPanel.cpp
     src/panels/MemoryPanel.cpp
     src/panels/DayNightPanel.cpp
     src/panels/AtmospherePresets.cpp
