@@ -82,6 +82,58 @@ static void test_pool_exhaustion() {
     pool.Release(a); pool.Release(b);
 }
 
+#include <set>
+// Ring-direct MPMC probe (isolates MpscRing from NetBufferPool): seed 0..255, then
+// 8 threads each Dequeue+Enqueue heavily; afterward exactly 0..255 must remain — no
+// loss, no duplication.
+static void test_mpsc_mpmc() {
+    auto ring = std::make_unique<MpscRing<uint32_t, 4096>>();
+    for (uint32_t i = 0; i < 256; ++i) ring->Enqueue(i);
+    constexpr int K = 8, iters = 20000;
+    std::vector<std::thread> ts; std::atomic<bool> go{false};
+    for (int k = 0; k < K; ++k) ts.emplace_back([&]{
+        while (!go.load()) {}
+        // Recycle pattern: a free-list caller must RETRY Enqueue (transient-full under
+        // MPMC when a consumer is preempted mid-dequeue), never drop — mirrors NetBufferPool::Release.
+        for (int i = 0; i < iters; ++i) {
+            uint32_t v;
+            if (ring->Dequeue(v)) { while (!ring->Enqueue(v)) std::this_thread::yield(); }
+        }
+    });
+    go.store(true);
+    for (auto& t : ts) t.join();
+    std::multiset<uint32_t> got; uint32_t v;
+    while (ring->Dequeue(v)) got.insert(v);
+    bool distinctOk = (got.size() == 256);
+    for (uint32_t i = 0; i < 256 && distinctOk; ++i) if (got.count(i) != 1) distinctOk = false;
+    if (!distinctOk) std::printf("  mpmc DIAG: remaining=%zu (expected 256)\n", got.size());
+    CHECK(distinctOk, "mpsc: MPMC churn with retry preserves all 256 indices (no loss/dup)");
+}
+
+// PRODUCTION pattern for the inbound NetEvent ring: MANY producers, ONE consumer.
+// K producer threads each enqueue M distinct-tagged items; one consumer drains
+// exactly K*M with no loss/dup. (If this fails, the inbound ring itself is broken.)
+static void test_mpsc_single_consumer() {
+    constexpr int K = 8, M = 50000;
+    auto ring = std::make_unique<MpscRing<uint64_t, 1024>>();
+    std::vector<std::thread> producers; std::atomic<bool> go{false};
+    for (int k = 0; k < K; ++k) producers.emplace_back([&, k]{
+        while (!go.load()) {}
+        for (int i = 0; i < M; ++i) {
+            const uint64_t tag = (static_cast<uint64_t>(k) << 32) | static_cast<uint32_t>(i);
+            while (!ring->Enqueue(tag)) { /* full: spin (consumer drains) */ }
+        }
+    });
+    go.store(true);
+    std::set<uint64_t> seen; int received = 0; bool dup = false; uint64_t v;
+    while (received < K * M) {
+        if (ring->Dequeue(v)) { if (!seen.insert(v).second) dup = true; ++received; }
+    }
+    for (auto& t : producers) t.join();
+    CHECK(received == K * M && !dup, "mpsc: single-consumer received exactly K*M, no dup (inbound-ring pattern)");
+    CHECK(!ring->Dequeue(v), "mpsc: single-consumer empty after drain");
+}
+
 static void test_pool_concurrent() {
     NetBufferPool pool(64, 256);
     constexpr int K = 8, iters = 20000;
@@ -101,6 +153,7 @@ static void test_pool_concurrent() {
     for (int i = 0; i < 256; ++i) { uint32_t idx; if (pool.Acquire(idx)) held.push_back(idx); }
     CHECK(held.size() == 256, "pool: all blocks free after concurrent churn (no leak/double-free)");
     for (uint32_t idx : held) pool.Release(idx);
+    if (held.size() != 256) std::printf("  pool DIAG: reacquired=%zu (expected 256)\n", held.size());
 }
 
 static void test_net_types() {
@@ -257,6 +310,8 @@ int main() {
     test_net_types();
     test_mpsc_basic();
     test_mpsc_concurrent();
+    test_mpsc_mpmc();
+    test_mpsc_single_consumer();
     test_pool_basic();
     test_pool_exhaustion();
     test_pool_concurrent();

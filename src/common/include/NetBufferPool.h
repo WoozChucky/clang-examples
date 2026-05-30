@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include "MpscRing.h"
@@ -32,7 +33,17 @@ public:
         return Block(idx);
     }
 
-    void Release(uint32_t index) { m_Free->Enqueue(index); }
+    // A free-list must NEVER lose a block. The underlying ring (MPMC Vyukov) can
+    // transiently report "full" even though it isn't: when a concurrent Acquire
+    // (Dequeue) is preempted between reserving its slot and publishing it free, an
+    // Enqueue that wraps to that cell sees it unfreed and returns false. The ring's
+    // capacity (kMaxBlocks) far exceeds the live block count, so it is never
+    // *permanently* full — spin until the Enqueue takes (the preempted consumer
+    // resumes and frees the cell). Without this retry, Release would drop the index
+    // and slowly leak blocks under contention (observed ~5-8% in stress tests).
+    void Release(uint32_t index) {
+        while (!m_Free->Enqueue(index)) { std::this_thread::yield(); }
+    }
 
     std::byte* Block(uint32_t index) { return m_Storage.data() + static_cast<size_t>(index) * m_BlockSize; }
 
