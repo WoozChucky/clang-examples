@@ -386,22 +386,33 @@ bool ImGui_NVRHI::render(nvrhi::IFramebuffer* framebuffer)
             {
                 pCmd->UserCallback(cmdList, pCmd);
             } else {
-                drawState.bindings = { getBindingSet((nvrhi::ITexture*)pCmd->TexRef.GetTexID()) };
-                assert(drawState.bindings[0]);
+                // Project scissor/clip rect. ImGui can emit fully-clipped draw commands
+                // (degenerate clip rect); D3D12 forbids an empty scissor and the debug
+                // layer breaks on DRAW_EMPTY_SCISSOR_RECTANGLE. Clamp min to >=0 and skip
+                // the draw when the rect has no area (matches imgui_impl_dx12).
+                int clipMinX = int(pCmd->ClipRect.x);
+                int clipMinY = int(pCmd->ClipRect.y);
+                int clipMaxX = int(pCmd->ClipRect.z);
+                int clipMaxY = int(pCmd->ClipRect.w);
+                if (clipMinX < 0) clipMinX = 0;
+                if (clipMinY < 0) clipMinY = 0;
 
-                drawState.viewport.scissorRects[0] = nvrhi::Rect(int(pCmd->ClipRect.x),
-                                                                 int(pCmd->ClipRect.z),
-                                                                 int(pCmd->ClipRect.y),
-                                                                 int(pCmd->ClipRect.w));
+                if (clipMaxX > clipMinX && clipMaxY > clipMinY)
+                {
+                    drawState.bindings = { getBindingSet((nvrhi::ITexture*)pCmd->TexRef.GetTexID()) };
+                    assert(drawState.bindings[0]);
 
-                nvrhi::DrawArguments drawArguments;
-                drawArguments.vertexCount = pCmd->ElemCount;
-                drawArguments.startIndexLocation = idxOffset;
-                drawArguments.startVertexLocation = vtxOffset;
+                    drawState.viewport.scissorRects[0] = nvrhi::Rect(clipMinX, clipMaxX, clipMinY, clipMaxY);
 
-                m_commandList->setGraphicsState(drawState);
-                m_commandList->setPushConstants(invDisplaySize, sizeof(invDisplaySize));
-                m_commandList->drawIndexed(drawArguments);
+                    nvrhi::DrawArguments drawArguments;
+                    drawArguments.vertexCount = pCmd->ElemCount;
+                    drawArguments.startIndexLocation = idxOffset;
+                    drawArguments.startVertexLocation = vtxOffset;
+
+                    m_commandList->setGraphicsState(drawState);
+                    m_commandList->setPushConstants(invDisplaySize, sizeof(invDisplaySize));
+                    m_commandList->drawIndexed(drawArguments);
+                }
             }
 
             idxOffset += pCmd->ElemCount;
