@@ -386,6 +386,55 @@ static void test_tcp_connect_failure() {
     client->Stop();
 }
 
+// Clean shutdown: after Stop() returns, all threads (accept + workers + client)
+// must be joined, so no further sink events can fire. We snapshot the recorded
+// event-kind count immediately after Stop(), wait a beat, and assert it's stable.
+static void test_stop_is_clean() {
+    auto server = netlib::MakeTcpServer();
+    RecordingSink srvSink;
+    netlib::ConnConfig cfg{};
+    server->Start(netlib::Endpoint{ "127.0.0.1", 0 }, cfg, &srvSink);
+    uint16_t port = server->BoundPort();
+
+    auto client = netlib::MakeTcpClient(); RecordingSink cliSink;
+    client->Start(netlib::Endpoint{ "127.0.0.1", port }, cfg, &cliSink);
+    CHECK(wait_until([&]{ return cliSink.connected.load() == 1; }), "stop: connected");
+
+    client->Stop();          // must join its threads
+    server->Stop();          // must join accept thread + workers
+    const size_t kindsAfter = [&]{ std::scoped_lock lk(srvSink.mx); return srvSink.kinds.size(); }();
+    // Give any (incorrectly) lingering thread a moment; count must not grow.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const size_t kindsLater = [&]{ std::scoped_lock lk(srvSink.mx); return srvSink.kinds.size(); }();
+    CHECK(kindsAfter == kindsLater, "stop: no events fire after Stop() returns");
+}
+
+// Over-the-wire oversize frame: a client sends a length prefix larger than the
+// server's configured maxFrameBytes. The framer must reject it and the server
+// must disconnect the connection (rather than attempting a huge allocation).
+static void test_oversize_frame_disconnects() {
+    WSADATA wsa{}; WSAStartup(MAKEWORD(2,2), &wsa);
+
+    auto server = netlib::MakeTcpServer();
+    RecordingSink srvSink;
+    netlib::ConnConfig cfg{};
+    cfg.maxFrameBytes = 16;          // tiny cap
+    server->Start(netlib::Endpoint{ "127.0.0.1", 0 }, cfg, &srvSink);
+    uint16_t port = server->BoundPort();
+
+    SOCKET c = raw_connect(port);
+    CHECK(c != INVALID_SOCKET, "oversize: raw connect");
+    CHECK(wait_until([&]{ return srvSink.connected.load() == 1; }), "oversize: server connected");
+
+    uint32_t huge = 1000000;         // > maxFrameBytes
+    ::send(c, reinterpret_cast<const char*>(&huge), 4, 0);
+    CHECK(wait_until([&]{ return srvSink.disconnected.load() == 1; }), "oversize: server disconnects on bad length");
+
+    ::closesocket(c);
+    server->Stop();
+    WSACleanup();
+}
+
 int main() {
     test_version();
     test_value_types();
@@ -397,6 +446,8 @@ int main() {
     test_tcp_roundtrip();
     test_tcp_multiconn();
     test_tcp_connect_failure();
+    test_stop_is_clean();
+    test_oversize_frame_disconnects();
 
     if (g_Failures == 0) { std::printf("All netlib tests passed.\n"); return 0; }
     std::printf("%d netlib test(s) FAILED.\n", g_Failures);
