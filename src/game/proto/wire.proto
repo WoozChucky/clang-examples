@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package wire;
+
+option optimize_for = LITE_RUNTIME;
+
+// Message-type discriminator carried in the existing [u16 opcode] frame field.
+// Values match the net demo's current opcodes (ping=1 / echo=2).
+enum Opcode {
+  OPCODE_UNSPECIFIED = 0;
+  OPCODE_PING        = 1;
+  OPCODE_PONG        = 2;
+  OPCODE_SNAPSHOT    = 3;
+}
+
+message Ping {
+  uint32 seq            = 1;
+  uint64 client_time_ms = 2;
+}
+
+message Pong {
+  uint32 seq            = 1;
+  uint64 server_time_ms = 2;
+}
+
+message Vec3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message PlayerState {
+  uint64 entity_id = 1;
+  Vec3   position  = 2;
+  float  yaw       = 3;
+}
+
+message Snapshot {
+  uint32              tick    = 1;
+  repeated PlayerState players = 2;
+}
