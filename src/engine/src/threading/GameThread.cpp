@@ -28,6 +28,8 @@
 #include "WorldManager.h"
 #include "navigation/NavMeshSystem.h"
 #include "navigation/NavServicesImpl.h"
+#include "network/NetServicesImpl.h"
+#include "network/NetSubsystem.h"
 
 using namespace std::chrono_literals;
 
@@ -163,6 +165,11 @@ void GameThread::RunLoop() {
     NavServices navServices{};
     NavServicesImpl::Init(navServices);
 
+    // NetServices function-pointer table — engine networking surface for game systems.
+    NetServices netServices{};
+    NetServicesImpl::Init(netServices);
+    NetSubsystem::Instance().Init();
+
     // Spec 5: per-MeshId verts/indices in flight from the mesh-upload command
     // (GameThread sends to RenderThread) → the MeshUpload response (RenderThread
     // sends back). Keyed by ticketId (entityId) at upload time, transferred to
@@ -193,6 +200,9 @@ void GameThread::RunLoop() {
 		// runs on the new code.
 		if (m_ReloadPending.exchange(false, std::memory_order_acquire)) {
 			ZoneScopedN("Game:Reload");
+			// Model B: release Game.dll-resident network adapters (joins their threads) before
+			// the DLL is unloaded — the networking analog of SystemScheduler::Clear().
+			NetSubsystem::Instance().ReleaseGameResidentConnections();
 			if (m_GameLib.LoadOrReload("Game.dll", &gameState)) {
 				SM_TRACE("GameThread: Game.dll reloaded successfully");
 			}
@@ -444,7 +454,7 @@ void GameThread::RunLoop() {
             }
 
 			{
-                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices };
+                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices, &netServices };
                 m_Scheduler.Run(sysCtx);
             }
 
@@ -530,6 +540,8 @@ void GameThread::RunLoop() {
 	}
 
     m_GameLib.Unload(&gameState);
+
+    NetSubsystem::Instance().Shutdown();
 
     gameState.World.Clear();
 

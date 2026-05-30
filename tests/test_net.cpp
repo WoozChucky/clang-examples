@@ -178,6 +178,24 @@ static void test_netsub_roundtrip() {
     NetSubsystem::Instance().Shutdown();
 }
 
+static void test_release_game_resident() {
+    NetServices net{}; NetServicesImpl::Init(net);
+    NetSubsystem::Instance().Init();
+
+    NetServerConfig resident{}; resident.bind = netlib::Endpoint{ "127.0.0.1", 0 }; resident.gameResident = true;
+    NetServerConfig stable{};   stable.bind   = netlib::Endpoint{ "127.0.0.1", 0 }; stable.gameResident = false;
+    NetHandle hr = net.CreateServer(&netlib::MakeTcpServer, resident);
+    NetHandle hs = net.CreateServer(&netlib::MakeTcpServer, stable);
+    CHECK(hr != NetHandle::Invalid && hs != NetHandle::Invalid, "teardown: both created");
+
+    NetSubsystem::Instance().ReleaseGameResidentConnections();
+
+    CHECK(net.BoundPort(hr) == 0, "teardown: game-resident adapter released");
+    CHECK(net.BoundPort(hs) != 0, "teardown: stable adapter survives");
+
+    NetSubsystem::Instance().Shutdown();
+}
+
 int main() {
     test_net_types();
     test_mpsc_basic();
@@ -186,6 +204,7 @@ int main() {
     test_pool_exhaustion();
     test_pool_concurrent();
     test_netsub_roundtrip();
+    test_release_game_resident();
     if (g_Failures == 0) { std::printf("All net tests passed.\n"); return 0; }
     std::printf("%d net test(s) FAILED.\n", g_Failures);
     return 1;
