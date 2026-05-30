@@ -584,3 +584,16 @@ set_target_properties(test_net PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_servercontrol
+    test_servercontrol.cpp
+)
+
+target_include_directories(test_servercontrol PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+set_target_properties(test_servercontrol PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)

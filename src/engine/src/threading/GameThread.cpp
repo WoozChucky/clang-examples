@@ -61,6 +61,7 @@ void GameThread::RunLoop() {
 
     GameState gameState{};
     gameState.Settings = &m_AppContext->Settings;
+    gameState.Role = AppRole::Client;   // editor.exe / runtime.exe boot through GameThread
 
     // Load default world before any GameUpdate call. Guarded by WorldLoaded so
     // reload (which doesn't reconstruct GameState) doesn't reload the world.
@@ -454,7 +455,7 @@ void GameThread::RunLoop() {
             }
 
 			{
-                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices, &netServices };
+                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices, &netServices, gameState.Role };
                 m_Scheduler.Run(sysCtx);
             }
 

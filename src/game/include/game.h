@@ -2,6 +2,7 @@
 #include "ApplicationContext.h"
 #include "ECS.h"
 #include "Systems.h"
+#include "AppRole.h"
 
 #ifdef _WIN32
 #define DEBUG_BREAK() __debugbreak()
@@ -17,7 +18,7 @@
 // Bump every time GameState layout changes or any export signature changes.
 // Editor compares against the compiled-in value at load time; mismatch rejects
 // the reload and keeps the previous Game.dll active.
-#define GAME_API_VERSION 18u
+#define GAME_API_VERSION 19u
 
 // GameStateId moved to src/common/include/GameStateId.h (included via ECS.h) so ECS
 // components + engine code can reference it.
@@ -34,6 +35,7 @@ struct GameState {
     const ApplicationSettings* Settings = nullptr;
     ECS World{};
     bool     WorldLoaded            = false;
+    AppRole  Role                   = AppRole::Client;  // set by bootstrap; Server only in server.exe
 };
 
 using GameGetVersionFunc = uint32_t(*)();
