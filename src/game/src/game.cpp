@@ -446,39 +446,32 @@ private:
 } // namespace
 
 // ---------------------------------------------------------------------------
-// NetDemoSystem — minimal loopback networking demo to build on.
+// NetServerSystem / NetClientSystem — minimal loopback networking demo to build on.
 //
-// On first tick it stands up a local TCP server (ephemeral port) and a client
-// that connects to it, both through the engine NetServices bridge (ctx.Net).
-// The client pings the server every 2s (opcode 1); the server echoes (opcode 2);
-// both log what they receive. This exercises the whole Phase-2 path end-to-end
-// in a running editor: CreateServer/CreateClient → adapter threads → engine sink
-// → lock-free ring → PollEvent on GameThread → Send (opcode-framed) both ways.
+// Split from the original combined NetDemoSystem along the AppRole boundary: the
+// server stands up a local TCP listener (ctx.serverPort) and echoes pings; the
+// client connects to it and pings every 2s. Both go through the engine NetServices
+// bridge (ctx.Net). The client pings (opcode 1); the server echoes (opcode 2);
+// both log what they receive.
 //
-// Adapters are marked gameResident=true: on a Game.dll hot-reload this system is
-// destroyed and recreated, so its handles are lost — the Model-B teardown
+// Both systems are registered unconditionally; each no-ops for the wrong role
+// (server-only on AppRole::Server, client otherwise) — GameRegisterSystems stays
+// role-agnostic, role is read per-tick from ctx.role.
+//
+// Adapters are marked gameResident=true: on a Game.dll hot-reload these systems are
+// destroyed and recreated, so their handles are lost — the teardown
 // (GameThread → NetSubsystem::ReleaseGameResidentConnections) closes them before
-// the DLL unloads, and the fresh instance re-creates them. Edit/extend freely:
-// split client and server into separate systems, swap the loopback target for a
-// real server address, add your own opcodes, etc.
-//
-// NOTE: the first listen()/connect() may raise a Windows Firewall prompt — accept
-// it once. Loopback usually skips it.
-class NetDemoSystem final : public ISystem {
+// the DLL unloads, and the fresh instances re-create them. Edit/extend freely:
+// swap the loopback target for a real server address, add your own opcodes, etc.
+
+// ---- Server: bind once (to ctx.serverPort), echo pings (opcode 1 -> opcode 2) ----
+class NetServerSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
         const NetServices* net = ctx.Net;
-        if (!net) return;   // nullptr in tests / before engine init
+        if (!net) return;                       // nullptr in tests / before engine init
+        if (ctx.role != AppRole::Server) return; // client builds skip the listener
 
-        if (ctx.role == AppRole::Server) UpdateServer(ctx, net);
-        else                             UpdateClient(ctx, net);
-    }
-    const char* Name() const override { return "NetDemoSystem"; }
-    SystemPhase Phase() const override { return SystemPhase::PreRender; }
-
-private:
-    // ---- Server: bind once (to ctx.serverPort), echo pings (opcode 1 -> opcode 2) ----
-    void UpdateServer(SystemContext& ctx, const NetServices* net) {
         if (!m_ServerStarted) {
             m_ServerStarted = true;
             NetServerConfig sc{};
@@ -501,13 +494,26 @@ private:
             }
         }
     }
+    const char* Name() const override { return "NetServerSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PreRender; }
 
-    // ---- Client: connect to ctx.serverPort, ping every 2s ----
-    // Retry is fast for the first kMaxFastRetries, then slows (never permanently gives up) so the
-    // editor client reconnects whenever a server appears — no editor restart needed. A change to
-    // ctx.serverPort (the panel's Start writes ApplicationContext::NetServerPort) drops the current
-    // handle and reconnects fresh to the new port.
-    void UpdateClient(SystemContext& ctx, const NetServices* net) {
+private:
+    bool      m_ServerStarted = false;
+    NetHandle m_Server        = NetHandle::Invalid;
+};
+
+// ---- Client: connect to ctx.serverPort, ping every 2s ----
+// Retry is fast for the first kMaxFastRetries, then slows (never permanently gives up) so the
+// editor client reconnects whenever a server appears — no editor restart needed. A change to
+// ctx.serverPort (the panel's Start writes ApplicationContext::NetServerPort) drops the current
+// handle and reconnects fresh to the new port.
+class NetClientSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const NetServices* net = ctx.Net;
+        if (!net) return;                       // nullptr in tests / before engine init
+        if (ctx.role == AppRole::Server) return; // dedicated server runs no client
+
         const uint16_t port = ctx.serverPort;
         if (port != m_LastPort) {
             if (m_Client != NetHandle::Invalid) net->Close(m_Client);
@@ -570,14 +576,14 @@ private:
             }
         }
     }
+    const char* Name() const override { return "NetClientSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PreRender; }
 
+private:
     static constexpr int    kMaxFastRetries  = 20;
     static constexpr double kFastRetrySec    = 0.5;
     static constexpr double kSlowRetrySec    = 5.0;
     static constexpr double kPingIntervalSec = 2.0;
-
-    bool      m_ServerStarted = false;
-    NetHandle m_Server        = NetHandle::Invalid;
 
     NetHandle m_Client        = NetHandle::Invalid;
     bool      m_Connected     = false;
@@ -601,7 +607,8 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<NavObstacleSyncSystem>());           // Physics: syncs NavObstacleComponent → dtTileCache
     s->Register(std::make_unique<CameraZoomSystem>());                // PostSimulation: before follow (sets distance)
     s->Register(std::make_unique<IsometricFollowCameraSystem>());     // PostSimulation: reads post-resolution Transform
-    s->Register(std::make_unique<NetDemoSystem>());                   // PreRender: loopback net demo (build on this)
+    s->Register(std::make_unique<NetServerSystem>());                // PreRender: net demo server half (AppRole::Server only)
+    s->Register(std::make_unique<NetClientSystem>());                // PreRender: net demo client half (non-server roles)
 }
 
 extern "C" EXPORT_FN void GameInstallLogSink(LogSinkFn fn) { sm_set_log_sink(fn); }
