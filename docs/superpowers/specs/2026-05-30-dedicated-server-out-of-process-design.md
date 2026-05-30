@@ -76,6 +76,15 @@ The plan must enumerate which GameThread responsibilities are client-only and ga
 - **Port collisions / cleanup:** use a configurable port; on Stop ensure the socket is released so a quick restart doesn't hit `WSAEADDRINUSE` (SO_REUSEADDR or proper close in `netlib`).
 - **Orphaned server processes:** if the editor crashes, the child `server.exe` must not linger. Use a parent-death detection (job object `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, or parent-pid watch) — recommend a Win32 **Job Object** so the child dies with the editor.
 
+## Manual steps (user-owned — word as human gates, do not automate)
+
+Phase 3 is the most likely to hit OS prompts only the user can accept; the implementation must surface them and **pause for the user**, never assume they're granted:
+
+- **Windows Firewall allow-dialog** fires when `server.exe` first calls `listen()` (and possibly when the editor first connects out). Loopback often skips it but policy varies. **User accepts once** per binary, or pre-authorizes a firewall rule. The client's bounded connect-retry must tolerate the window during which the user hasn't yet clicked Allow — log "waiting for server / connection refused, retrying" rather than hanging or hard-failing on the first attempt.
+- **UAC elevation** if a firewall rule must be added, or the machine policy requires admin to bind/listen. Surface the need; the user elevates. Suggest running such a step via `! <command>` in-session.
+- **Two binaries to authorize:** both `editor.exe`/`runtime.exe` (client) and `server.exe` (listener) may each prompt the first time. The plan's first end-to-end run should include a **"USER ACTION: accept firewall prompts for editor + server"** step.
+- A successful manual smoke run should be recorded once so later runs (post-authorization) are unattended.
+
 ## Deliverables checklist
 
 - [ ] Headless server boot path (slim `ServerApplication` or `Application` headless mode) — no window, no renderer.

@@ -103,8 +103,12 @@ public:
 - C++23, `NOMINMAX`, `WIN32_LEAN_AND_MEAN` (match global conventions). No GLM needed unless an `Endpoint` wants it (it doesn't — host string + port).
 - A new unit-test target `test_netlib` mirroring `test_ecs` / `test_navmesh` wiring in CMake.
 
-### Logging
-- netlib must not depend on the engine's `SM_*` logging if that lives in `Engine.dll`. Check where `SM_TRACE`/`SM_WARN` are defined (`src/common/include/lib.h`, header-only macros → likely safe to use from any target linking `CommonHeaders`). If they are header-only and dependency-free, netlib may link `CommonHeaders` and use them; otherwise netlib gets a minimal injectable log callback. **Resolve this in the plan** — prefer reusing `SM_*` per the user's "log on degradation, never silent skip" rule (memory: `feedback_logging_over_silent_skip`).
+### Logging — first-class, not an afterthought
+Networking failures (a refused connect, a half-open socket, a framing desync, an IOCP completion with an error status) are **opaque without logs**. Logging is a primary debugging tool here, so it is a requirement, not a nice-to-have:
+- netlib must not depend on the engine's `SM_*` logging if that lives in `Engine.dll`. Check where `SM_TRACE`/`SM_WARN` are defined (`src/common/include/lib.h`, header-only macros → likely safe to use from any target linking `CommonHeaders`). If header-only and dependency-free, netlib links `CommonHeaders` and uses them; otherwise netlib takes a minimal injectable log callback. **Resolve in the plan** — prefer reusing `SM_*` (memory: `feedback_logging_over_silent_skip`).
+- **Every Winsock failure logs the `WSAGetLastError()` code** (and ideally a decoded string) via `SM_WARN`/`SM_ERROR` — never swallow a return code silently. `WSAEWOULDBLOCK` is expected flow, not an error (don't log it as one).
+- Log connection lifecycle (`Connected`/`Disconnected`/`Error` + endpoint + `ConnId`), `Start`/`Stop` begin+end, framer anomalies (oversize length, truncated frame on close), and IOCP worker start/exit. These traces are what make a failing test diagnosable from the log alone.
+- **Tests run with verbose logging on** so a CI/local failure carries the full event trail. A passing run can be quiet; a failing assertion should be preceded by the relevant traces.
 
 ## Testing strategy (TDD)
 
@@ -123,6 +127,14 @@ Follow `test_navmesh.cpp` conventions (plain assertion-style harness, `All <suit
 - **Ephemeral port in tests:** bind to port 0, read back the assigned port — avoid flaky fixed-port collisions.
 - **`Stop()` ordering:** must stop accepting, cancel outstanding ops (`CancelIoEx`), post completion-port exit packets to wake workers, then join. Getting this wrong hangs the test (hence the timeouts) or crashes on reload later.
 - **Don't leak the abstraction:** keep Winsock/IOCP types out of public headers (`IIoClient`/`IIoServer`/`IIoSink` must not expose `SOCKET`/`HANDLE`/`OVERLAPPED`), so `Engine.dll` (which includes these) never sees TCP. PIMPL or factory-returns-interface.
+
+## Manual steps (user-owned — the plan must word these as human gates, not automate them)
+
+Running the socket tests on Windows can trigger prompts only the user (an interactive desktop session with admin consent) can accept. The implementation **must not assume these are pre-granted**, and the executing agent **must pause and hand off to the user** when they appear — they cannot be auto-clicked.
+
+- **Windows Defender Firewall allow-dialog.** The first time `test_netlib.exe` (or any binary here) calls `listen()`/`accept()`, Windows may pop "Allow this app to communicate on networks." Loopback-only (`127.0.0.1`) *often* avoids it, but policy varies — assume it can appear. **User accepts it once** (or pre-authorizes via an admin firewall rule). Until accepted, the TCP/IOCP server tests may hang or fail to accept — so the test must time out and log clearly, not hang forever.
+- **UAC elevation**, if a given run requires admin (e.g. adding a firewall rule, or a locked-down machine). The agent surfaces the need; the user elevates. Per the session rule, suggest the user run the elevated/firewall step themselves via `! <command>` so its output lands in the session.
+- The plan should include an explicit **"USER ACTION"** step before the first socket-test run: "accept the firewall prompt / authorize the binary," with the exact moment it appears (first `listen`).
 
 ## Deliverables checklist
 

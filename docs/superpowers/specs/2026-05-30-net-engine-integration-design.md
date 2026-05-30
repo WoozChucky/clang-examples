@@ -84,6 +84,10 @@ Either way `ReleaseGameResidentConnections()` must, for each `Game.dll`-resident
 
 ## Testing strategy
 
+**Logging:** same first-class requirement as Phase 1 — log lifecycle, every dropped/backpressured event (`SM_WARN`), pool/ring exhaustion, and teardown begin/end, so a failing test is diagnosable from the log. Run tests verbose.
+
+**Manual step (user-owned):** the TCP-loopback-through-engine test calls `listen()`, so the **Windows Firewall allow-dialog / UAC** note from Phase 1 applies here too — the plan must include the same "USER ACTION: accept the firewall prompt" gate before that test runs. The pure-`MpscRing`/`NetBufferPool`/in-memory tests need no network permission and run unattended.
+
 - **`MpscRing` unit tests:** concurrent producers (spawn K threads enqueuing M items each) + single consumer drains exactly K·M with no loss/dup; full-ring returns false; ordering-per-producer where the algorithm guarantees it. This is a lock-free structure — test it hard (stress + ThreadSanitizer-style reasoning; consider a high-iteration loop).
 - **`NetBufferPool` unit tests:** concurrent acquire/release across threads, balanced (no leak, no double-free), exhaustion returns null cleanly.
 - **In-memory loopback test** (no sockets, no second process): a `NetSubsystem` + two in-memory-wired handles; the in-memory adapter delivers synchronously into the engine sink; GameThread `PollEvent` observes the `NetEvent` sequence on the peer. Deterministic.

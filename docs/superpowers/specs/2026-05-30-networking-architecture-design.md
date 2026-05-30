@@ -193,9 +193,13 @@ Each phase produces working, independently-testable software and has its own **c
 
 ## 12. Open questions deferred to per-phase specs (not architecture-level)
 
-- IO-thread → io-object assignment policy (one thread per server vs. shared pool with work-stealing) — perf decision, Phase 2.
-- Backpressure policy on ring-full / pool-exhaustion (drop oldest, block-with-warning, grow) — Phase 2.
-- Exact `ClientConfig` / `ServerConfig` shape (target address, listen port, buffer sizes, max connections) — Phases 1–2.
+- IOCP worker-pool sizing for the server adapter (threads = cores? fixed small N to start?) — perf decision, Phase 1/2.
+- Backpressure policy on MPSC-ring-full / pool-exhaustion (stop-recv for TCP flow-control vs. drop) — Phase 2.
+- Exact `ClientConfig` / `ServerConfig` shape (target address, listen port, buffer sizes, `noDelay`, max connections) — Phases 1–2.
 - `NetHandle` representation (index+salt like mesh handles vs. opaque pointer) — Phase 2.
 - `server.exe` ↔ editor supervision protocol (process spawn, health, shutdown signal) — Phase 3.
-```
+
+## 13. Cross-cutting requirements (all phases)
+
+- **Logging is a primary debugging tool, not optional.** Networking failures are opaque without it: log connection lifecycle, every Winsock failure with its `WSAGetLastError()` code, framer anomalies, backpressure/drops (`SM_WARN`), and `Start`/`Stop`/teardown begin+end. Tests run verbose so a failure carries its full event trail. (`feedback_logging_over_silent_skip`.)
+- **OS prompts are user-owned manual gates.** The first `listen()` (in `test_netlib`, the engine TCP test, and `server.exe`) may raise the **Windows Firewall allow-dialog**; some setups need **UAC** elevation. These cannot be auto-accepted — each phase's plan must include an explicit **"USER ACTION"** step at the moment they appear, and code must tolerate the pre-acceptance window (time out + log, never hang). Pure in-memory / lock-free-structure tests need no permission and run unattended.
