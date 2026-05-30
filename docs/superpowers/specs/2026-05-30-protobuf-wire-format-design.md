@@ -29,20 +29,17 @@ The transport is layered:
 ### 1. Dependency / build
 
 - **Pin: latest stable, protobuf `v35.0`** (released 2026-05-19). Confirmed latest via the GitHub releases page before pinning.
-- **Direct-dependency submodules (both added by us):**
-  - `third_party/protobuf` → `https://github.com/protocolbuffers/protobuf`, tag **`v35.0`**.
-  - `third_party/abseil-cpp` → `https://github.com/abseil/abseil-cpp`, tag **`20250512.1`** (the exact abseil version protobuf v35.0 pins in `cmake/dependencies.cmake`).
-  - Rationale: protobuf **≥ 22.0 hard-depends on abseil**, and **libprotobuf-lite does not exempt this** — abseil is a base dependency even for the lite runtime. v35's CMake otherwise FetchContent-downloads abseil at configure time; we instead vendor abseil as our own submodule to keep the offline / all-submodules idiom. Per project decision: **direct deps (protobuf, abseil) are submodules we add; any deeper transitive deps may self-fetch/self-configure** — acceptable.
-- Wired in `third_party/CMakeLists.txt`:
-  - `add_subdirectory(abseil-cpp)` **before** protobuf so abseil's targets already exist and protobuf consumes the local copy (no fetch).
-  - `add_subdirectory` of the protobuf tree (exact entry point — repo root vs `protobuf/cmake` — confirmed against the pinned tag during implementation), with options set before the call:
-    - `protobuf_BUILD_TESTS = OFF` (avoids the googletest/jsoncpp transitive pulls)
-    - `protobuf_BUILD_PROTOC_BINARIES = ON` (we need the `protoc` target for codegen)
-    - `protobuf_BUILD_LIBPROTOC = OFF`; build the lite runtime; link target `libprotobuf-lite`.
-    - Point protobuf at the local abseil (e.g. via `add_subdirectory` ordering + `CMAKE_PREFIX_PATH`, or `protobuf_ABSL_PROVIDER`/target reuse — exact knob confirmed against v35's CMake during implementation). Optionally `protobuf_LOCAL_DEPENDENCIES_ONLY=ON` to turn any accidental fetch into a hard error.
-    - Build shared/static consistent with the rest of the tree (static into `Game.dll` is fine; see hot-reload notes).
-- Artifacts consumed: `libprotobuf-lite` (link), `protoc` (codegen tool target), and abseil's targets (transitively, via protobuf-lite).
-- **Build cost is notably higher than the original v3.21 plan** — abseil is a large tree. One-off configure/build; flagged so it isn't a surprise.
+- **Single direct-dependency submodule (added by us):** `third_party/protobuf` → `https://github.com/protocolbuffers/protobuf`, tag **`v35.0`**.
+- **abseil is transitive — not vendored.** protobuf **≥ 22.0 hard-depends on abseil** (true even for libprotobuf-lite), but from our tree abseil is protobuf's dependency, not ours. Per project decision (**direct deps are submodules we add; deeper transitive deps may self-fetch/self-configure**), protobuf's own CMake **FetchContent-downloads abseil** (and any other transitive deps it needs) at configure time, auto-matched to protobuf's pin. No abseil submodule, no version-matching to maintain across protobuf bumps.
+  - Consequence: **network is required at first CMake configure.** Fully-offline / air-gapped configure is not supported by this choice (accepted trade-off).
+- Wired in `third_party/CMakeLists.txt` via `add_subdirectory` of the protobuf tree (exact entry point — repo root vs `protobuf/cmake` — confirmed against the pinned tag during implementation), with options set before the call:
+  - `protobuf_BUILD_TESTS = OFF` (avoids the googletest/jsoncpp transitive pulls)
+  - `protobuf_BUILD_PROTOC_BINARIES = ON` (we need the `protoc` target for codegen)
+  - `protobuf_BUILD_LIBPROTOC = OFF`; build the lite runtime; link target `libprotobuf-lite`.
+  - Leave protobuf's default dependency resolution on so it fetches abseil itself. Do **not** set `protobuf_LOCAL_DEPENDENCIES_ONLY=ON` (that would forbid the fetch we rely on).
+  - Build shared/static consistent with the rest of the tree (static into `Game.dll` is fine; see hot-reload notes).
+- Artifacts consumed: `libprotobuf-lite` (link), `protoc` (codegen tool target), and abseil's targets (pulled transitively by protobuf, linked via protobuf-lite).
+- **Build cost is notably higher than the original v3.21 plan** — abseil is a large tree, fetched + built on first configure. One-off; flagged so it isn't a surprise.
 
 ### 2. Schema
 
@@ -103,5 +100,5 @@ message Snapshot    { uint32 tick = 1; repeated PlayerState players = 2; }
 ## Decisions locked
 
 - Runtime: **libprotobuf-lite**, protobuf **v35.0** (latest stable, confirmed online).
-- Dependencies as **git submodules** for direct deps: `third_party/protobuf` (`v35.0`) + `third_party/abseil-cpp` (`20250512.1`). Deeper transitive deps may self-fetch.
+- Dependency as a **single git submodule**: `third_party/protobuf` (`v35.0`). abseil + other transitive deps are **fetched by protobuf's CMake at configure time** (network needed on first configure), not vendored.
 - Proto location: **`src/game/proto/wire.proto`** (game-owned).
