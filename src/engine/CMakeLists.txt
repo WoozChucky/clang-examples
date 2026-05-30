@@ -63,6 +63,10 @@ add_library(Engine SHARED
     src/navigation/NavMeshSystem.cpp
     src/navigation/NavServicesImpl.cpp
 
+    # Networking (netlib integration)
+    src/network/NetSubsystem.cpp
+    src/network/NetServicesImpl.cpp
+
     # Third-party
     src/tiny_obj_loader.cpp
 )
@@ -79,6 +83,7 @@ target_include_directories(Engine PUBLIC
     src/plugins
     src/utilities
     src/navigation
+    src/network
     ${CMAKE_SOURCE_DIR}/third_party/dotnet/include
     ${CMAKE_SOURCE_DIR}/third_party/smaa/Textures
 )
@@ -100,6 +105,7 @@ target_link_libraries(Engine PUBLIC
     CommonHeaders
     GameHeaders
     ecs
+    netlib
     glm::glm
     glfw
     freetype

@@ -6,6 +6,9 @@
 #include "MpscRing.h"
 #include "NetBufferPool.h"
 #include "NetServices.h"
+#include "network/NetSubsystem.h"
+#include "network/NetServicesImpl.h"
+#include <chrono>
 #include <cstring>
 
 void platform_debug_break(const char*, const char*, int, const char*) {}
@@ -113,6 +116,68 @@ static void test_net_types() {
     CHECK(NetHandle::Invalid == NetHandle{0}, "types: NetHandle::Invalid is 0");
 }
 
+template <typename Pred>
+static bool net_wait_until(Pred pred, int timeoutMs = 4000) {
+    using clock = std::chrono::steady_clock;
+    auto start = clock::now();
+    while (!pred()) {
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - start).count() > timeoutMs)
+            return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return true;
+}
+
+static std::vector<uint8_t> u8(const char* s) {
+    std::vector<uint8_t> v; for (const char* p = s; *p; ++p) v.push_back((uint8_t)*p); return v;
+}
+
+static void test_netsub_roundtrip() {
+    NetServices net{};
+    NetServicesImpl::Init(net);
+    NetSubsystem::Instance().Init();
+
+    NetServerConfig sc{}; sc.bind = netlib::Endpoint{ "127.0.0.1", 0 };
+    NetHandle srv = net.CreateServer(&netlib::MakeTcpServer, sc);
+    CHECK(srv != NetHandle::Invalid, "netsub: server created");
+    uint16_t port = net.BoundPort(srv);
+    CHECK(port != 0, "netsub: server bound port");
+
+    NetClientConfig cc{}; cc.target = netlib::Endpoint{ "127.0.0.1", port };
+    NetHandle cli = net.CreateClient(&netlib::MakeTcpClient, cc);
+    CHECK(cli != NetHandle::Invalid, "netsub: client created");
+
+    int serverConns = 0; bool gotClientMsg = false; NetConnId serverConn = kNetConnInvalid;
+    auto pump = [&]{
+        NetEvent ev{};
+        while (net.PollEvent(&ev)) {
+            if (ev.adapter == srv && ev.kind == NetEventKind::Connected) { ++serverConns; serverConn = ev.conn; }
+            if (ev.adapter == srv && ev.kind == NetEventKind::Message) {
+                if (ev.opcode == 42 && ev.len == 5 && std::memcmp(ev.payload, "hello", 5) == 0) gotClientMsg = true;
+            }
+        }
+    };
+    CHECK(net_wait_until([&]{ pump(); return serverConns == 1; }), "netsub: server saw a connection");
+
+    auto msg = u8("hello");
+    CHECK(net.Send(cli, kNetConnInvalid, 42, msg.data(), msg.size()), "netsub: client send");
+    CHECK(net_wait_until([&]{ pump(); return gotClientMsg; }), "netsub: server received opcode+payload");
+
+    bool gotReply = false;
+    auto reply = u8("yo");
+    net.Send(srv, serverConn, 7, reply.data(), reply.size());
+    CHECK(net_wait_until([&]{
+        NetEvent ev{};
+        while (net.PollEvent(&ev)) if (ev.adapter == cli && ev.kind == NetEventKind::Message
+                                        && ev.opcode == 7 && ev.len == 2 && std::memcmp(ev.payload, "yo", 2) == 0) gotReply = true;
+        return gotReply;
+    }), "netsub: client received server reply");
+
+    net.Close(cli);
+    net.Close(srv);
+    NetSubsystem::Instance().Shutdown();
+}
+
 int main() {
     test_net_types();
     test_mpsc_basic();
@@ -120,6 +185,7 @@ int main() {
     test_pool_basic();
     test_pool_exhaustion();
     test_pool_concurrent();
+    test_netsub_roundtrip();
     if (g_Failures == 0) { std::printf("All net tests passed.\n"); return 0; }
     std::printf("%d net test(s) FAILED.\n", g_Failures);
     return 1;
