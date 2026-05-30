@@ -109,7 +109,7 @@ struct RecordingSink : netlib::IIoSink {
     std::mutex mx;
     std::vector<netlib::IoEvent::Kind> kinds;
     std::vector<std::vector<std::byte>> messages;
-    std::atomic<int> connected{0}, disconnected{0};
+    std::atomic<int> connected{0}, disconnected{0}, errors{0};
     // When set, the sink echoes every received Message back on its connection,
     // exercising Send()/PostSend() concurrently with disconnects.
     netlib::IIoServer* echoServer = nullptr;
@@ -121,6 +121,7 @@ struct RecordingSink : netlib::IIoSink {
         kinds.push_back(ev.kind);
         if (ev.kind == netlib::IoEvent::Kind::Connected)    ++connected;
         if (ev.kind == netlib::IoEvent::Kind::Disconnected) ++disconnected;
+        if (ev.kind == netlib::IoEvent::Kind::Error)        ++errors;
         if (ev.kind == netlib::IoEvent::Kind::Message)
             messages.emplace_back(ev.payload.begin(), ev.payload.end());
     }
@@ -305,6 +306,86 @@ static void test_tcp_stress_echo() {
     WSACleanup();
 }
 
+static void test_tcp_roundtrip() {
+    auto server = netlib::MakeTcpServer();
+    RecordingSink srvSink;
+    netlib::ConnConfig cfg{};
+    CHECK(server->Start(netlib::Endpoint{ "127.0.0.1", 0 }, cfg, &srvSink), "rt: server Start");
+    uint16_t port = server->BoundPort();
+
+    auto client = netlib::MakeTcpClient();
+    RecordingSink cliSink;
+    CHECK(client->Start(netlib::Endpoint{ "127.0.0.1", port }, cfg, &cliSink), "rt: client Start");
+    CHECK(wait_until([&]{ return cliSink.connected.load() == 1; }), "rt: client Connected");
+    CHECK(wait_until([&]{ return srvSink.connected.load() == 1; }), "rt: server Connected");
+
+    client->Send(bytes_of("from-client"));
+    CHECK(wait_until([&]{ return srvSink.msgCount() == 1; }), "rt: server got client msg");
+    { std::scoped_lock lk(srvSink.mx);
+      CHECK(srvSink.messages[0] == bytes_of("from-client"), "rt: server payload"); }
+
+    // Reply to that connection (its ConnId is the first registered = 1).
+    server->Send(netlib::ConnId{1}, bytes_of("from-server"));
+    CHECK(wait_until([&]{ return cliSink.msgCount() == 1; }), "rt: client got server reply");
+    { std::scoped_lock lk(cliSink.mx);
+      CHECK(cliSink.messages[0] == bytes_of("from-server"), "rt: client payload"); }
+
+    client->Stop();
+    server->Stop();
+}
+
+static void test_tcp_multiconn() {
+    auto server = netlib::MakeTcpServer();
+    RecordingSink srvSink;
+    netlib::ConnConfig cfg{};
+    server->Start(netlib::Endpoint{ "127.0.0.1", 0 }, cfg, &srvSink);
+    uint16_t port = server->BoundPort();
+
+    auto c1 = netlib::MakeTcpClient(); RecordingSink s1;
+    auto c2 = netlib::MakeTcpClient(); RecordingSink s2;
+    c1->Start(netlib::Endpoint{ "127.0.0.1", port }, cfg, &s1);
+    c2->Start(netlib::Endpoint{ "127.0.0.1", port }, cfg, &s2);
+    CHECK(wait_until([&]{ return srvSink.connected.load() == 2; }), "multi: server saw 2 Connected");
+
+    c1->Send(bytes_of("one"));
+    c2->Send(bytes_of("two"));
+    CHECK(wait_until([&]{ return srvSink.msgCount() == 2; }), "multi: server got 2 msgs");
+    {
+        std::scoped_lock lk(srvSink.mx);
+        bool sawOne = false, sawTwo = false;
+        for (auto& m : srvSink.messages) { if (m == bytes_of("one")) sawOne = true; if (m == bytes_of("two")) sawTwo = true; }
+        CHECK(sawOne && sawTwo, "multi: both payloads attributed");
+    }
+
+    c1->Stop(); c2->Stop(); server->Stop();
+}
+
+// A genuine connect failure (nothing listening on the target port) must notify
+// the sink with an Error event so a caller can drive connect-retry, and must
+// never report Connected.
+static void test_tcp_connect_failure() {
+    netlib::ConnConfig cfg{};
+
+    // Bind a server to an ephemeral port, read it back, then Stop() to free it.
+    // An immediately-following loopback connect to that freed port is refused.
+    auto tmp = netlib::MakeTcpServer();
+    RecordingSink t;
+    tmp->Start(netlib::Endpoint{ "127.0.0.1", 0 }, cfg, &t);
+    uint16_t deadPort = tmp->BoundPort();
+    CHECK(deadPort != 0, "connfail: obtained a real (now-freed) port");
+    tmp->Stop();
+
+    auto client = netlib::MakeTcpClient();
+    RecordingSink cs;
+    CHECK(client->Start(netlib::Endpoint{ "127.0.0.1", deadPort }, cfg, &cs),
+          "connfail: Start returns true (initiation ok)");
+    CHECK(wait_until([&]{ return cs.errors.load() == 1; }),
+          "connfail: sink notified of connect failure");
+    CHECK(cs.connected.load() == 0, "connfail: never reported Connected");
+
+    client->Stop();
+}
+
 int main() {
     test_version();
     test_value_types();
@@ -313,6 +394,9 @@ int main() {
     test_tcp_server();
     test_tcp_stress();
     test_tcp_stress_echo();
+    test_tcp_roundtrip();
+    test_tcp_multiconn();
+    test_tcp_connect_failure();
 
     if (g_Failures == 0) { std::printf("All netlib tests passed.\n"); return 0; }
     std::printf("%d netlib test(s) FAILED.\n", g_Failures);

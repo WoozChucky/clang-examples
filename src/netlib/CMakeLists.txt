@@ -4,6 +4,7 @@ add_library(netlib SHARED
     src/InMemoryAdapter.cpp
     src/IocpCore.cpp
     src/TcpServer.cpp
+    src/TcpClient.cpp
 )
 
 target_include_directories(netlib
