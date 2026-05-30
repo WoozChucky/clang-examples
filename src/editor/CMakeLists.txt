@@ -8,6 +8,7 @@ add_executable(editor
     src/app/ServerSupervisor.cpp
     src/app/ImGuiRenderer.cpp
     src/app/ImGuiOverlay.cpp
+    src/app/LogBus.cpp
 
     # Editor panels
     src/panels/EcsInspectorPanel.cpp
@@ -15,6 +16,7 @@ add_executable(editor
     src/panels/MeshManagerPanel.cpp
     src/panels/NavigationPanel.cpp
     src/panels/DedicatedServerPanel.cpp
+    src/panels/ConsolePanel.cpp
     src/panels/MemoryPanel.cpp
     src/panels/DayNightPanel.cpp
     src/panels/AtmospherePresets.cpp
