@@ -5,6 +5,7 @@
 
 #include "MpscRing.h"
 #include "NetBufferPool.h"
+#include "NetServices.h"
 #include <cstring>
 
 void platform_debug_break(const char*, const char*, int, const char*) {}
@@ -99,7 +100,21 @@ static void test_pool_concurrent() {
     for (uint32_t idx : held) pool.Release(idx);
 }
 
+static void test_net_types() {
+    netlib::Endpoint ep{ "127.0.0.1", 9000 };
+    NetServerConfig sc{}; sc.bind = ep;
+    CHECK(sc.bind.port == 9000, "types: NetServerConfig.bind");
+    CHECK(sc.gameResident == false, "types: gameResident defaults false");
+
+    NetEvent ev{};
+    ev.kind = NetEventKind::Message;
+    ev.opcode = 7;
+    CHECK(ev.kind == NetEventKind::Message && ev.opcode == 7, "types: NetEvent fields");
+    CHECK(NetHandle::Invalid == NetHandle{0}, "types: NetHandle::Invalid is 0");
+}
+
 int main() {
+    test_net_types();
     test_mpsc_basic();
     test_mpsc_concurrent();
     test_pool_basic();
