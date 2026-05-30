@@ -87,10 +87,18 @@ Phase 3 is the most likely to hit OS prompts only the user can accept; the imple
 
 ## Deliverables checklist
 
-- [ ] Headless server boot path (slim `ServerApplication` or `Application` headless mode) — no window, no renderer.
-- [ ] GameThread mode-gating for client-only responsibilities (audited list).
-- [ ] `server.exe` target + CMake wiring + presets; trimmed link deps.
-- [ ] Editor Start/Stop control + process supervision (spawn, status, clean shutdown, Job-Object parent-death).
-- [ ] Client-side TCP connect-to-local-server wiring (`netlib` TCP adapter via `NetServices`, with bounded connect-retry).
-- [ ] End-to-end demo round-trip + the manual smoke verified; one automated end-to-end test.
-- [ ] Documented limitation: navmesh-from-mesh on headless server uses pre-baked/collider sources for now.
+- [x] Headless server boot path — slim `ServerApplication` (`src/engine/src/core/ServerApplication.{h,cpp}`), no window, no renderer; `Init/Tick/Run/Shutdown`. Commit `2036a42`.
+- [x] GameThread mode-gating for client-only responsibilities — achieved by NOT reusing `GameThread`: `ServerApplication` simply omits the renderer-coupled work (model-load worker, GR/RG mesh rings, viewport/UICamera sync, swap handshake, plugins). Role flows via `SystemContext::role` (`AppRole`, commit `59acec9`).
+- [x] `server.exe` target + CMake wiring; trimmed explicit link deps (`Engine ecs netlib CommonHeaders GameHeaders glm`). Commit `f629e84`. (Engine PUBLIC-propagates nvrhi/glfw import libs transitively; acceptable — no window/device is ever created. Presets unchanged: existing `msvc-win64-vs2026-community` picks up the new target.)
+- [x] Editor Start/Stop control + process supervision — `ServerSupervisor` (`CreateProcess` into a Job Object with `KILL_ON_JOB_CLOSE` = orphan-proof, named-event clean stop + `TerminateProcess` fallback, status/exit-code) commit `dbad3d0`; `DedicatedServerPanel` commit `a6058b1`.
+- [x] Client-side TCP connect-to-local-server wiring — `NetDemoSystem` role branch (server binds+echoes, client connects+pings, bounded connect-retry with budget reset on connect). Commit `db870a6`.
+- [x] One automated end-to-end test — `tests/test_dedicated_server.cpp` (commit `25ab0ac`): spawns `server.exe`, connects over loopback TCP (proves headless boot + Game.dll load + server-role listen-socket bind), signals the named shutdown event, asserts clean exit (code 0). **Verified green.**
+- [x] Documented limitation: navmesh-from-mesh on headless server uses pre-baked disk navmesh (`NavMeshSystem::TryLoadFromDisk`); on a disk-bake miss `ServerApplication::Init` SM_WARNs and runs without nav (no GPU round-trip for mesh CPU data headless). See `ServerApplication.cpp`.
+
+**Verification (2026-05-30):** automated `test_dedicated_server` passes end-to-end (boot → listen on 127.0.0.1:27015 → clean exit 0). Phase-3 regression set green: `test_ecs`, `test_net`, `test_netlib`, `test_servercontrol`, `test_dedicated_server`.
+
+**User-owned manual smoke (not yet performed — requires interactive GUI + firewall acceptance):** in the editor, open the Dedicated Server panel → Start → confirm the in-editor client logs `connected` + the server console logs `echoed ping` (full ping/echo round-trip) → Stop → confirm clean exit; then close the editor with the server running and confirm the `server.exe` child dies with it (Job Object). **USER ACTION:** accept the Windows Firewall prompt for `editor.exe` and `server.exe` on first run.
+
+**Variable-port follow-up:** `NetDemoSystem` (game-side) is compiled against the fixed `kDedicatedServerDefaultPort` for BOTH the server bind and the client connect. `ServerApplication` currently only logs `Config::port` and uses it for the shutdown-event name — it is NOT yet plumbed into the listen bind (the game owns the socket and hardcodes the port). So a non-default `--port`: the shutdown event is keyed consistently on the launched port (clean stop still works), but the server still listens on the default port. The panel surfaces a caveat on a non-default port. Proper editor→game port propagation (e.g. a config singleton the game reads, binding via `NetServices::BoundPort`) is the documented next step.
+
+**Pre-existing unrelated test breakage (NOT introduced by Phase 3):** `tests/test_navagent.cpp` fails (9 assertions) — its stub overrides `NavServices::FindPath`, but the class-aware nav refactor (`7e66356`) moved `NavAgentSystem` onto `FindPathForClass`, so the counter never fires. Phase 3 touched no nav code. Worth fixing the test stub separately.
