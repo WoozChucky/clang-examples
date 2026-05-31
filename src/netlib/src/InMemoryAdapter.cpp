@@ -1,4 +1,5 @@
 #include "netlib/netlib.h"
+#include "netlib/OwnedBuffer.h"
 
 #include <memory>
 
@@ -42,8 +43,12 @@ public:
         if (m_Ch->clientUp) Emit(m_Ch->serverSink, IoEvent::Kind::Connected, InMemChannel::kClientConn);
         return true;
     }
-    void Send(ConnId, std::span<const std::byte> payload) override {
-        if (m_Ch->clientUp) Emit(m_Ch->clientSink, IoEvent::Kind::Message, ConnId::Invalid, payload);
+    void Send(ConnId, OwnedBuffer&& payload) override {
+        if (!payload.Valid()) return;   // guard moved-from / default-constructed buffers
+        if (m_Ch->clientUp)
+            Emit(m_Ch->clientSink, IoEvent::Kind::Message, ConnId::Invalid,
+                 std::span<const std::byte>(payload.Payload(), payload.PayloadLen()));
+        // payload destructs here (deleter reclaims) AFTER the synchronous sink call returns
     }
     void Close(ConnId) override { Stop(); }
     uint16_t BoundPort() const override { return 0; }
@@ -67,9 +72,11 @@ public:
         if (m_Ch->serverUp) Emit(m_Ch->serverSink, IoEvent::Kind::Connected, InMemChannel::kClientConn);
         return true;
     }
-    void Send(std::span<const std::byte> payload) override {
+    void Send(OwnedBuffer&& payload) override {
+        if (!payload.Valid()) return;   // guard moved-from / default-constructed buffers
         if (m_Ch->serverUp)
-            Emit(m_Ch->serverSink, IoEvent::Kind::Message, InMemChannel::kClientConn, payload);
+            Emit(m_Ch->serverSink, IoEvent::Kind::Message, InMemChannel::kClientConn,
+                 std::span<const std::byte>(payload.Payload(), payload.PayloadLen()));
     }
     void Stop() override {
         if (!m_Ch->clientUp) return;

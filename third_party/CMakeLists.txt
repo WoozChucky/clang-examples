@@ -118,3 +118,22 @@ get_directory_property(recastnavigation_targets DIRECTORY recastnavigation BUILD
 foreach(target ${recastnavigation_targets})
   set_target_properties(${target} PROPERTIES FOLDER ThirdParty/recastnavigation)
 endforeach()
+
+# Protocol Buffers (lite runtime). abseil and other transitive deps are fetched
+# by protobuf's own CMake at configure time (network required on first configure).
+# Static libs (no BUILD_SHARED_LIBS) link into Game.dll; force /MD to match the
+# globally-forced MultiThreadedDLL runtime (protobuf defaults to /MT otherwise).
+set(protobuf_BUILD_TESTS           OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_PROTOC_BINARIES ON  CACHE BOOL "" FORCE)
+# NOTE: not setting protobuf_BUILD_LIBPROTOC — protobuf forces libprotoc ON whenever
+# BUILD_PROTOC_BINARIES is ON (protoc needs it), so an OFF here would be silently ignored
+# and misleading. We only consume the protoc tool + libprotobuf-lite, not libprotoc.
+set(protobuf_INSTALL               OFF CACHE BOOL "" FORCE)
+set(protobuf_MSVC_STATIC_RUNTIME   OFF CACHE BOOL "" FORCE)
+add_subdirectory(protobuf)
+
+# Folder org for the protobuf targets defined directly in that dir.
+get_directory_property(protobuf_targets DIRECTORY protobuf BUILDSYSTEM_TARGETS)
+foreach(target ${protobuf_targets})
+    set_target_properties(${target} PROPERTIES FOLDER ThirdParty/protobuf)
+endforeach()

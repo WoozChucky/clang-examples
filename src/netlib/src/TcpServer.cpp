@@ -48,7 +48,7 @@ public:
         return true;
     }
 
-    void Send(ConnId conn, std::span<const std::byte> payload) override { m_Core.Send(conn, payload); }
+    void Send(ConnId conn, OwnedBuffer&& payload) override { m_Core.Send(conn, std::move(payload)); }
     void Close(ConnId conn) override { m_Core.Close(conn); }
     uint16_t BoundPort() const override { return m_Port; }
 

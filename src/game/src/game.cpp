@@ -10,12 +10,14 @@
 #include "StateScope.h"  // ScopeAllows
 #include "Actions.h"     // ActionCategory / Actions::
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
+#include "WireCodec.h"  // protobuf wire-format encode/decode (plumbing demo)
 
 #include <netlib/netlib.h> // MakeTcpServer/MakeTcpClient factories for the net demo
 #include "ServerControl.h" // kDedicatedServerDefaultPort
 
 #include <memory>
 #include <tuple>
+#include <cstring>
 
 #include <ApplicationContext.h>
 #include <Input.h>
@@ -451,8 +453,8 @@ private:
 // Split from the original combined NetDemoSystem along the AppRole boundary: the
 // server stands up a local TCP listener (ctx.serverPort) and echoes pings; the
 // client connects to it and pings every 2s. Both go through the engine NetServices
-// bridge (ctx.Net). The client pings (opcode 1); the server echoes (opcode 2);
-// both log what they receive.
+// bridge (ctx.Net). The client sends a wire::Ping (opcode OPCODE_PING); the server
+// decodes it and replies wire::Pong (OPCODE_PONG); both log the seq round-trip.
 //
 // Both systems are registered unconditionally; each no-ops for the wrong role
 // (server-only on AppRole::Server, client otherwise) — GameRegisterSystems stays
@@ -464,7 +466,21 @@ private:
 // the DLL unloads, and the fresh instances re-create them. Edit/extend freely:
 // swap the loopback target for a real server address, add your own opcodes, etc.
 
-// ---- Server: bind once (to ctx.serverPort), echo pings (opcode 1 -> opcode 2) ----
+namespace {
+// Serialize a protobuf message into a pooled send buffer ([u16 opcode][protobuf])
+// and send it — zero extra copy (serialize-in-place via wirecodec::EncodeInto).
+template <class M>
+bool SendMessage(const NetServices* net, NetHandle h, NetConnId conn, const M& msg) {
+    const uint32_t total = 2u + static_cast<uint32_t>(msg.ByteSizeLong());
+    SendBuffer sb = net->AcquireSend(total);
+    if (!sb.data) return false;
+    const uint32_t written = wirecodec::EncodeInto(sb.data, sb.cap, msg);
+    if (written == 0) { net->AbortSend(std::move(sb)); return false; }   // cap == total, so this shouldn't happen
+    return net->Send(h, conn, std::move(sb), written);
+}
+} // namespace
+
+// ---- Server: bind once (to ctx.serverPort), echo Ping (OPCODE_PING) -> Pong (OPCODE_PONG) ----
 class NetServerSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
@@ -486,9 +502,19 @@ public:
         NetEvent ev{};
         while (net->PollEvent(&ev)) {
             if (ev.adapter != m_Server) continue;
-            if (ev.kind == NetEventKind::Message && ev.opcode == 1) {
-                net->Send(m_Server, ev.conn, /*opcode*/ 2, ev.payload, ev.len);   // echo
-                SM_TRACE("NetDemo[server]: echoed ping from conn %llu", (unsigned long long)ev.conn);
+            if (ev.kind == NetEventKind::Message &&
+                wirecodec::PeekOpcode(ev.payload, ev.len) == static_cast<uint16_t>(wire::OPCODE_PING)) {
+                wire::Ping ping;
+                if (wirecodec::Decode(ev.payload + 2, ev.len - 2, ping)) {
+                    wire::Pong pong;
+                    pong.set_seq(ping.seq());
+                    pong.set_server_time_ms(static_cast<uint64_t>(ctx.gameTime * 1000.0));
+                    SendMessage(net, m_Server, ev.conn, pong);
+                    SM_TRACE("NetDemo[server]: echoed Ping seq=%u -> Pong (conn %llu)",
+                             ping.seq(), (unsigned long long)ev.conn);
+                } else {
+                    SM_WARN("NetDemo[server]: malformed Ping dropped");
+                }
             } else if (ev.kind == NetEventKind::Connected) {
                 SM_TRACE("NetDemo[server]: client connected (conn %llu)", (unsigned long long)ev.conn);
             }
@@ -554,8 +580,14 @@ public:
                 m_Connected = true; m_GaveUpLogged = false;
                 m_RetryCount = 0;   // replenish budget: bound CONSECUTIVE failures, not lifetime connects
                 SM_TRACE("NetDemo[client]: connected");
-            } else if (ev.kind == NetEventKind::Message && ev.opcode == 2) {
-                SM_TRACE("NetDemo[client]: got echo (%u bytes)", ev.len);
+            } else if (ev.kind == NetEventKind::Message &&
+                       wirecodec::PeekOpcode(ev.payload, ev.len) == static_cast<uint16_t>(wire::OPCODE_PONG)) {
+                wire::Pong pong;
+                if (wirecodec::Decode(ev.payload + 2, ev.len - 2, pong))
+                    SM_TRACE("NetDemo[client]: got Pong seq=%u server_time_ms=%llu",
+                             pong.seq(), (unsigned long long)pong.server_time_ms());
+                else
+                    SM_WARN("NetDemo[client]: malformed Pong dropped");
             } else if (ev.kind == NetEventKind::Disconnected || ev.kind == NetEventKind::Error) {
                 SM_WARN("NetDemo[client]: connection lost/failed; will retry");
                 net->Close(m_Client);
@@ -570,9 +602,11 @@ public:
             m_PingAccum += ctx.dt;
             if (m_PingAccum >= kPingIntervalSec) {
                 m_PingAccum = 0.0;
-                const uint8_t payload[4] = { 'p','i','n','g' };
-                net->Send(m_Client, kNetConnInvalid, /*opcode*/ 1, payload, sizeof(payload));
-                SM_TRACE("NetDemo[client]: sent ping (opcode 1)");
+                wire::Ping ping;
+                ping.set_seq(++m_Seq);
+                ping.set_client_time_ms(static_cast<uint64_t>(ctx.gameTime * 1000.0));
+                SendMessage(net, m_Client, kNetConnInvalid, ping);
+                SM_TRACE("NetDemo[client]: sent Ping seq=%u", ping.seq());
             }
         }
     }
@@ -591,6 +625,7 @@ private:
     int       m_RetryCount    = 0;
     double    m_RetryAccum    = 0.0;
     double    m_PingAccum     = 0.0;
+    uint32_t  m_Seq           = 0;
     uint16_t  m_LastPort      = kDedicatedServerDefaultPort;   // detect port change → reconnect
 };
 
@@ -645,6 +680,28 @@ void GameUpdate(GameState* state) {
     // GameStateComponent.Current is authoritative (AppFlowSystem drives transitions).
     if (g_GameState->StateId == GameStateId::Uninitialized) {
         SM_TRACE("[GAMEDLL] Initializing game...");
+
+        // One-time protobuf wire-format self-check: exercise EncodeInto (serialize
+        // [u16 opcode][protobuf] in place) + PeekOpcode + Decode round-trip. NOT wired
+        // into the live net systems here — this is plumbing validation only. Logs
+        // (not SM_ASSERT): the game target has no platform_debug_break to link SM_ASSERT.
+        {
+            wire::Ping ping;
+            ping.set_seq(7);
+            ping.set_client_time_ms(999);
+
+            uint8_t buf[64];
+            const uint32_t n = wirecodec::EncodeInto(buf, sizeof(buf), ping);
+            const bool okOp = n >= 2 && wirecodec::PeekOpcode(buf, n) ==
+                              static_cast<uint16_t>(wire::OPCODE_PING);
+            wire::Ping back;
+            const bool okBody = n >= 2 && wirecodec::Decode(buf + 2, n - 2, back);
+            if (okOp && okBody && back.seq() == 7u && back.client_time_ms() == 999ull)
+                SM_TRACE("[GAMEDLL] protobuf EncodeInto/PeekOpcode/Decode round-trip OK (seq=%u, %u bytes)",
+                         back.seq(), n);
+            else
+                SM_ERROR("[GAMEDLL] protobuf wire round-trip FAILED");
+        }
 
         // Game-owned singletons.
         g_GameState->World.SetSingleton(WorldCameraComponent{});

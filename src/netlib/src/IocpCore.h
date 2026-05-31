@@ -16,6 +16,7 @@
 #include "netlib/Endpoint.h"
 #include "netlib/IoEvent.h"
 #include "netlib/IIo.h"
+#include "netlib/OwnedBuffer.h"
 #include "Framer.h"
 
 namespace netlib::detail {
@@ -28,7 +29,7 @@ struct Conn;
 struct IoOp {
     OVERLAPPED ov{};
     enum class Type : uint8_t { Recv, Send } type;
-    std::vector<std::byte> buffer;   // owns bytes for this op (recv scratch / send copy)
+    OwnedBuffer            sendBuffer;    // owns the framed bytes for a send op
     WSABUF wsabuf{};
     std::shared_ptr<Conn> conn;      // strong ref: keeps Conn alive while op in flight
 };
@@ -41,7 +42,8 @@ struct Conn {
     ConnId  id   = ConnId::Invalid;
     Framer  framer;
     std::mutex            sendMx;
-    std::deque<std::vector<std::byte>> sendQ;
+    std::deque<OwnedBuffer> sendQ;
+    size_t                sendQueuedBytes = 0;   // bytes in sendQ + in-flight send op (guarded by sendMx)
     bool                  sending = false;
     std::atomic<bool>     closing{false};   // stops recv reposts; gates Disconnected-once
 
@@ -59,7 +61,7 @@ public:
     bool Start(IIoSink* sink, const ConnConfig& cfg, int workerCount);
     // Take ownership of an accepted/connected socket; post the first recv. Returns its ConnId.
     ConnId Register(SOCKET sock);
-    void Send(ConnId id, std::span<const std::byte> payload);
+    void Send(ConnId id, OwnedBuffer&& payload);
     void Close(ConnId id);
     void Stop();   // idempotent; cancels ops, posts exit packets, joins workers
 

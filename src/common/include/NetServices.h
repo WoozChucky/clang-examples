@@ -20,14 +20,40 @@ inline constexpr NetConnId kNetConnInvalid = 0;
 enum class NetEventKind : uint8_t { Connected, Disconnected, Error, Message };
 
 // One drained inbound event. `payload` (Message only) points into NetSubsystem's
-// reusable drain buffer — valid until the next PollEvent. Copy it to retain.
+// inbound pool block — valid until the next PollEvent. Copy it to retain.
 struct NetEvent {
     NetEventKind   kind   = NetEventKind::Error;
     NetHandle      adapter = NetHandle::Invalid;   // which registered adapter
     NetConnId      conn   = kNetConnInvalid;       // which connection within it
-    uint16_t       opcode = 0;                     // Message only
-    const uint8_t* payload = nullptr;              // Message only; borrowed until next PollEvent
+    const uint8_t* payload = nullptr;              // opaque payload frame (no opcode — type tagging is the caller's concern); borrowed until next PollEvent
     uint32_t       len    = 0;
+};
+
+// A writable send buffer handed to the caller by AcquireSend. The caller serializes
+// directly into `data` (up to `cap` bytes), then passes it to EXACTLY ONE of Send /
+// AbortSend (each consumes it). `token` is an opaque engine handle (do not interpret);
+// the engine reserves a length head before `data`.
+//
+// MOVE-ONLY by design: Send/AbortSend take it by value, so the std::move at the call
+// site nulls the caller's copy. A second Send/AbortSend (or a use-after) then sees
+// data==nullptr and is a safe no-op — no double-release of the backing block. Dropping
+// it without Send/AbortSend leaks the block (you must move it into one of them).
+struct SendBuffer {
+    uint8_t* data  = nullptr;   // writable payload region
+    uint32_t cap   = 0;         // bytes available at `data`
+    uint64_t token = 0;         // opaque; identifies the backing block/heap for Send/AbortSend
+
+    SendBuffer() = default;
+    SendBuffer(uint8_t* d, uint32_t c, uint64_t t) : data(d), cap(c), token(t) {}
+    SendBuffer(const SendBuffer&)            = delete;
+    SendBuffer& operator=(const SendBuffer&) = delete;
+    SendBuffer(SendBuffer&& o) noexcept : data(o.data), cap(o.cap), token(o.token) {
+        o.data = nullptr; o.cap = 0; o.token = 0;
+    }
+    SendBuffer& operator=(SendBuffer&& o) noexcept {
+        if (this != &o) { data = o.data; cap = o.cap; token = o.token; o.data = nullptr; o.cap = 0; o.token = 0; }
+        return *this;
+    }
 };
 
 struct NetServerConfig {
@@ -54,9 +80,15 @@ struct NetServices {
     // Server's actually-bound port (resolves ephemeral port 0); 0 if not a server / not bound.
     uint16_t  (*BoundPort)(NetHandle h);
 
-    // Send [uint16 opcode][data] to a connection. For a client adapter, pass
-    // kNetConnInvalid (its single connection). Returns false on backpressure/unknown handle.
-    bool      (*Send)(NetHandle h, NetConnId conn, uint16_t opcode, const uint8_t* data, size_t len);
+    // Acquire a writable send buffer sized for `payloadBytes`. Caller serializes into
+    // SendBuffer::data, then calls Send (or AbortSend to discard). GameThread-only.
+    SendBuffer (*AcquireSend)(size_t payloadBytes);
+    // Send a previously-acquired buffer to a connection (consumes it). `payloadLen`
+    // is the number of bytes actually written (<= the acquired cap). Client adapters
+    // pass kNetConnInvalid. Returns false on unknown handle (buffer is still released).
+    bool (*Send)(NetHandle h, NetConnId conn, SendBuffer buf, uint32_t payloadLen);
+    // Discard an acquired buffer without sending (releases the backing block/heap).
+    void (*AbortSend)(SendBuffer buf);
 
     // Drain ONE event from the shared inbound MPSC ring (all adapters). False when empty.
     bool      (*PollEvent)(NetEvent* out);

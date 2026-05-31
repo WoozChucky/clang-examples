@@ -10,6 +10,7 @@
 #include "network/NetServicesImpl.h"
 #include <chrono>
 #include <cstring>
+#include <utility>   // std::move
 
 void platform_debug_break(const char*, const char*, int, const char*) {}
 
@@ -80,6 +81,24 @@ static void test_pool_exhaustion() {
     CHECK(pool.Acquire(b) != nullptr, "pool: acq 2");
     CHECK(pool.Acquire(c) == nullptr, "pool: acq 3 exhausted -> null");
     pool.Release(a); pool.Release(b);
+}
+
+// Peak must be a TRUE high-water mark recorded at Acquire, so it survives Release.
+// Sampling InUse at read time misses short-lived allocations (e.g. send buffers
+// released on the IOCP worker microseconds after acquire) — that's the send-pool
+// "peak 0" bug. PeakInUse must latch the max regardless of when it's read.
+static void test_pool_peak() {
+    NetBufferPool pool(64, 4);
+    CHECK(pool.PeakInUse() == 0, "pool: peak starts 0");
+    uint32_t a, b;
+    pool.Acquire(a);
+    pool.Acquire(b);
+    CHECK(pool.InUse() == 2, "pool: 2 in use");
+    CHECK(pool.PeakInUse() == 2, "pool: peak 2 while held");
+    pool.Release(a);
+    pool.Release(b);
+    CHECK(pool.InUse() == 0, "pool: 0 in use after release");
+    CHECK(pool.PeakInUse() == 2, "pool: peak high-water survives release");
 }
 
 #include <set>
@@ -164,8 +183,8 @@ static void test_net_types() {
 
     NetEvent ev{};
     ev.kind = NetEventKind::Message;
-    ev.opcode = 7;
-    CHECK(ev.kind == NetEventKind::Message && ev.opcode == 7, "types: NetEvent fields");
+    ev.len  = 5;
+    CHECK(ev.kind == NetEventKind::Message && ev.len == 5, "types: NetEvent fields");
     CHECK(NetHandle::Invalid == NetHandle{0}, "types: NetHandle::Invalid is 0");
 }
 
@@ -183,6 +202,20 @@ static bool net_wait_until(Pred pred, int timeoutMs = 4000) {
 
 static std::vector<uint8_t> u8(const char* s) {
     std::vector<uint8_t> v; for (const char* p = s; *p; ++p) v.push_back((uint8_t)*p); return v;
+}
+
+// Send helper: writes a [u16 tag] + body into an acquired SendBuffer, then Sends.
+static bool send_tagged(NetServices& net, NetHandle h, NetConnId conn, uint16_t tag, const std::vector<uint8_t>& body) {
+    SendBuffer sb = net.AcquireSend(2 + body.size());
+    if (!sb.data) return false;
+    sb.data[0] = static_cast<uint8_t>(tag & 0xff);
+    sb.data[1] = static_cast<uint8_t>((tag >> 8) & 0xff);
+    std::memcpy(sb.data + 2, body.data(), body.size());
+    return net.Send(h, conn, std::move(sb), static_cast<uint32_t>(2 + body.size()));
+}
+// Read the [u16 tag] from a received frame.
+static uint16_t frame_tag(const NetEvent& ev) {
+    return static_cast<uint16_t>(ev.payload[0]) | (static_cast<uint16_t>(ev.payload[1]) << 8);
 }
 
 static void test_netsub_roundtrip() {
@@ -206,23 +239,21 @@ static void test_netsub_roundtrip() {
         while (net.PollEvent(&ev)) {
             if (ev.adapter == srv && ev.kind == NetEventKind::Connected) { ++serverConns; serverConn = ev.conn; }
             if (ev.adapter == srv && ev.kind == NetEventKind::Message) {
-                if (ev.opcode == 42 && ev.len == 5 && std::memcmp(ev.payload, "hello", 5) == 0) gotClientMsg = true;
+                if (ev.len == 7 && frame_tag(ev) == 42 && std::memcmp(ev.payload + 2, "hello", 5) == 0) gotClientMsg = true;
             }
         }
     };
     CHECK(net_wait_until([&]{ pump(); return serverConns == 1; }), "netsub: server saw a connection");
 
-    auto msg = u8("hello");
-    CHECK(net.Send(cli, kNetConnInvalid, 42, msg.data(), msg.size()), "netsub: client send");
-    CHECK(net_wait_until([&]{ pump(); return gotClientMsg; }), "netsub: server received opcode+payload");
+    CHECK(send_tagged(net, cli, kNetConnInvalid, 42, u8("hello")), "netsub: client send");
+    CHECK(net_wait_until([&]{ pump(); return gotClientMsg; }), "netsub: server received tag+payload");
 
     bool gotReply = false;
-    auto reply = u8("yo");
-    net.Send(srv, serverConn, 7, reply.data(), reply.size());
+    send_tagged(net, srv, serverConn, 7, u8("yo"));
     CHECK(net_wait_until([&]{
         NetEvent ev{};
         while (net.PollEvent(&ev)) if (ev.adapter == cli && ev.kind == NetEventKind::Message
-                                        && ev.opcode == 7 && ev.len == 2 && std::memcmp(ev.payload, "yo", 2) == 0) gotReply = true;
+                                        && ev.len == 4 && frame_tag(ev) == 7 && std::memcmp(ev.payload + 2, "yo", 2) == 0) gotReply = true;
         return gotReply;
     }), "netsub: client received server reply");
 
@@ -268,7 +299,7 @@ static void test_netsub_shutdown_while_connected() {
     int conns = 0;
     net_wait_until([&]{ NetEvent ev{}; while (net.PollEvent(&ev)) if (ev.kind == NetEventKind::Connected) ++conns; return conns >= 2; });
     auto m = u8("hi");
-    net.Send(cli, kNetConnInvalid, 1, m.data(), m.size());
+    send_tagged(net, cli, kNetConnInvalid, 1, m);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Tear down with BOTH adapters still live + connected — the app-close path.
@@ -296,14 +327,56 @@ static void test_netsub_traffic_then_shutdown() {
     while (std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - start).count() < 400) {
         NetEvent ev{};
         while (net.PollEvent(&ev)) {
-            if (ev.adapter == srv && ev.kind == NetEventKind::Message)
-                net.Send(srv, ev.conn, 2, ev.payload, ev.len);   // server echoes
+            if (ev.adapter == srv && ev.kind == NetEventKind::Message) {
+                std::vector<uint8_t> body(ev.payload, ev.payload + ev.len);   // copy before next PollEvent
+                SendBuffer sb = net.AcquireSend(body.size());
+                if (sb.data) { std::memcpy(sb.data, body.data(), body.size()); net.Send(srv, ev.conn, std::move(sb), (uint32_t)body.size()); }
+            }
         }
-        net.Send(cli, kNetConnInvalid, 1, m.data(), m.size());   // client pings hard (no 2s gap)
+        send_tagged(net, cli, kNetConnInvalid, 1, m);   // client pings hard (no 2s gap)
     }
     // Close path: straight to Shutdown with traffic in flight, no final drain.
     NetSubsystem::Instance().Shutdown();
     CHECK(true, "traffic-then-shutdown: did not crash");
+}
+
+// SendBuffer move-only contract + AbortSend release + Send overflow guard (API-safety
+// hardening). AcquireSend is the only producer; we observe consume-on-move and that
+// misuse (re-consume / overflow) is a safe no-op rather than a double-release/overrun.
+static void test_send_buffer_lifecycle() {
+    NetServices net{};
+    NetServicesImpl::Init(net);
+    NetSubsystem::Instance().Init();
+
+    SendBuffer sb = net.AcquireSend(64);
+    CHECK(sb.data != nullptr, "lifecycle: AcquireSend gives data");
+    CHECK(sb.cap == 64, "lifecycle: cap matches request");
+
+    // Move nulls the source (move-only consume semantics).
+    SendBuffer moved = std::move(sb);
+    CHECK(sb.data == nullptr, "lifecycle: moved-from SendBuffer is null");
+    CHECK(moved.data != nullptr, "lifecycle: moved-to retains buffer");
+
+    // AbortSend consumes (releases the block) + nulls the local; re-abort is a safe no-op.
+    net.AbortSend(std::move(moved));
+    CHECK(moved.data == nullptr, "lifecycle: AbortSend consumed the buffer");
+    net.AbortSend(std::move(moved));   // no double-release
+
+    // Send overflow guard: payloadLen > cap → refused + released, returns false (no overrun).
+    SendBuffer over = net.AcquireSend(16);
+    CHECK(over.data != nullptr, "lifecycle: acquire for overflow test");
+    const bool sent = net.Send(NetHandle::Invalid, kNetConnInvalid, std::move(over), 16u + 100u);
+    CHECK(!sent, "lifecycle: Send refuses payloadLen > cap");
+    CHECK(over.data == nullptr, "lifecycle: refused Send still consumed the buffer");
+
+    // Acquire/abort more times than the pool has blocks → blocks must recycle (no crash/leak).
+    for (int i = 0; i < 3000; ++i) {
+        SendBuffer s = net.AcquireSend(32);
+        CHECK(s.data != nullptr, "lifecycle: churn acquire");
+        net.AbortSend(std::move(s));
+    }
+
+    NetSubsystem::Instance().Shutdown();
 }
 
 int main() {
@@ -314,11 +387,13 @@ int main() {
     test_mpsc_single_consumer();
     test_pool_basic();
     test_pool_exhaustion();
+    test_pool_peak();
     test_pool_concurrent();
     test_netsub_roundtrip();
     test_release_game_resident();
     test_netsub_shutdown_while_connected();
     test_netsub_traffic_then_shutdown();
+    test_send_buffer_lifecycle();
     if (g_Failures == 0) { std::printf("All net tests passed.\n"); return 0; }
     std::printf("%d net test(s) FAILED.\n", g_Failures);
     return 1;

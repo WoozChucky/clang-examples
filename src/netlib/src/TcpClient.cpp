@@ -24,9 +24,10 @@ public:
         return true;
     }
 
-    void Send(std::span<const std::byte> payload) override {
+    void Send(OwnedBuffer&& payload) override {
         const ConnId id = m_Conn.load(std::memory_order_acquire);
-        if (id != ConnId::Invalid) m_Core.Send(id, payload);
+        if (id != ConnId::Invalid) m_Core.Send(id, std::move(payload));
+        // if not connected, payload destructs here -> deleter reclaims (message dropped)
     }
 
     void Stop() override {

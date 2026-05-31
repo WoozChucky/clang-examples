@@ -1,10 +1,12 @@
 #include "network/NetSubsystem.h"
 
 #include <cstring>
+#include <utility>   // std::move
+
+#include <netlib/OwnedBuffer.h>
 
 #include "lib.h"
-
-namespace { constexpr uint32_t kOpcodeBytes = 2; }
+#include <memory/AllocatorRegistry.h>
 
 NetSubsystem& NetSubsystem::Instance() { static NetSubsystem s; return s; }
 
@@ -12,10 +14,28 @@ void NetSubsystem::Init() {
     Shutdown();
     m_Ring = std::make_unique<MpscRing<RingEvent, kRingSize>>();
     m_Pool = std::make_unique<NetBufferPool>(kBlockSize, kBlocks);
-    m_DrainBuf.resize(kBlockSize);
+    m_SendPool = std::make_unique<NetBufferPool>(kSendBlockSize, kSendBlocks);
+    m_BorrowedIndex = UINT32_MAX;
+    m_SendHeapFallbackWarned = false;
+
+    // Surface both pools in the editor Memory panel (read-only observers). The name carries
+    // the block size because the panel's Used/Peak/Capacity columns report block-occupancy
+    // bytes (in-use blocks * blockSize), NOT payload bytes — a 9-byte Ping still occupies a
+    // full block. The "(NN KB blocks)" suffix makes those columns self-explanatory. (Literals
+    // mirror kBlockSize / kSendBlockSize below — keep in sync if those change.)
+    m_RecvStats.pool = m_Pool.get();     m_RecvStats.name = "Net Recv Pool (256 KB blocks)";
+    m_SendStats.pool = m_SendPool.get(); m_SendStats.name = "Net Send Pool (16 KB blocks)";
+    Engine::Registry().Register(&m_RecvStats);
+    Engine::Registry().Register(&m_SendStats);
 }
 
 void NetSubsystem::Shutdown() {
+    // Unregister observers before the pools they point at are reset (lifetime-safe).
+    Engine::Registry().Unregister(&m_RecvStats);
+    Engine::Registry().Unregister(&m_SendStats);
+    m_RecvStats.pool = nullptr;
+    m_SendStats.pool = nullptr;
+    if (m_BorrowedIndex != UINT32_MAX && m_Pool) { m_Pool->Release(m_BorrowedIndex); m_BorrowedIndex = UINT32_MAX; }
     {
         std::scoped_lock lk(m_Mx);
         for (auto& [id, e] : m_Adapters) {
@@ -26,6 +46,7 @@ void NetSubsystem::Shutdown() {
     }
     m_Ring.reset();
     m_Pool.reset();
+    m_SendPool.reset();
 }
 
 NetHandle NetSubsystem::CreateServer(NetServerFactory factory, const NetServerConfig& cfg) {
@@ -91,18 +112,71 @@ uint16_t NetSubsystem::BoundPort(NetHandle h) {
     return it->second.server->BoundPort();
 }
 
-bool NetSubsystem::Send(NetHandle h, NetConnId conn, uint16_t opcode, const uint8_t* data, size_t len) {
-    std::vector<std::byte> buf;
-    buf.resize(kOpcodeBytes + len);
-    buf[0] = static_cast<std::byte>(opcode & 0xff);
-    buf[1] = static_cast<std::byte>((opcode >> 8) & 0xff);
-    if (len) std::memcpy(buf.data() + kOpcodeBytes, data, len);
+namespace {
+    constexpr uint64_t kPoolBit   = 1ull << 63;
+    constexpr uint64_t kHeapToken = 0;           // token == 0 => heap-backed
+    // OwnedBuffer deleters (run on the IOCP worker at send completion).
+    void ReleaseToSendPool(void* poolCtx, std::byte* base) noexcept {
+        auto* pool = static_cast<NetBufferPool*>(poolCtx);
+        pool->Release(pool->IndexOf(base));      // base == block start (head at offset 0)
+    }
+    void FreeHeap(void*, std::byte* base) noexcept { delete[] base; }
+}
+
+SendBuffer NetSubsystem::AcquireSend(size_t payloadBytes) {
+    const size_t total = netlib::OwnedBuffer::kHeadBytes + payloadBytes;
+    const bool fitsBlock = m_SendPool && total <= m_SendPool->BlockSize();
+    if (fitsBlock) {
+        uint32_t idx;
+        if (std::byte* block = m_SendPool->Acquire(idx)) {
+            m_SendHeapFallbackWarned = false;   // pool healthy again
+            return SendBuffer{ reinterpret_cast<uint8_t*>(block + netlib::OwnedBuffer::kHeadBytes),
+                               static_cast<uint32_t>(payloadBytes), kPoolBit | idx };
+        }
+        // Fits a block but the pool is momentarily exhausted — a real degradation, surface it
+        // (once per exhaustion episode; AcquireSend is GameThread-only so the flag needs no atomic).
+        if (!m_SendHeapFallbackWarned) {
+            SM_WARN("NetSubsystem::AcquireSend: send pool exhausted (%zu blocks); falling back to heap",
+                    m_SendPool->BlockCount());
+            m_SendHeapFallbackWarned = true;
+        }
+    }
+    // Heap path: either the pool was exhausted (warned above) or this payload is intentionally
+    // larger than a pool block (the specced >16 KB oversize case — not a degradation, no warn).
+    auto* base = new std::byte[total];
+    return SendBuffer{ reinterpret_cast<uint8_t*>(base + netlib::OwnedBuffer::kHeadBytes),
+                       static_cast<uint32_t>(payloadBytes), kHeapToken };   // base recovered as data-kHeadBytes
+}
+
+void NetSubsystem::AbortSend(SendBuffer buf) {
+    if (!buf.data) return;
+    std::byte* base = reinterpret_cast<std::byte*>(buf.data) - netlib::OwnedBuffer::kHeadBytes;
+    if (buf.token & kPoolBit) { if (m_SendPool) m_SendPool->Release(static_cast<uint32_t>(buf.token & ~kPoolBit)); }
+    else                        delete[] base;
+}
+
+bool NetSubsystem::Send(NetHandle h, NetConnId conn, SendBuffer buf, uint32_t payloadLen) {
+    if (!buf.data) return false;
+    // Guard against a caller writing/declaring more than it acquired — would WSASend past the
+    // end of the backing block. Refuse + release rather than send a corrupt/overrun frame.
+    if (payloadLen > buf.cap) {
+        SM_ERROR("NetSubsystem::Send: payloadLen %u exceeds acquired cap %u; refusing + releasing",
+                 payloadLen, buf.cap);
+        AbortSend(std::move(buf));
+        return false;
+    }
+    std::byte* base = reinterpret_cast<std::byte*>(buf.data) - netlib::OwnedBuffer::kHeadBytes;
+
+    netlib::OwnedBuffer owned =
+        (buf.token & kPoolBit)
+            ? netlib::OwnedBuffer(base, payloadLen, m_SendPool.get(), &ReleaseToSendPool)
+            : netlib::OwnedBuffer(base, payloadLen, nullptr, &FreeHeap);
 
     std::scoped_lock lk(m_Mx);
     auto it = m_Adapters.find(static_cast<uint32_t>(h));
-    if (it == m_Adapters.end()) return false;
-    if (it->second.server) { it->second.server->Send(netlib::ConnId{ conn }, buf); return true; }
-    if (it->second.client) { it->second.client->Send(buf); return true; }
+    if (it == m_Adapters.end()) return false;   // `owned` destructs -> deleter reclaims
+    if (it->second.server) { it->second.server->Send(netlib::ConnId{ conn }, std::move(owned)); return true; }
+    if (it->second.client) { it->second.client->Send(std::move(owned)); return true; }
     return false;
 }
 
@@ -123,15 +197,12 @@ void NetSubsystem::OnAdapterEvent(NetHandle h, const netlib::IoEvent& ev) {
         case netlib::IoEvent::Kind::Message: {
             re.kind = NetEventKind::Message;
             const auto& p = ev.payload;
-            if (p.size() < kOpcodeBytes) { SM_WARN("NetSubsystem: runt frame (%zu bytes); dropped", p.size()); return; }
-            re.opcode = static_cast<uint16_t>(static_cast<uint8_t>(p[0])) |
-                        (static_cast<uint16_t>(static_cast<uint8_t>(p[1])) << 8);
-            const size_t payloadLen = p.size() - kOpcodeBytes;
+            const size_t payloadLen = p.size();
             if (payloadLen > m_Pool->BlockSize()) { SM_WARN("NetSubsystem: payload %zu > block %zu; dropped", payloadLen, m_Pool->BlockSize()); return; }
             uint32_t idx;
             std::byte* block = m_Pool->Acquire(idx);
             if (!block) { SM_WARN("NetSubsystem: pool exhausted; message dropped"); return; }
-            if (payloadLen) std::memcpy(block, p.data() + kOpcodeBytes, payloadLen);
+            if (payloadLen) std::memcpy(block, p.data(), payloadLen);
             re.poolIndex = idx;
             re.len = static_cast<uint32_t>(payloadLen);
             re.hasPayload = true;
@@ -147,20 +218,20 @@ void NetSubsystem::OnAdapterEvent(NetHandle h, const netlib::IoEvent& ev) {
 
 bool NetSubsystem::PollEvent(NetEvent* out) {
     if (!out || !m_Ring) return false;
+    // Release the block borrowed by the PREVIOUS PollEvent (the game has had its turn).
+    if (m_BorrowedIndex != UINT32_MAX) { m_Pool->Release(m_BorrowedIndex); m_BorrowedIndex = UINT32_MAX; }
+
     RingEvent re{};
     if (!m_Ring->Dequeue(re)) return false;
     out->kind    = re.kind;
     out->adapter = re.adapter;
     out->conn    = re.conn;
-    out->opcode  = re.opcode;
     out->payload = nullptr;
     out->len     = 0;
     if (re.hasPayload) {
-        if (m_DrainBuf.size() < re.len) m_DrainBuf.resize(re.len);
-        std::memcpy(m_DrainBuf.data(), m_Pool->Block(re.poolIndex), re.len);
-        m_Pool->Release(re.poolIndex);
-        out->payload = m_DrainBuf.data();
+        out->payload = reinterpret_cast<const uint8_t*>(m_Pool->Block(re.poolIndex));   // borrowed until next PollEvent
         out->len     = re.len;
+        m_BorrowedIndex = re.poolIndex;               // released at the top of the next PollEvent
     }
     return true;
 }

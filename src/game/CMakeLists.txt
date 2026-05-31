@@ -49,6 +49,33 @@ target_link_libraries(game PRIVATE glm::glm CommonHeaders ecs netlib)
 
 target_compile_definitions(game PRIVATE GAME_EXPORTS NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES})
 
+# --- protobuf wire-format codegen ---
+# protoc (built from the third_party/protobuf submodule) generates wire.pb.{h,cc}
+# into the build tree; the .cc compiles into Game.dll and links libprotobuf-lite.
+set(GAME_PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/proto")
+set(GAME_PROTO_GEN "${CMAKE_CURRENT_BINARY_DIR}/gen")
+file(MAKE_DIRECTORY "${GAME_PROTO_GEN}")
+set(GAME_PROTO_CC  "${GAME_PROTO_GEN}/wire.pb.cc")
+set(GAME_PROTO_H   "${GAME_PROTO_GEN}/wire.pb.h")
+
+add_custom_command(
+    OUTPUT  "${GAME_PROTO_CC}" "${GAME_PROTO_H}"
+    COMMAND protobuf::protoc
+            --cpp_out "${GAME_PROTO_GEN}"
+            -I "${GAME_PROTO_DIR}"
+            "${GAME_PROTO_DIR}/wire.proto"
+    DEPENDS "${GAME_PROTO_DIR}/wire.proto" protobuf::protoc
+    COMMENT "protoc: generating wire.pb.{h,cc}"
+    VERBATIM
+)
+
+target_sources(game PRIVATE "${GAME_PROTO_CC}")
+target_include_directories(game PRIVATE "${GAME_PROTO_GEN}")
+# libprotobuf-lite links utf8_validity PRIVATE, so its include dir (which holds
+# utf8_validity.h, pulled in by the public parse_context.h that generated .pb.cc
+# transitively includes) is not propagated. Link it here to expose that header.
+target_link_libraries(game PRIVATE protobuf::libprotobuf-lite utf8_validity)
+
 set_target_properties(game PROPERTIES
   OUTPUT_NAME Game
   DEBUG_POSTFIX ""

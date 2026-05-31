@@ -1,6 +1,7 @@
 add_library(netlib SHARED
     src/WinsockGuard.cpp
     src/Framer.cpp
+    src/OwnedBuffer.cpp
     src/InMemoryAdapter.cpp
     src/IocpCore.cpp
     src/TcpServer.cpp

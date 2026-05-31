@@ -8,12 +8,14 @@
 #include <mutex>
 #include <span>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "netlib/netlib.h"
 #include "netlib/Endpoint.h"
 #include "netlib/IoEvent.h"
 #include "netlib/IIo.h"
+#include "netlib/OwnedBuffer.h"
 #include "Framer.h"   // internal; test include dir covers src/netlib/src
 
 // Per-module SM_ASSERT backend (declared in lib.h, each exe provides its own).
@@ -43,10 +45,53 @@ static void test_value_types() {
     CHECK(ev.kind == netlib::IoEvent::Kind::Message, "IoEvent.kind assignable");
 }
 
+static void test_owned_buffer() {
+    using netlib::OwnedBuffer;
+
+    // (a) MakeHeapBuffer: payload writable, sizes correct.
+    {
+        OwnedBuffer b = netlib::MakeHeapBuffer(5);
+        CHECK(b.Valid(), "ownedbuf: heap buffer valid");
+        CHECK(b.PayloadLen() == 5, "ownedbuf: payload len 5");
+        CHECK(b.TotalSize() == 9, "ownedbuf: total = head(4)+5");
+        CHECK(b.Payload() == b.Data() + 4, "ownedbuf: payload past 4-byte head");
+        for (int i = 0; i < 5; ++i) b.Payload()[i] = static_cast<std::byte>('a' + i);
+        CHECK(b.Payload()[0] == static_cast<std::byte>('a'), "ownedbuf: payload writable");
+    }
+
+    // (b) Deleter runs exactly once on destruction; move transfers ownership.
+    {
+        static int freed = 0; freed = 0;
+        std::byte storage[8] = {};
+        auto del = [](void* ctx, std::byte*) noexcept { ++*static_cast<int*>(ctx); };
+        {
+            OwnedBuffer a(storage, /*payloadLen*/ 4, &freed, del);
+            OwnedBuffer moved = std::move(a);
+            CHECK(!a.Valid(), "ownedbuf: moved-from invalid");
+            CHECK(moved.Valid() && moved.PayloadLen() == 4, "ownedbuf: moved-to owns");
+            CHECK(freed == 0, "ownedbuf: deleter not run while alive");
+        }
+        CHECK(freed == 1, "ownedbuf: deleter ran exactly once after scope");
+    }
+}
+
 static std::vector<std::byte> bytes_of(const char* s) {
     std::vector<std::byte> v;
     for (const char* p = s; *p; ++p) v.push_back(static_cast<std::byte>(*p));
     return v;
+}
+
+// Build a heap OwnedBuffer whose payload is a copy of `s` (for tests that send bytes).
+static netlib::OwnedBuffer owned_of(const char* s) {
+    auto v = bytes_of(s);
+    netlib::OwnedBuffer b = netlib::MakeHeapBuffer(static_cast<uint32_t>(v.size()));
+    for (size_t i = 0; i < v.size(); ++i) b.Payload()[i] = v[i];
+    return b;
+}
+static netlib::OwnedBuffer owned_of(std::span<const std::byte> s) {
+    netlib::OwnedBuffer b = netlib::MakeHeapBuffer(static_cast<uint32_t>(s.size()));
+    for (size_t i = 0; i < s.size(); ++i) b.Payload()[i] = s[i];
+    return b;
 }
 
 // Build a wire frame: [uint32 LE length][payload].
@@ -116,7 +161,7 @@ struct RecordingSink : netlib::IIoSink {
 
     void OnIoEvent(const netlib::IoEvent& ev) override {
         if (ev.kind == netlib::IoEvent::Kind::Message && echoServer)
-            echoServer->Send(ev.conn, ev.payload);   // Send copies the borrowed span
+            echoServer->Send(ev.conn, owned_of(ev.payload));   // echo via OwnedBuffer
         std::scoped_lock lk(mx);
         kinds.push_back(ev.kind);
         if (ev.kind == netlib::IoEvent::Kind::Connected)    ++connected;
@@ -138,14 +183,12 @@ static void test_inmemory() {
     CHECK(serverSink.connected == 1, "inmem: server saw Connected");
     CHECK(clientSink.connected == 1, "inmem: client saw Connected");
 
-    auto msg = bytes_of("ping");
-    pair.client->Send(msg);
+    pair.client->Send(owned_of("ping"));
     CHECK(serverSink.msgCount() == 1, "inmem: server received 1 msg");
     CHECK(serverSink.messages[0] == bytes_of("ping"), "inmem: server payload correct");
 
-    auto reply = bytes_of("pong");
     // server replies to the single client connection (ConnId 1 by convention).
-    pair.server->Send(netlib::ConnId{1}, reply);
+    pair.server->Send(netlib::ConnId{1}, owned_of("pong"));
     CHECK(clientSink.msgCount() == 1, "inmem: client received reply");
     CHECK(clientSink.messages[0] == bytes_of("pong"), "inmem: client reply correct");
 
@@ -319,13 +362,13 @@ static void test_tcp_roundtrip() {
     CHECK(wait_until([&]{ return cliSink.connected.load() == 1; }), "rt: client Connected");
     CHECK(wait_until([&]{ return srvSink.connected.load() == 1; }), "rt: server Connected");
 
-    client->Send(bytes_of("from-client"));
+    client->Send(owned_of("from-client"));
     CHECK(wait_until([&]{ return srvSink.msgCount() == 1; }), "rt: server got client msg");
     { std::scoped_lock lk(srvSink.mx);
       CHECK(srvSink.messages[0] == bytes_of("from-client"), "rt: server payload"); }
 
     // Reply to that connection (its ConnId is the first registered = 1).
-    server->Send(netlib::ConnId{1}, bytes_of("from-server"));
+    server->Send(netlib::ConnId{1}, owned_of("from-server"));
     CHECK(wait_until([&]{ return cliSink.msgCount() == 1; }), "rt: client got server reply");
     { std::scoped_lock lk(cliSink.mx);
       CHECK(cliSink.messages[0] == bytes_of("from-server"), "rt: client payload"); }
@@ -347,8 +390,8 @@ static void test_tcp_multiconn() {
     c2->Start(netlib::Endpoint{ "127.0.0.1", port }, cfg, &s2);
     CHECK(wait_until([&]{ return srvSink.connected.load() == 2; }), "multi: server saw 2 Connected");
 
-    c1->Send(bytes_of("one"));
-    c2->Send(bytes_of("two"));
+    c1->Send(owned_of("one"));
+    c2->Send(owned_of("two"));
     CHECK(wait_until([&]{ return srvSink.msgCount() == 2; }), "multi: server got 2 msgs");
     {
         std::scoped_lock lk(srvSink.mx);
@@ -435,9 +478,35 @@ static void test_oversize_frame_disconnects() {
     WSACleanup();
 }
 
+// Outbound send-queue cap (ConnConfig::maxSendQueueBytes): exceeding it => log + disconnect.
+// Deterministic: cap = 1, so the very first frame (>= the 4-byte length head) overflows the
+// cap synchronously inside Send — no peer-stall/timing dependence needed.
+static void test_send_queue_cap_disconnects() {
+    auto server = netlib::MakeTcpServer();
+    RecordingSink srvSink;
+    netlib::ConnConfig scfg{};
+    server->Start(netlib::Endpoint{ "127.0.0.1", 0 }, scfg, &srvSink);
+    const uint16_t port = server->BoundPort();
+
+    auto client = netlib::MakeTcpClient();
+    RecordingSink cliSink;
+    netlib::ConnConfig ccfg{};
+    ccfg.maxSendQueueBytes = 1;   // any real frame exceeds this on the first Send
+    client->Start(netlib::Endpoint{ "127.0.0.1", port }, ccfg, &cliSink);
+    CHECK(wait_until([&]{ return cliSink.connected.load() == 1; }), "sqcap: client Connected");
+
+    client->Send(owned_of("hi"));   // queued(0) + frame(6) > cap(1) => overflow => disconnect
+    CHECK(wait_until([&]{ return cliSink.disconnected.load() == 1; }),
+          "sqcap: send-queue overflow disconnects the conn");
+
+    client->Stop();
+    server->Stop();
+}
+
 int main() {
     test_version();
     test_value_types();
+    test_owned_buffer();
     test_framer();
     test_inmemory();
     test_tcp_server();
@@ -448,6 +517,7 @@ int main() {
     test_tcp_connect_failure();
     test_stop_is_clean();
     test_oversize_frame_disconnects();
+    test_send_queue_cap_disconnects();
 
     if (g_Failures == 0) { std::printf("All netlib tests passed.\n"); return 0; }
     std::printf("%d netlib test(s) FAILED.\n", g_Failures);
