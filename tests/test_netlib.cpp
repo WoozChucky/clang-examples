@@ -8,12 +8,14 @@
 #include <mutex>
 #include <span>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "netlib/netlib.h"
 #include "netlib/Endpoint.h"
 #include "netlib/IoEvent.h"
 #include "netlib/IIo.h"
+#include "netlib/OwnedBuffer.h"
 #include "Framer.h"   // internal; test include dir covers src/netlib/src
 
 // Per-module SM_ASSERT backend (declared in lib.h, each exe provides its own).
@@ -41,6 +43,36 @@ static void test_value_types() {
     netlib::IoEvent ev{};
     ev.kind = netlib::IoEvent::Kind::Message;
     CHECK(ev.kind == netlib::IoEvent::Kind::Message, "IoEvent.kind assignable");
+}
+
+static void test_owned_buffer() {
+    using netlib::OwnedBuffer;
+
+    // (a) MakeHeapBuffer: payload writable, sizes correct.
+    {
+        OwnedBuffer b = netlib::MakeHeapBuffer(5);
+        CHECK(b.Valid(), "ownedbuf: heap buffer valid");
+        CHECK(b.PayloadLen() == 5, "ownedbuf: payload len 5");
+        CHECK(b.TotalSize() == 9, "ownedbuf: total = head(4)+5");
+        CHECK(b.Payload() == b.Data() + 4, "ownedbuf: payload past 4-byte head");
+        for (int i = 0; i < 5; ++i) b.Payload()[i] = static_cast<std::byte>('a' + i);
+        CHECK(b.Payload()[0] == static_cast<std::byte>('a'), "ownedbuf: payload writable");
+    }
+
+    // (b) Deleter runs exactly once on destruction; move transfers ownership.
+    {
+        static int freed = 0; freed = 0;
+        std::byte storage[8] = {};
+        auto del = [](void* ctx, std::byte*) noexcept { ++*static_cast<int*>(ctx); };
+        {
+            OwnedBuffer a(storage, /*payloadLen*/ 4, &freed, del);
+            OwnedBuffer moved = std::move(a);
+            CHECK(!a.Valid(), "ownedbuf: moved-from invalid");
+            CHECK(moved.Valid() && moved.PayloadLen() == 4, "ownedbuf: moved-to owns");
+            CHECK(freed == 0, "ownedbuf: deleter not run while alive");
+        }
+        CHECK(freed == 1, "ownedbuf: deleter ran exactly once after scope");
+    }
 }
 
 static std::vector<std::byte> bytes_of(const char* s) {
@@ -438,6 +470,7 @@ static void test_oversize_frame_disconnects() {
 int main() {
     test_version();
     test_value_types();
+    test_owned_buffer();
     test_framer();
     test_inmemory();
     test_tcp_server();
