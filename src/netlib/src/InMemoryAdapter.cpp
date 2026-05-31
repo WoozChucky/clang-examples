@@ -44,6 +44,7 @@ public:
         return true;
     }
     void Send(ConnId, OwnedBuffer&& payload) override {
+        if (!payload.Valid()) return;   // guard moved-from / default-constructed buffers
         if (m_Ch->clientUp)
             Emit(m_Ch->clientSink, IoEvent::Kind::Message, ConnId::Invalid,
                  std::span<const std::byte>(payload.Payload(), payload.PayloadLen()));
@@ -72,6 +73,7 @@ public:
         return true;
     }
     void Send(OwnedBuffer&& payload) override {
+        if (!payload.Valid()) return;   // guard moved-from / default-constructed buffers
         if (m_Ch->serverUp)
             Emit(m_Ch->serverSink, IoEvent::Kind::Message, InMemChannel::kClientConn,
                  std::span<const std::byte>(payload.Payload(), payload.PayloadLen()));

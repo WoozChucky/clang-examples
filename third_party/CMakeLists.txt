@@ -125,7 +125,9 @@ endforeach()
 # globally-forced MultiThreadedDLL runtime (protobuf defaults to /MT otherwise).
 set(protobuf_BUILD_TESTS           OFF CACHE BOOL "" FORCE)
 set(protobuf_BUILD_PROTOC_BINARIES ON  CACHE BOOL "" FORCE)
-set(protobuf_BUILD_LIBPROTOC       OFF CACHE BOOL "" FORCE)
+# NOTE: not setting protobuf_BUILD_LIBPROTOC — protobuf forces libprotoc ON whenever
+# BUILD_PROTOC_BINARIES is ON (protoc needs it), so an OFF here would be silently ignored
+# and misleading. We only consume the protoc tool + libprotobuf-lite, not libprotoc.
 set(protobuf_INSTALL               OFF CACHE BOOL "" FORCE)
 set(protobuf_MSVC_STATIC_RUNTIME   OFF CACHE BOOL "" FORCE)
 add_subdirectory(protobuf)

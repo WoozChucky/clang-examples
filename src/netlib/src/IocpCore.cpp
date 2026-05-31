@@ -101,6 +101,10 @@ void IocpCore::PostRecv(const std::shared_ptr<Conn>& c) {
 }
 
 void IocpCore::Send(ConnId id, OwnedBuffer&& payload) {
+    // Guard the public API boundary: a default-constructed / moved-from buffer has a null
+    // base, and writing the length head below would deref null. Drop it (its no-op deleter
+    // runs on destruct).
+    if (!payload.Valid()) return;
     // Look up + copy out the shared_ptr under m_Mx, then release m_Mx BEFORE
     // touching sendMx / issuing WSASend (avoids m_Mx re-entrancy + m_Mx->sendMx ABBA).
     std::shared_ptr<Conn> c;

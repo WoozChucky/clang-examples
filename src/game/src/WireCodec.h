@@ -1,9 +1,9 @@
 #pragma once
 
-// Thin helpers bridging protobuf-lite messages to the netlib byte API
-// (NetServices::Send(handle, conn, opcode, data, len) / NetEvent{payload,len}).
-// Header-only, game-local. Wire framing is unchanged — these only (de)serialize
-// the `data` field of an existing [u16 opcode][data] frame.
+// Thin helpers bridging protobuf-lite messages to the engine's opaque-frame byte API.
+// The engine transport is serialization-agnostic ([u32 len][opaque]); the game owns the
+// payload format, which here is [u16 opcode][protobuf]. EncodeInto serializes that frame
+// straight into an AcquireSend buffer; PeekOpcode/Decode read it back. Header-only, game-local.
 
 #include <cstdint>
 #include <vector>
@@ -28,8 +28,12 @@ bool Decode(const uint8_t* data, uint32_t len, M& out) {
 }
 
 // Opcode trait: maps a message type to the wire::Opcode tag a send-site passes as
-// the frame opcode. Specialize one line per message type.
-template <class M> wire::Opcode OpcodeOf();
+// the frame opcode. Specialize one line per message type. An unspecialized type is a
+// COMPILE error (with this message) rather than a cryptic unresolved-external at link.
+template <class M> wire::Opcode OpcodeOf() {
+    static_assert(sizeof(M) == 0, "wirecodec::OpcodeOf<M>: no specialization for this message type — add one");
+    return wire::OPCODE_UNSPECIFIED;   // unreachable; silences control-flow warnings
+}
 template <> inline wire::Opcode OpcodeOf<wire::Ping>()     { return wire::OPCODE_PING; }
 template <> inline wire::Opcode OpcodeOf<wire::Pong>()     { return wire::OPCODE_PONG; }
 template <> inline wire::Opcode OpcodeOf<wire::Snapshot>() { return wire::OPCODE_SNAPSHOT; }
