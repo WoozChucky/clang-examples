@@ -11,6 +11,7 @@
 #include "Actions.h"     // ActionCategory / Actions::
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 #include "WireCodec.h"  // protobuf wire-format encode/decode (plumbing demo)
+#include "SessionFlow.h"  // pure client session FSM driven by ClientSessionSystem
 
 #include <netlib/netlib.h> // MakeTcpServer/MakeTcpClient factories for the net demo
 #include "ServerControl.h" // kDedicatedServerDefaultPort
@@ -448,23 +449,12 @@ private:
 } // namespace
 
 // ---------------------------------------------------------------------------
-// NetServerSystem / NetClientSystem — minimal loopback networking demo to build on.
-//
-// Split from the original combined NetDemoSystem along the AppRole boundary: the
-// server stands up a local TCP listener (ctx.serverPort) and echoes pings; the
-// client connects to it and pings every 2s. Both go through the engine NetServices
-// bridge (ctx.Net). The client sends a wire::Ping (opcode OPCODE_PING); the server
-// decodes it and replies wire::Pong (OPCODE_PONG); both log the seq round-trip.
-//
-// Both systems are registered unconditionally; each no-ops for the wrong role
-// (server-only on AppRole::Server, client otherwise) — GameRegisterSystems stays
-// role-agnostic, role is read per-tick from ctx.role.
+// Dual-server connection flow (prototype; loopback, all in one process).
 //
 // Adapters are marked gameResident=true: on a Game.dll hot-reload these systems are
 // destroyed and recreated, so their handles are lost — the teardown
 // (GameThread → NetSubsystem::ReleaseGameResidentConnections) closes them before
-// the DLL unloads, and the fresh instances re-create them. Edit/extend freely:
-// swap the loopback target for a real server address, add your own opcodes, etc.
+// the DLL unloads, and the fresh instances re-create them.
 
 namespace {
 // Serialize a protobuf message into a pooled send buffer ([u16 opcode][protobuf])
@@ -479,155 +469,6 @@ bool SendMessage(const NetServices* net, NetHandle h, NetConnId conn, const M& m
     return net->Send(h, conn, std::move(sb), written);
 }
 } // namespace
-
-// ---- Server: bind once (to ctx.serverPort), echo Ping (OPCODE_PING) -> Pong (OPCODE_PONG) ----
-class NetServerSystem final : public ISystem {
-public:
-    void Update(SystemContext& ctx) override {
-        const NetServices* net = ctx.Net;
-        if (!net) return;                       // nullptr in tests / before engine init
-        if (ctx.role != AppRole::Server) return; // client builds skip the listener
-
-        if (!m_ServerStarted) {
-            m_ServerStarted = true;
-            NetServerConfig sc{};
-            sc.bind = netlib::Endpoint{ "127.0.0.1", ctx.serverPort };   // port from the bootstrap (server.exe --port)
-            sc.gameResident = true;
-            m_Server = net->CreateServer(&netlib::MakeTcpServer, sc);
-            if (m_Server != NetHandle::Invalid)
-                SM_TRACE("NetDemo[server]: listening on 127.0.0.1:%u", (unsigned)ctx.serverPort);
-            else
-                SM_WARN("NetDemo[server]: failed to bind 127.0.0.1:%u", (unsigned)ctx.serverPort);
-        }
-        NetEvent ev{};
-        while (net->PollEvent(&ev)) {
-            if (ev.adapter != m_Server) continue;
-            if (ev.kind == NetEventKind::Message &&
-                wirecodec::PeekOpcode(ev.payload, ev.len) == static_cast<uint16_t>(wire::OPCODE_PING)) {
-                wire::Ping ping;
-                if (wirecodec::Decode(ev.payload + 2, ev.len - 2, ping)) {
-                    wire::Pong pong;
-                    pong.set_seq(ping.seq());
-                    pong.set_server_time_ms(static_cast<uint64_t>(ctx.gameTime * 1000.0));
-                    SendMessage(net, m_Server, ev.conn, pong);
-                    SM_TRACE("NetDemo[server]: echoed Ping seq=%u -> Pong (conn %llu)",
-                             ping.seq(), (unsigned long long)ev.conn);
-                } else {
-                    SM_WARN("NetDemo[server]: malformed Ping dropped");
-                }
-            } else if (ev.kind == NetEventKind::Connected) {
-                SM_TRACE("NetDemo[server]: client connected (conn %llu)", (unsigned long long)ev.conn);
-            }
-        }
-    }
-    const char* Name() const override { return "NetServerSystem"; }
-    SystemPhase Phase() const override { return SystemPhase::PreRender; }
-
-private:
-    bool      m_ServerStarted = false;
-    NetHandle m_Server        = NetHandle::Invalid;
-};
-
-// ---- Client: connect to ctx.serverPort, ping every 2s ----
-// Retry is fast for the first kMaxFastRetries, then slows (never permanently gives up) so the
-// editor client reconnects whenever a server appears — no editor restart needed. A change to
-// ctx.serverPort (the panel's Start writes ApplicationContext::NetServerPort) drops the current
-// handle and reconnects fresh to the new port.
-class NetClientSystem final : public ISystem {
-public:
-    void Update(SystemContext& ctx) override {
-        const NetServices* net = ctx.Net;
-        if (!net) return;                       // nullptr in tests / before engine init
-        if (ctx.role == AppRole::Server) return; // dedicated server runs no client
-
-        const uint16_t port = ctx.serverPort;
-        if (port != m_LastPort) {
-            if (m_Client != NetHandle::Invalid) net->Close(m_Client);
-            m_Client       = NetHandle::Invalid;
-            m_Connected    = false;
-            m_RetryCount   = 0;
-            m_RetryAccum   = 0.0;
-            m_GaveUpLogged = false;
-            m_LastPort     = port;
-        }
-
-        if (m_Client == NetHandle::Invalid) {
-            m_RetryAccum += ctx.dt;
-            const double interval = (m_RetryCount < kMaxFastRetries) ? kFastRetrySec : kSlowRetrySec;
-            if (m_RetryAccum < interval) return;
-            m_RetryAccum = 0.0;
-            if (m_RetryCount == kMaxFastRetries && !m_GaveUpLogged) {
-                SM_WARN("NetDemo[client]: no server on %u after %d tries; slow-retrying every %.0fs",
-                        (unsigned)port, kMaxFastRetries, kSlowRetrySec);
-                m_GaveUpLogged = true;
-            }
-            NetClientConfig cc{};
-            cc.target = netlib::Endpoint{ "127.0.0.1", port };
-            cc.gameResident = true;
-            m_Client = net->CreateClient(&netlib::MakeTcpClient, cc);
-            if (m_RetryCount < kMaxFastRetries) m_RetryCount++;
-            if (m_Client == NetHandle::Invalid)
-                SM_WARN("NetDemo[client]: CreateClient failed (port %u)", (unsigned)port);
-            else
-                SM_TRACE("NetDemo[client]: connecting to 127.0.0.1:%u", (unsigned)port);
-            return;
-        }
-
-        NetEvent ev{};
-        while (net->PollEvent(&ev)) {
-            if (ev.adapter != m_Client) continue;
-            if (ev.kind == NetEventKind::Connected) {
-                m_Connected = true; m_GaveUpLogged = false;
-                m_RetryCount = 0;   // replenish budget: bound CONSECUTIVE failures, not lifetime connects
-                SM_TRACE("NetDemo[client]: connected");
-            } else if (ev.kind == NetEventKind::Message &&
-                       wirecodec::PeekOpcode(ev.payload, ev.len) == static_cast<uint16_t>(wire::OPCODE_PONG)) {
-                wire::Pong pong;
-                if (wirecodec::Decode(ev.payload + 2, ev.len - 2, pong))
-                    SM_TRACE("NetDemo[client]: got Pong seq=%u server_time_ms=%llu",
-                             pong.seq(), (unsigned long long)pong.server_time_ms());
-                else
-                    SM_WARN("NetDemo[client]: malformed Pong dropped");
-            } else if (ev.kind == NetEventKind::Disconnected || ev.kind == NetEventKind::Error) {
-                SM_WARN("NetDemo[client]: connection lost/failed; will retry");
-                net->Close(m_Client);
-                m_Client = NetHandle::Invalid;
-                m_Connected = false;
-                m_RetryAccum = 0.0;
-                return;
-            }
-        }
-
-        if (m_Connected) {
-            m_PingAccum += ctx.dt;
-            if (m_PingAccum >= kPingIntervalSec) {
-                m_PingAccum = 0.0;
-                wire::Ping ping;
-                ping.set_seq(++m_Seq);
-                ping.set_client_time_ms(static_cast<uint64_t>(ctx.gameTime * 1000.0));
-                SendMessage(net, m_Client, kNetConnInvalid, ping);
-                SM_TRACE("NetDemo[client]: sent Ping seq=%u", ping.seq());
-            }
-        }
-    }
-    const char* Name() const override { return "NetClientSystem"; }
-    SystemPhase Phase() const override { return SystemPhase::PreRender; }
-
-private:
-    static constexpr int    kMaxFastRetries  = 20;
-    static constexpr double kFastRetrySec    = 0.5;
-    static constexpr double kSlowRetrySec    = 5.0;
-    static constexpr double kPingIntervalSec = 2.0;
-
-    NetHandle m_Client        = NetHandle::Invalid;
-    bool      m_Connected     = false;
-    bool      m_GaveUpLogged  = false;
-    int       m_RetryCount    = 0;
-    double    m_RetryAccum    = 0.0;
-    double    m_PingAccum     = 0.0;
-    uint32_t  m_Seq           = 0;
-    uint16_t  m_LastPort      = kDedicatedServerDefaultPort;   // detect port change → reconnect
-};
 
 // ---- Dual-server connection flow (prototype; loopback, all in one process) ----
 namespace flow {
@@ -749,6 +590,149 @@ private:
     NetHandle m_Server  = NetHandle::Invalid;
 };
 
+// Client: owns BOTH client handles + the session FSM; auto-advances auth -> world -> char -> in-game.
+class ClientSessionSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const NetServices* net = ctx.Net;
+        if (!net) return;
+
+        // Disconnected: (re)start by connecting the auth client (bounded retry).
+        if (m_State == SessionState::Disconnected) {
+            m_RetryAccum += ctx.dt;
+            const double interval = (m_RetryCount < kMaxFastRetries) ? kFastRetrySec : kSlowRetrySec;
+            if (m_RetryAccum < interval) return;
+            m_RetryAccum = 0.0;
+            CloseClients(net);
+            NetClientConfig cc{}; cc.target = netlib::Endpoint{ flow::kHost, flow::kAuthPort }; cc.gameResident = true;
+            m_Auth = net->CreateClient(&netlib::MakeTcpClient, cc);
+            if (m_RetryCount < kMaxFastRetries) m_RetryCount++;
+            if (m_Auth == NetHandle::Invalid) { SM_WARN("ClientSession: auth CreateClient failed"); return; }
+            m_State = SessionState::ConnectingAuth;
+            SM_TRACE("ClientSession: connecting to auth %s:%u", flow::kHost, (unsigned)flow::kAuthPort);
+            return;
+        }
+
+        NetEvent ev{};
+        while (net->PollEvent(&ev)) {
+            const bool isAuth  = (ev.adapter == m_Auth);
+            const bool isWorld = (ev.adapter == m_World);
+            if (!isAuth && !isWorld) continue;
+
+            if (ev.kind == NetEventKind::Connected) {
+                Feed(ctx, net, isAuth ? SessionInput::AuthConnected : SessionInput::WorldConnected);
+            } else if (ev.kind == NetEventKind::Disconnected || ev.kind == NetEventKind::Error) {
+                Feed(ctx, net, SessionInput::Dropped);
+            } else if (ev.kind == NetEventKind::Message) {
+                Feed(ctx, net, ClassifyReply(ev));
+            }
+        }
+    }
+    const char* Name() const override { return "ClientSessionSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PreRender; }
+
+private:
+    SessionInput ClassifyReply(const NetEvent& ev) {
+        const uint16_t op = FrameOpcode(ev);
+        const uint8_t* body = ev.payload + 2; const uint32_t blen = ev.len - 2;
+        switch (op) {
+            case (uint16_t)wire::OPCODE_LOGIN_RESP: {
+                wire::LoginResp r; return (wirecodec::Decode(body, blen, r) && r.ok()) ? SessionInput::LoginOk : SessionInput::LoginFail;
+            }
+            case (uint16_t)wire::OPCODE_WORLD_LIST_RESP: {
+                wire::WorldListResp r;
+                if (wirecodec::Decode(body, blen, r) && r.worlds_size() > 0) { m_PickWorldId = r.worlds(0).id(); return SessionInput::WorldListReceived; }
+                return SessionInput::Dropped;
+            }
+            case (uint16_t)wire::OPCODE_WORLD_SELECT_RESP: {
+                wire::WorldSelectResp r;
+                if (wirecodec::Decode(body, blen, r) && r.ok()) {
+                    m_WorldHost = r.host(); m_WorldPort = (uint16_t)r.port(); m_Token = r.session_token();
+                    return SessionInput::WorldSelectOk;
+                }
+                return SessionInput::WorldSelectFail;
+            }
+            case (uint16_t)wire::OPCODE_SESSION_AUTH_RESP: {
+                wire::SessionAuthResp r; return (wirecodec::Decode(body, blen, r) && r.ok()) ? SessionInput::SessionAuthOk : SessionInput::SessionAuthFail;
+            }
+            case (uint16_t)wire::OPCODE_CHAR_LIST_RESP: {
+                wire::CharListResp r;
+                if (wirecodec::Decode(body, blen, r) && r.chars_size() > 0) { m_PickCharId = r.chars(0).id(); return SessionInput::CharListReceived; }
+                return SessionInput::Dropped;
+            }
+            case (uint16_t)wire::OPCODE_CHAR_SELECT_RESP: {
+                wire::CharSelectResp r; return (wirecodec::Decode(body, blen, r) && r.ok()) ? SessionInput::CharSelectOk : SessionInput::CharSelectFail;
+            }
+            case (uint16_t)wire::OPCODE_ENTER_GAME_RESP: {
+                wire::EnterGameResp r; return (wirecodec::Decode(body, blen, r) && r.ok()) ? SessionInput::EnterGameOk : SessionInput::EnterGameFail;
+            }
+            default: return SessionInput::Dropped;
+        }
+    }
+
+    void Feed(SystemContext& ctx, const NetServices* net, SessionInput in) {
+        SessionStep step = AdvanceSession(m_State, in);
+        if (step.next != m_State)
+            SM_TRACE("ClientSession: state %d -(input %d)-> %d", (int)m_State, (int)in, (int)step.next);
+        m_State = step.next;
+        DoAction(ctx, net, step.action);
+    }
+
+    void DoAction(SystemContext& ctx, const NetServices* net, SessionAction a) {
+        switch (a) {
+            case SessionAction::SendLogin: {
+                wire::LoginReq r; r.set_username("player"); r.set_password("stub");
+                SendMessage(net, m_Auth, kNetConnInvalid, r); break;
+            }
+            case SessionAction::SendWorldListReq: { wire::WorldListReq r; SendMessage(net, m_Auth, kNetConnInvalid, r); break; }
+            case SessionAction::SendWorldSelect:  { wire::WorldSelectReq r; r.set_world_id(m_PickWorldId); SendMessage(net, m_Auth, kNetConnInvalid, r); break; }
+            case SessionAction::BeginHandoff: {
+                if (m_Auth != NetHandle::Invalid) { net->Close(m_Auth); m_Auth = NetHandle::Invalid; }
+                NetClientConfig cc{}; cc.target = netlib::Endpoint{ m_WorldHost, m_WorldPort }; cc.gameResident = true;
+                m_World = net->CreateClient(&netlib::MakeTcpClient, cc);
+                SM_TRACE("ClientSession: handoff -> world %s:%u", m_WorldHost.c_str(), (unsigned)m_WorldPort);
+                if (m_World == NetHandle::Invalid) Feed(ctx, net, SessionInput::Dropped);
+                break;
+            }
+            case SessionAction::SendSessionAuth: { wire::SessionAuthReq r; r.set_session_token(m_Token); SendMessage(net, m_World, kNetConnInvalid, r); break; }
+            case SessionAction::SendCharListReq: { wire::CharListReq r; SendMessage(net, m_World, kNetConnInvalid, r); break; }
+            case SessionAction::SendCharSelect:  { wire::CharSelectReq r; r.set_char_id(m_PickCharId); SendMessage(net, m_World, kNetConnInvalid, r); break; }
+            case SessionAction::SendEnterGame:   { wire::EnterGameReq r; SendMessage(net, m_World, kNetConnInvalid, r); break; }
+            case SessionAction::EnterGame:
+                ctx.world.ModifySingleton<GameStateComponent>([](GameStateComponent& g){ g.Current = GameStateId::InLevel; });
+                SM_TRACE("ClientSession: IN GAME - flow complete; GameState -> InLevel");
+                break;
+            case SessionAction::Reset:
+                SM_WARN("ClientSession: flow reset; will retry");
+                CloseClients(net);
+                m_State = SessionState::Disconnected;
+                m_RetryAccum = 0.0;
+                break;
+            case SessionAction::None: default: break;
+        }
+    }
+
+    void CloseClients(const NetServices* net) {
+        if (m_Auth  != NetHandle::Invalid) { net->Close(m_Auth);  m_Auth  = NetHandle::Invalid; }
+        if (m_World != NetHandle::Invalid) { net->Close(m_World); m_World = NetHandle::Invalid; }
+    }
+
+    static constexpr int    kMaxFastRetries = 20;
+    static constexpr double kFastRetrySec   = 0.5;
+    static constexpr double kSlowRetrySec   = 5.0;
+
+    SessionState m_State = SessionState::Disconnected;
+    NetHandle    m_Auth  = NetHandle::Invalid;
+    NetHandle    m_World = NetHandle::Invalid;
+    uint32_t     m_PickWorldId = 0;
+    uint32_t     m_PickCharId  = 0;
+    std::string  m_WorldHost;
+    uint16_t     m_WorldPort   = 0;
+    std::string  m_Token;
+    int          m_RetryCount  = 0;
+    double       m_RetryAccum  = 0.0;
+};
+
 void GameRegisterSystems(SystemScheduler* s) {
     if (!s) return;
     s->Register(std::make_unique<TextRotationSystem>());
@@ -762,10 +746,9 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<NavObstacleSyncSystem>());           // Physics: syncs NavObstacleComponent → dtTileCache
     s->Register(std::make_unique<CameraZoomSystem>());                // PostSimulation: before follow (sets distance)
     s->Register(std::make_unique<IsometricFollowCameraSystem>());     // PostSimulation: reads post-resolution Transform
-    s->Register(std::make_unique<NetServerSystem>());                // PreRender: net demo server half (AppRole::Server only)
-    s->Register(std::make_unique<NetClientSystem>());                // PreRender: net demo client half (non-server roles)
     s->Register(std::make_unique<AuthServerSystem>());               // PreRender: dual-server flow — auth (login/world)
     s->Register(std::make_unique<WorldServerSystem>());              // PreRender: dual-server flow — world (session/char/enter)
+    s->Register(std::make_unique<ClientSessionSystem>());            // PreRender: dual-server flow — client (drives the FSM)
 }
 
 extern "C" EXPORT_FN void GameInstallLogSink(LogSinkFn fn) { sm_set_log_sink(fn); }
