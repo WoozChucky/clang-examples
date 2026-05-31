@@ -12,7 +12,9 @@
 
 namespace wirecodec {
 
-// Serialize a protobuf-lite message to a byte buffer suitable for Send(data, len).
+// Serialize a protobuf-lite message to a freshly-allocated byte buffer. General helper;
+// the live send path uses EncodeInto (serialize-in-place into an AcquireSend buffer), so
+// this allocating form is currently unused by the net systems — kept for ad-hoc/test use.
 template <class M>
 std::vector<uint8_t> Encode(const M& msg) {
     std::vector<uint8_t> out(msg.ByteSizeLong());
