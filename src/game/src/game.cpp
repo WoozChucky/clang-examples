@@ -480,7 +480,7 @@ bool SendMessage(const NetServices* net, NetHandle h, NetConnId conn, const M& m
 }
 } // namespace
 
-// ---- Server: bind once (to ctx.serverPort), echo pings (tag 1 -> tag 2) ----
+// ---- Server: bind once (to ctx.serverPort), echo Ping (OPCODE_PING) -> Pong (OPCODE_PONG) ----
 class NetServerSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
