@@ -5,6 +5,7 @@
 #include <netlib/OwnedBuffer.h>
 
 #include "lib.h"
+#include <memory/AllocatorRegistry.h>
 
 NetSubsystem& NetSubsystem::Instance() { static NetSubsystem s; return s; }
 
@@ -14,9 +15,20 @@ void NetSubsystem::Init() {
     m_Pool = std::make_unique<NetBufferPool>(kBlockSize, kBlocks);
     m_SendPool = std::make_unique<NetBufferPool>(kSendBlockSize, kSendBlocks);
     m_BorrowedIndex = UINT32_MAX;
+
+    // Surface both pools in the editor Memory panel (read-only observers).
+    m_RecvStats.pool = m_Pool.get();     m_RecvStats.name = "Net Recv Pool";
+    m_SendStats.pool = m_SendPool.get(); m_SendStats.name = "Net Send Pool";
+    Engine::Registry().Register(&m_RecvStats);
+    Engine::Registry().Register(&m_SendStats);
 }
 
 void NetSubsystem::Shutdown() {
+    // Unregister observers before the pools they point at are reset (lifetime-safe).
+    Engine::Registry().Unregister(&m_RecvStats);
+    Engine::Registry().Unregister(&m_SendStats);
+    m_RecvStats.pool = nullptr;
+    m_SendStats.pool = nullptr;
     if (m_BorrowedIndex != UINT32_MAX && m_Pool) { m_Pool->Release(m_BorrowedIndex); m_BorrowedIndex = UINT32_MAX; }
     {
         std::scoped_lock lk(m_Mx);

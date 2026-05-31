@@ -12,6 +12,7 @@
 #include "NetBufferPool.h"
 #include "NetServices.h"
 #include <netlib/netlib.h>
+#include <memory/IAllocator.h>
 
 // Engine-side networking singleton (GameThread-only API; netlib adapter threads call
 // the per-adapter sinks). Owns the registry, the inbound MPSC ring, the payload pool.
@@ -42,6 +43,28 @@ private:
         NetSubsystem* self = nullptr;
         NetHandle     handle = NetHandle::Invalid;
         void OnIoEvent(const netlib::IoEvent& ev) override { self->OnAdapterEvent(handle, ev); }
+    };
+
+    // Read-only IAllocator view over a NetBufferPool, so the editor Memory panel can
+    // observe block usage alongside the engine allocators. Allocate/Deallocate are
+    // no-ops (the panel only reads Stats/Name/Category); Stats() is recomputed from the
+    // pool's fixed capacity and its atomic in-use count on each read.
+    struct PoolStatsAdapter final : Engine::IAllocator {
+        const NetBufferPool* pool = nullptr;
+        const char*          name = "";
+        mutable Engine::AllocatorStats stats;
+        void* Allocate(size_t, size_t) override { return nullptr; }
+        void  Deallocate(void*, size_t) override {}
+        const Engine::AllocatorStats& Stats() const override {
+            const size_t inUse = pool ? pool->InUse() : 0;
+            const size_t cap    = pool ? pool->BlockCount() * pool->BlockSize() : 0;
+            stats.Capacity = cap;
+            stats.Used     = pool ? inUse * pool->BlockSize() : 0;
+            if (stats.Used > stats.Peak) stats.Peak = stats.Used;
+            return stats;
+        }
+        Engine::MemCategory Category() const override { return Engine::MemCategory::General; }
+        const char* Name() const override { return name; }
     };
 
     struct Entry {
@@ -76,4 +99,7 @@ private:
     std::unique_ptr<NetBufferPool>                  m_Pool;
     std::unique_ptr<NetBufferPool>                  m_SendPool;     // outbound send buffers (16 KB blocks)
     uint32_t m_BorrowedIndex = UINT32_MAX;          // inbound block lent to the game until next PollEvent
+
+    PoolStatsAdapter m_RecvStats;   // registered with Engine::Registry() over m_Pool
+    PoolStatsAdapter m_SendStats;   // registered with Engine::Registry() over m_SendPool
 };

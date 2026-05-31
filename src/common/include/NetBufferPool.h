@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -29,6 +30,7 @@ public:
     std::byte* Acquire(uint32_t& outIndex) {
         uint32_t idx;
         if (!m_Free->Dequeue(idx)) return nullptr;
+        m_InUse.fetch_add(1, std::memory_order_relaxed);   // observability only; off the free-list path
         outIndex = idx;
         return Block(idx);
     }
@@ -43,6 +45,7 @@ public:
     // and slowly leak blocks under contention (observed ~5-8% in stress tests).
     void Release(uint32_t index) {
         while (!m_Free->Enqueue(index)) { std::this_thread::yield(); }
+        m_InUse.fetch_sub(1, std::memory_order_relaxed);   // observability only; index is already back on the free-list
     }
 
     std::byte* Block(uint32_t index) { return m_Storage.data() + static_cast<size_t>(index) * m_BlockSize; }
@@ -56,6 +59,8 @@ public:
 
     size_t BlockSize() const { return m_BlockSize; }
     size_t BlockCount() const { return m_Count; }
+    // Approximate live-block count (relaxed; for stats/observability, not synchronization).
+    size_t InUse() const { return m_InUse.load(std::memory_order_relaxed); }
 
 private:
     static size_t RoundUpPow2(size_t n) {
@@ -69,4 +74,5 @@ private:
     size_t                  m_Count;
     std::vector<std::byte>  m_Storage;
     std::unique_ptr<FreeRing> m_Free;   // heap (large; avoid bloating the pool object)
+    std::atomic<size_t>     m_InUse{0};
 };
