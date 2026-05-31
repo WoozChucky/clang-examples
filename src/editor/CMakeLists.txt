@@ -135,3 +135,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 endif()
 
 add_dependencies(editor game)
+# Building the editor also builds the dedicated server (server.exe), so the editor's
+# "Start Dedicated Server" path always has an up-to-date server binary to spawn.
+# (server itself depends on game, so this transitively keeps Game.dll fresh too.)
+add_dependencies(editor server)
