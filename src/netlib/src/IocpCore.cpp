@@ -12,6 +12,7 @@ namespace netlib::detail {
 
 namespace {
 constexpr ULONG_PTR kExitKey = 0;   // PostQueuedCompletionStatus exit sentinel
+constexpr size_t    kRecvChunk = 64 * 1024;
 
 // Atomically take the socket and close it; only the caller that wins the
 // exchange actually closes (prevents double-close of a recycled handle).
@@ -78,9 +79,9 @@ void IocpCore::PostRecv(const std::shared_ptr<Conn>& c) {
     auto* op = new IoOp();
     op->type = IoOp::Type::Recv;
     op->conn = c;                    // strong ref: keeps Conn alive while op in flight
-    op->recvBuffer.resize(64 * 1024);
-    op->wsabuf.buf = reinterpret_cast<CHAR*>(op->recvBuffer.data());
-    op->wsabuf.len = static_cast<ULONG>(op->recvBuffer.size());
+    std::byte* dst = c->framer.PrepareRecv(kRecvChunk);   // reserve tail; one recv in flight per conn
+    op->wsabuf.buf = reinterpret_cast<CHAR*>(dst);
+    op->wsabuf.len = static_cast<ULONG>(kRecvChunk);
     // Load the handle once. If it is already INVALID, a concurrent close won the
     // race — do not issue WSARecv on INVALID_SOCKET. Clean up the op and bail; the
     // close path will (or already did) drive Disconnect.
@@ -171,9 +172,8 @@ void IocpCore::HandleRecv(const std::shared_ptr<Conn>& c, IoOp* op, DWORD bytes,
         Disconnect(c);                  // `c` alive via local ref
         return;
     }
-    const bool framerOk = c->framer.Push(
-        std::span<const std::byte>(op->recvBuffer.data(), bytes),
-        [&](std::span<const std::byte> frame) { Emit(c->id, IoEvent::Kind::Message, frame); });
+    const bool framerOk = c->framer.CommitRecv(
+        bytes, [&](std::span<const std::byte> frame) { Emit(c->id, IoEvent::Kind::Message, frame); });
     delete op;
     if (!framerOk) { Disconnect(c); return; }      // oversize frame
     PostRecv(c);                                   // keep one recv outstanding (no-op if closing)

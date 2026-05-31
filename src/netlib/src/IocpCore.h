@@ -29,7 +29,6 @@ struct Conn;
 struct IoOp {
     OVERLAPPED ov{};
     enum class Type : uint8_t { Recv, Send } type;
-    std::vector<std::byte> recvBuffer;   // recv scratch (removed in Task 3)
     OwnedBuffer            sendBuffer;    // owns the framed bytes for a send op
     WSABUF wsabuf{};
     std::shared_ptr<Conn> conn;      // strong ref: keeps Conn alive while op in flight
