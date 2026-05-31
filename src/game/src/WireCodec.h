@@ -34,4 +34,25 @@ template <> inline wire::Opcode OpcodeOf<wire::Ping>()     { return wire::OPCODE
 template <> inline wire::Opcode OpcodeOf<wire::Pong>()     { return wire::OPCODE_PONG; }
 template <> inline wire::Opcode OpcodeOf<wire::Snapshot>() { return wire::OPCODE_SNAPSHOT; }
 
+// Serialize [u16 opcode][protobuf] for `msg` straight into `dst` (cap bytes).
+// opcode = OpcodeOf<M>(). Returns total bytes written (2 + ByteSize), or 0 if cap
+// is too small. The caller sizes dst via AcquireSend(2 + msg.ByteSizeLong()).
+template <class M>
+uint32_t EncodeInto(uint8_t* dst, uint32_t cap, const M& msg) {
+    const uint32_t n = static_cast<uint32_t>(msg.ByteSizeLong());
+    if (cap < 2u + n) return 0;
+    const uint16_t op = static_cast<uint16_t>(OpcodeOf<M>());
+    dst[0] = static_cast<uint8_t>(op & 0xff);
+    dst[1] = static_cast<uint8_t>((op >> 8) & 0xff);
+    if (n) (void)msg.SerializeToArray(dst + 2, static_cast<int>(n));
+    return 2u + n;
+}
+
+// Read the leading [u16 opcode] from a received frame (0 if len < 2).
+inline uint16_t PeekOpcode(const uint8_t* frame, uint32_t len) {
+    return len >= 2 ? static_cast<uint16_t>(frame[0]) |
+                      (static_cast<uint16_t>(frame[1]) << 8)
+                    : 0;
+}
+
 } // namespace wirecodec

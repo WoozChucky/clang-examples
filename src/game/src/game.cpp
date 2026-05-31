@@ -670,28 +670,26 @@ void GameUpdate(GameState* state) {
     if (g_GameState->StateId == GameStateId::Uninitialized) {
         SM_TRACE("[GAMEDLL] Initializing game...");
 
-        // One-time protobuf wire-format smoke test. Proves the protoc-generated
-        // code + libprotobuf-lite link and round-trip over the byte API. NOT wired
-        // into the live net systems — this is plumbing validation only.
-        // Logs (not SM_ASSERT): the game target has no platform_debug_break, so
-        // SM_ASSERT would fail to link in Game.dll.
+        // One-time protobuf wire-format self-check: exercise EncodeInto (serialize
+        // [u16 opcode][protobuf] in place) + PeekOpcode + Decode round-trip. NOT wired
+        // into the live net systems here — this is plumbing validation only. Logs
+        // (not SM_ASSERT): the game target has no platform_debug_break to link SM_ASSERT.
         {
             wire::Ping ping;
-            ping.set_seq(42);
-            ping.set_client_time_ms(123456);
+            ping.set_seq(7);
+            ping.set_client_time_ms(999);
 
-            const std::vector<uint8_t> bytes = wirecodec::Encode(ping);
-
+            uint8_t buf[64];
+            const uint32_t n = wirecodec::EncodeInto(buf, sizeof(buf), ping);
+            const bool okOp = n >= 2 && wirecodec::PeekOpcode(buf, n) ==
+                              static_cast<uint16_t>(wire::OPCODE_PING);
             wire::Ping back;
-            const bool ok = wirecodec::Decode(bytes.data(),
-                                              static_cast<uint32_t>(bytes.size()), back);
-            if (ok && back.seq() == 42u && back.client_time_ms() == 123456ull) {
-                SM_TRACE("[GAMEDLL] protobuf smoke test OK: Ping seq=%u, %zu bytes, opcode=%d",
-                         back.seq(), bytes.size(),
-                         static_cast<int>(wirecodec::OpcodeOf<wire::Ping>()));
-            } else {
+            const bool okBody = n >= 2 && wirecodec::Decode(buf + 2, n - 2, back);
+            if (okOp && okBody && back.seq() == 7u && back.client_time_ms() == 999ull)
+                SM_TRACE("[GAMEDLL] protobuf EncodeInto/PeekOpcode/Decode round-trip OK (seq=%u, %u bytes)",
+                         back.seq(), n);
+            else
                 SM_ERROR("[GAMEDLL] protobuf wire round-trip FAILED");
-            }
         }
 
         // Game-owned singletons.
