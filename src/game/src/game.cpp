@@ -629,6 +629,126 @@ private:
     uint16_t  m_LastPort      = kDedicatedServerDefaultPort;   // detect port change → reconnect
 };
 
+// ---- Dual-server connection flow (prototype; loopback, all in one process) ----
+namespace flow {
+    constexpr uint16_t kAuthPort  = 27100;
+    constexpr uint16_t kWorldPort = 27101;
+    constexpr const char* kHost   = "127.0.0.1";
+}
+
+// Dispatch helper: opcode of a received frame (0 if runt).
+static inline uint16_t FrameOpcode(const NetEvent& ev) {
+    return wirecodec::PeekOpcode(ev.payload, ev.len);
+}
+
+// AuthServer: login (accept any) + world list + world select (returns world addr + token).
+class AuthServerSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const NetServices* net = ctx.Net;
+        if (!net) return;
+        if (!m_Started) {
+            m_Started = true;
+            NetServerConfig sc{};
+            sc.bind = netlib::Endpoint{ flow::kHost, flow::kAuthPort };
+            sc.gameResident = true;
+            m_Server = net->CreateServer(&netlib::MakeTcpServer, sc);
+            if (m_Server != NetHandle::Invalid) SM_TRACE("AuthServer: listening on %s:%u", flow::kHost, (unsigned)flow::kAuthPort);
+            else                                SM_WARN("AuthServer: failed to bind %s:%u", flow::kHost, (unsigned)flow::kAuthPort);
+        }
+        NetEvent ev{};
+        while (net->PollEvent(&ev)) {
+            if (ev.adapter != m_Server) continue;
+            if (ev.kind != NetEventKind::Message) continue;
+            const uint16_t op = FrameOpcode(ev);
+            if (op == (uint16_t)wire::OPCODE_LOGIN_REQ) {
+                wire::LoginReq req;
+                if (!wirecodec::Decode(ev.payload + 2, ev.len - 2, req)) { SM_WARN("AuthServer: bad LoginReq"); continue; }
+                wire::LoginResp resp; resp.set_ok(true);
+                SendMessage(net, m_Server, ev.conn, resp);
+                SM_TRACE("AuthServer: login '%s' -> ok (conn %llu)", req.username().c_str(), (unsigned long long)ev.conn);
+            } else if (op == (uint16_t)wire::OPCODE_WORLD_LIST_REQ) {
+                wire::WorldListResp resp;
+                auto* w = resp.add_worlds();
+                w->set_id(1); w->set_name("Local World"); w->set_host(flow::kHost); w->set_port(flow::kWorldPort);
+                SendMessage(net, m_Server, ev.conn, resp);
+                SM_TRACE("AuthServer: sent world list (1 world) to conn %llu", (unsigned long long)ev.conn);
+            } else if (op == (uint16_t)wire::OPCODE_WORLD_SELECT_REQ) {
+                wire::WorldSelectReq req;
+                wirecodec::Decode(ev.payload + 2, ev.len - 2, req);
+                wire::WorldSelectResp resp;
+                resp.set_ok(true);
+                resp.set_host(flow::kHost);
+                resp.set_port(flow::kWorldPort);
+                resp.set_session_token("sess-" + std::to_string(++m_TokenCounter));
+                SendMessage(net, m_Server, ev.conn, resp);
+                SM_TRACE("AuthServer: world %u selected -> %s:%u token=%s",
+                         req.world_id(), flow::kHost, (unsigned)flow::kWorldPort, resp.session_token().c_str());
+            }
+        }
+    }
+    const char* Name() const override { return "AuthServerSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PreRender; }
+private:
+    bool      m_Started = false;
+    NetHandle m_Server  = NetHandle::Invalid;
+    uint32_t  m_TokenCounter = 0;
+};
+
+// WorldServer: session-token handshake (accept any non-empty) + char list + char select + enter-game.
+class WorldServerSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const NetServices* net = ctx.Net;
+        if (!net) return;
+        if (!m_Started) {
+            m_Started = true;
+            NetServerConfig sc{};
+            sc.bind = netlib::Endpoint{ flow::kHost, flow::kWorldPort };
+            sc.gameResident = true;
+            m_Server = net->CreateServer(&netlib::MakeTcpServer, sc);
+            if (m_Server != NetHandle::Invalid) SM_TRACE("WorldServer: listening on %s:%u", flow::kHost, (unsigned)flow::kWorldPort);
+            else                                SM_WARN("WorldServer: failed to bind %s:%u", flow::kHost, (unsigned)flow::kWorldPort);
+        }
+        NetEvent ev{};
+        while (net->PollEvent(&ev)) {
+            if (ev.adapter != m_Server) continue;
+            if (ev.kind != NetEventKind::Message) continue;
+            const uint16_t op = FrameOpcode(ev);
+            if (op == (uint16_t)wire::OPCODE_SESSION_AUTH_REQ) {
+                wire::SessionAuthReq req;
+                wirecodec::Decode(ev.payload + 2, ev.len - 2, req);
+                wire::SessionAuthResp resp;
+                resp.set_ok(!req.session_token().empty());
+                SendMessage(net, m_Server, ev.conn, resp);
+                SM_TRACE("WorldServer: session token '%s' -> %s (conn %llu)",
+                         req.session_token().c_str(), resp.ok() ? "ok" : "reject", (unsigned long long)ev.conn);
+            } else if (op == (uint16_t)wire::OPCODE_CHAR_LIST_REQ) {
+                wire::CharListResp resp;
+                auto* c0 = resp.add_chars(); c0->set_id(1); c0->set_name("Hero");  c0->set_level(10);
+                auto* c1 = resp.add_chars(); c1->set_id(2); c1->set_name("Rogue"); c1->set_level(7);
+                SendMessage(net, m_Server, ev.conn, resp);
+                SM_TRACE("WorldServer: sent char list (2) to conn %llu", (unsigned long long)ev.conn);
+            } else if (op == (uint16_t)wire::OPCODE_CHAR_SELECT_REQ) {
+                wire::CharSelectReq req;
+                wirecodec::Decode(ev.payload + 2, ev.len - 2, req);
+                wire::CharSelectResp resp; resp.set_ok(true);
+                SendMessage(net, m_Server, ev.conn, resp);
+                SM_TRACE("WorldServer: char %u selected (conn %llu)", req.char_id(), (unsigned long long)ev.conn);
+            } else if (op == (uint16_t)wire::OPCODE_ENTER_GAME_REQ) {
+                wire::EnterGameResp resp; resp.set_ok(true);
+                SendMessage(net, m_Server, ev.conn, resp);
+                SM_TRACE("WorldServer: enter-game ok (conn %llu)", (unsigned long long)ev.conn);
+            }
+        }
+    }
+    const char* Name() const override { return "WorldServerSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PreRender; }
+private:
+    bool      m_Started = false;
+    NetHandle m_Server  = NetHandle::Invalid;
+};
+
 void GameRegisterSystems(SystemScheduler* s) {
     if (!s) return;
     s->Register(std::make_unique<TextRotationSystem>());
@@ -644,6 +764,8 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<IsometricFollowCameraSystem>());     // PostSimulation: reads post-resolution Transform
     s->Register(std::make_unique<NetServerSystem>());                // PreRender: net demo server half (AppRole::Server only)
     s->Register(std::make_unique<NetClientSystem>());                // PreRender: net demo client half (non-server roles)
+    s->Register(std::make_unique<AuthServerSystem>());               // PreRender: dual-server flow — auth (login/world)
+    s->Register(std::make_unique<WorldServerSystem>());              // PreRender: dual-server flow — world (session/char/enter)
 }
 
 extern "C" EXPORT_FN void GameInstallLogSink(LogSinkFn fn) { sm_set_log_sink(fn); }
