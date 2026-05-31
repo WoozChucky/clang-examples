@@ -43,6 +43,7 @@ struct Conn {
     Framer  framer;
     std::mutex            sendMx;
     std::deque<OwnedBuffer> sendQ;
+    size_t                sendQueuedBytes = 0;   // bytes in sendQ + in-flight send op (guarded by sendMx)
     bool                  sending = false;
     std::atomic<bool>     closing{false};   // stops recv reposts; gates Disconnected-once
 

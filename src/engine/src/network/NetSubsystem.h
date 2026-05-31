@@ -88,8 +88,12 @@ private:
     void OnAdapterEvent(NetHandle h, const netlib::IoEvent& ev);
 
     static constexpr size_t kRingSize  = 4096;
-    static constexpr size_t kBlockSize = 64 * 1024;
-    static constexpr size_t kBlocks    = 1024;
+    // Inbound delivery block = the per-message ceiling. MUST be >= ConnConfig::maxFrameBytes
+    // (256 KiB) so any frame the netlib framer accepts always fits the cross-thread handoff
+    // (the framer disconnects anything bigger, so the >block drop in OnAdapterEvent is just a
+    // defensive backstop). 256 blocks x 256 KiB = 64 MiB reserved (same footprint as before).
+    static constexpr size_t kBlockSize = 256 * 1024;
+    static constexpr size_t kBlocks    = 256;
     static constexpr size_t kSendBlockSize = 16 * 1024;
     static constexpr size_t kSendBlocks    = 1024;
 

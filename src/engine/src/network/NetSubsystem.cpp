@@ -23,7 +23,7 @@ void NetSubsystem::Init() {
     // bytes (in-use blocks * blockSize), NOT payload bytes — a 9-byte Ping still occupies a
     // full block. The "(NN KB blocks)" suffix makes those columns self-explanatory. (Literals
     // mirror kBlockSize / kSendBlockSize below — keep in sync if those change.)
-    m_RecvStats.pool = m_Pool.get();     m_RecvStats.name = "Net Recv Pool (64 KB blocks)";
+    m_RecvStats.pool = m_Pool.get();     m_RecvStats.name = "Net Recv Pool (256 KB blocks)";
     m_SendStats.pool = m_SendPool.get(); m_SendStats.name = "Net Send Pool (16 KB blocks)";
     Engine::Registry().Register(&m_RecvStats);
     Engine::Registry().Register(&m_SendStats);

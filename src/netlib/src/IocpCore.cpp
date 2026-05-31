@@ -115,13 +115,34 @@ void IocpCore::Send(ConnId id, OwnedBuffer&& payload) {
         c = it->second;                 // keeps `c` alive after we unlock m_Mx
     }
 
-    // Write the [uint32 LE length] prefix into the reserved head, in place. No copy.
-    const uint32_t len = payload.PayloadLen();
-    std::memcpy(payload.Data(), &len, 4);   // x64 LE; head is the first 4 bytes
+    const uint32_t len   = payload.PayloadLen();
+    const uint32_t total = payload.TotalSize();   // 4-byte head + payload; the queued/sent size
 
-    std::scoped_lock slk(c->sendMx);    // m_Mx is NOT held here
-    c->sendQ.push_back(std::move(payload));
-    if (!c->sending) { c->sending = true; PostSend(c); }
+    // Enforce the per-conn outbound queue cap (0 = unlimited). On overflow we drop this frame
+    // and disconnect — a peer that won't drain (or a producer outrunning the link) must not grow
+    // the queue without bound. Decide under sendMx, but call Disconnect AFTER releasing it
+    // (Disconnect takes m_Mx + emits Disconnected outside locks; keeps sendMx/m_Mx disjoint).
+    bool   overflow = false;
+    size_t queuedNow = 0;
+    {
+        std::scoped_lock slk(c->sendMx);    // m_Mx is NOT held here
+        const uint32_t cap = m_Cfg.maxSendQueueBytes;
+        if (cap != 0 && c->sendQueuedBytes + total > cap) {
+            overflow  = true;
+            queuedNow = c->sendQueuedBytes;   // captured for the log (payload released on return)
+        } else {
+            // Write the [uint32 LE length] prefix into the reserved head, in place. No copy.
+            std::memcpy(payload.Data(), &len, 4);   // x64 LE; head is the first 4 bytes
+            c->sendQueuedBytes += total;
+            c->sendQ.push_back(std::move(payload));
+            if (!c->sending) { c->sending = true; PostSend(c); }
+        }
+    }
+    if (overflow) {
+        SM_WARN("netlib: conn %llu send queue cap %u B exceeded (queued=%zu + %u); disconnecting",
+                (unsigned long long)id, m_Cfg.maxSendQueueBytes, queuedNow, total);
+        Disconnect(c);
+    }
 }
 
 void IocpCore::PostSend(const std::shared_ptr<Conn>& c) {   // sendMx held; m_Mx NOT held
@@ -184,9 +205,11 @@ void IocpCore::HandleRecv(const std::shared_ptr<Conn>& c, IoOp* op, DWORD bytes,
 }
 
 void IocpCore::HandleSend(const std::shared_ptr<Conn>& c, IoOp* op, DWORD /*bytes*/, bool ok) {
+    const uint32_t sent = op->sendBuffer.TotalSize();   // this frame's memory is about to free
     delete op;
-    if (!ok) { Disconnect(c); return; }            // `c` alive via local ref
+    if (!ok) { Disconnect(c); return; }            // `c` alive via local ref (counter moot — conn dies)
     std::scoped_lock slk(c->sendMx);
+    c->sendQueuedBytes -= sent;                    // frame fully sent + released; un-account it
     PostSend(c);                                   // send next queued frame, if any
 }
 

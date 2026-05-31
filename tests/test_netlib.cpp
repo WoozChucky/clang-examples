@@ -478,6 +478,31 @@ static void test_oversize_frame_disconnects() {
     WSACleanup();
 }
 
+// Outbound send-queue cap (ConnConfig::maxSendQueueBytes): exceeding it => log + disconnect.
+// Deterministic: cap = 1, so the very first frame (>= the 4-byte length head) overflows the
+// cap synchronously inside Send — no peer-stall/timing dependence needed.
+static void test_send_queue_cap_disconnects() {
+    auto server = netlib::MakeTcpServer();
+    RecordingSink srvSink;
+    netlib::ConnConfig scfg{};
+    server->Start(netlib::Endpoint{ "127.0.0.1", 0 }, scfg, &srvSink);
+    const uint16_t port = server->BoundPort();
+
+    auto client = netlib::MakeTcpClient();
+    RecordingSink cliSink;
+    netlib::ConnConfig ccfg{};
+    ccfg.maxSendQueueBytes = 1;   // any real frame exceeds this on the first Send
+    client->Start(netlib::Endpoint{ "127.0.0.1", port }, ccfg, &cliSink);
+    CHECK(wait_until([&]{ return cliSink.connected.load() == 1; }), "sqcap: client Connected");
+
+    client->Send(owned_of("hi"));   // queued(0) + frame(6) > cap(1) => overflow => disconnect
+    CHECK(wait_until([&]{ return cliSink.disconnected.load() == 1; }),
+          "sqcap: send-queue overflow disconnects the conn");
+
+    client->Stop();
+    server->Stop();
+}
+
 int main() {
     test_version();
     test_value_types();
@@ -492,6 +517,7 @@ int main() {
     test_tcp_connect_failure();
     test_stop_is_clean();
     test_oversize_frame_disconnects();
+    test_send_queue_cap_disconnects();
 
     if (g_Failures == 0) { std::printf("All netlib tests passed.\n"); return 0; }
     std::printf("%d netlib test(s) FAILED.\n", g_Failures);

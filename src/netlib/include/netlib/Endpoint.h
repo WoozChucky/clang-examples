@@ -20,7 +20,13 @@ struct ConnConfig {
     bool     noDelay      = true;       // TCP_NODELAY on — disable Nagle (~40ms batching is fatal)
     int      sendBufBytes = 1 << 18;    // SO_SNDBUF (256 KiB); 0 = leave OS default
     int      recvBufBytes = 1 << 18;    // SO_RCVBUF
-    uint32_t maxFrameBytes = 1u << 24;  // 16 MiB hard cap; oversize length prefix => disconnect
+    // Max bytes of a single inbound frame. A declared length above this => log + disconnect.
+    // This is the real per-message ceiling — the engine sizes its inbound delivery block to
+    // match (NetSubsystem kBlockSize), so anything the framer accepts always fits downstream.
+    uint32_t maxFrameBytes = 256u * 1024;     // 256 KiB
+    // Max bytes queued for outbound send on one connection (sum of un-sent + in-flight frames).
+    // Exceeding it (a peer not draining / a too-fast producer) => log + disconnect. 0 = unlimited.
+    uint32_t maxSendQueueBytes = 1u << 20;    // 1 MiB
 };
 
 } // namespace netlib
