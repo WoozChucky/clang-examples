@@ -19,6 +19,8 @@
 #include <memory>
 #include <tuple>
 #include <cstring>
+#include <vector>
+#include <unordered_map>
 
 #include <ApplicationContext.h>
 #include <Input.h>
@@ -477,10 +479,50 @@ namespace flow {
     constexpr const char* kHost   = "127.0.0.1";
 }
 
-// Dispatch helper: opcode of a received frame (0 if runt).
-static inline uint16_t FrameOpcode(const NetEvent& ev) {
-    return wirecodec::PeekOpcode(ev.payload, ev.len);
+// All adapters (both servers + both clients) feed ONE shared inbound ring drained by a single
+// PollEvent consumer. With multiple in-process systems each owning an adapter, ONE poller must
+// fan events to the right owner — otherwise the first system to poll drains+drops everyone else's
+// events. NetPumpSystem drains once per tick (Input phase, before the PreRender net systems) into
+// per-adapter inboxes; each system reads its own. Payloads are copied (PollEvent's payload is
+// borrowed only until the next PollEvent). GameThread-only; no locking needed.
+struct InboxEvent {
+    NetEventKind         kind;
+    NetConnId            conn;
+    std::vector<uint8_t> payload;   // full game frame ([u16 opcode][protobuf]); empty for non-Message
+};
+static std::unordered_map<uint32_t, std::vector<InboxEvent>> g_NetInbox;   // keyed by NetHandle value
+
+// Events pumped for one adapter THIS tick (empty if none / unknown handle).
+static const std::vector<InboxEvent>& InboxFor(NetHandle h) {
+    static const std::vector<InboxEvent> kEmpty;
+    auto it = g_NetInbox.find(static_cast<uint32_t>(h));
+    return it == g_NetInbox.end() ? kEmpty : it->second;
 }
+
+// Drop an adapter's bucket when its handle is closed — handles are monotonic, so without this
+// a reconnect storm would grow g_NetInbox by one dead bucket per retry. Call after net->Close.
+static void EraseInbox(NetHandle h) { g_NetInbox.erase(static_cast<uint32_t>(h)); }
+
+// Drains the shared inbound ring once per tick and fans events to per-adapter inboxes.
+class NetPumpSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const NetServices* net = ctx.Net;
+        if (!net) return;
+        for (auto& [h, q] : g_NetInbox) q.clear();   // keep buckets (retain capacity), drop last tick's events
+        NetEvent ev{};
+        while (net->PollEvent(&ev)) {
+            InboxEvent ie;
+            ie.kind = ev.kind;
+            ie.conn = ev.conn;
+            if (ev.kind == NetEventKind::Message && ev.payload && ev.len)
+                ie.payload.assign(ev.payload, ev.payload + ev.len);
+            g_NetInbox[static_cast<uint32_t>(ev.adapter)].push_back(std::move(ie));
+        }
+    }
+    const char* Name() const override { return "NetPumpSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Input; }   // BEFORE the PreRender net systems
+};
 
 // AuthServer: login (accept any) + world list + world select (returns world addr + token).
 class AuthServerSystem final : public ISystem {
@@ -497,32 +539,32 @@ public:
             if (m_Server != NetHandle::Invalid) SM_TRACE("AuthServer: listening on %s:%u", flow::kHost, (unsigned)flow::kAuthPort);
             else                                SM_WARN("AuthServer: failed to bind %s:%u", flow::kHost, (unsigned)flow::kAuthPort);
         }
-        NetEvent ev{};
-        while (net->PollEvent(&ev)) {
-            if (ev.adapter != m_Server) continue;
-            if (ev.kind != NetEventKind::Message) continue;
-            const uint16_t op = FrameOpcode(ev);
+        for (const InboxEvent& ie : InboxFor(m_Server)) {
+            if (ie.kind != NetEventKind::Message || ie.payload.size() < 2) continue;
+            const uint8_t* data = ie.payload.data();
+            const uint32_t len  = static_cast<uint32_t>(ie.payload.size());
+            const uint16_t op   = wirecodec::PeekOpcode(data, len);
             if (op == (uint16_t)wire::OPCODE_LOGIN_REQ) {
                 wire::LoginReq req;
-                if (!wirecodec::Decode(ev.payload + 2, ev.len - 2, req)) { SM_WARN("AuthServer: bad LoginReq"); continue; }
+                if (!wirecodec::Decode(data + 2, len - 2, req)) { SM_WARN("AuthServer: bad LoginReq"); continue; }
                 wire::LoginResp resp; resp.set_ok(true);
-                SendMessage(net, m_Server, ev.conn, resp);
-                SM_TRACE("AuthServer: login '%s' -> ok (conn %llu)", req.username().c_str(), (unsigned long long)ev.conn);
+                SendMessage(net, m_Server, ie.conn, resp);
+                SM_TRACE("AuthServer: login '%s' -> ok (conn %llu)", req.username().c_str(), (unsigned long long)ie.conn);
             } else if (op == (uint16_t)wire::OPCODE_WORLD_LIST_REQ) {
                 wire::WorldListResp resp;
                 auto* w = resp.add_worlds();
                 w->set_id(1); w->set_name("Local World"); w->set_host(flow::kHost); w->set_port(flow::kWorldPort);
-                SendMessage(net, m_Server, ev.conn, resp);
-                SM_TRACE("AuthServer: sent world list (1 world) to conn %llu", (unsigned long long)ev.conn);
+                SendMessage(net, m_Server, ie.conn, resp);
+                SM_TRACE("AuthServer: sent world list (1 world) to conn %llu", (unsigned long long)ie.conn);
             } else if (op == (uint16_t)wire::OPCODE_WORLD_SELECT_REQ) {
                 wire::WorldSelectReq req;
-                wirecodec::Decode(ev.payload + 2, ev.len - 2, req);
+                wirecodec::Decode(data + 2, len - 2, req);
                 wire::WorldSelectResp resp;
                 resp.set_ok(true);
                 resp.set_host(flow::kHost);
                 resp.set_port(flow::kWorldPort);
                 resp.set_session_token("sess-" + std::to_string(++m_TokenCounter));
-                SendMessage(net, m_Server, ev.conn, resp);
+                SendMessage(net, m_Server, ie.conn, resp);
                 SM_TRACE("AuthServer: world %u selected -> %s:%u token=%s",
                          req.world_id(), flow::kHost, (unsigned)flow::kWorldPort, resp.session_token().c_str());
             }
@@ -551,35 +593,35 @@ public:
             if (m_Server != NetHandle::Invalid) SM_TRACE("WorldServer: listening on %s:%u", flow::kHost, (unsigned)flow::kWorldPort);
             else                                SM_WARN("WorldServer: failed to bind %s:%u", flow::kHost, (unsigned)flow::kWorldPort);
         }
-        NetEvent ev{};
-        while (net->PollEvent(&ev)) {
-            if (ev.adapter != m_Server) continue;
-            if (ev.kind != NetEventKind::Message) continue;
-            const uint16_t op = FrameOpcode(ev);
+        for (const InboxEvent& ie : InboxFor(m_Server)) {
+            if (ie.kind != NetEventKind::Message || ie.payload.size() < 2) continue;
+            const uint8_t* data = ie.payload.data();
+            const uint32_t len  = static_cast<uint32_t>(ie.payload.size());
+            const uint16_t op   = wirecodec::PeekOpcode(data, len);
             if (op == (uint16_t)wire::OPCODE_SESSION_AUTH_REQ) {
                 wire::SessionAuthReq req;
-                wirecodec::Decode(ev.payload + 2, ev.len - 2, req);
+                wirecodec::Decode(data + 2, len - 2, req);
                 wire::SessionAuthResp resp;
                 resp.set_ok(!req.session_token().empty());
-                SendMessage(net, m_Server, ev.conn, resp);
+                SendMessage(net, m_Server, ie.conn, resp);
                 SM_TRACE("WorldServer: session token '%s' -> %s (conn %llu)",
-                         req.session_token().c_str(), resp.ok() ? "ok" : "reject", (unsigned long long)ev.conn);
+                         req.session_token().c_str(), resp.ok() ? "ok" : "reject", (unsigned long long)ie.conn);
             } else if (op == (uint16_t)wire::OPCODE_CHAR_LIST_REQ) {
                 wire::CharListResp resp;
                 auto* c0 = resp.add_chars(); c0->set_id(1); c0->set_name("Hero");  c0->set_level(10);
                 auto* c1 = resp.add_chars(); c1->set_id(2); c1->set_name("Rogue"); c1->set_level(7);
-                SendMessage(net, m_Server, ev.conn, resp);
-                SM_TRACE("WorldServer: sent char list (2) to conn %llu", (unsigned long long)ev.conn);
+                SendMessage(net, m_Server, ie.conn, resp);
+                SM_TRACE("WorldServer: sent char list (2) to conn %llu", (unsigned long long)ie.conn);
             } else if (op == (uint16_t)wire::OPCODE_CHAR_SELECT_REQ) {
                 wire::CharSelectReq req;
-                wirecodec::Decode(ev.payload + 2, ev.len - 2, req);
+                wirecodec::Decode(data + 2, len - 2, req);
                 wire::CharSelectResp resp; resp.set_ok(true);
-                SendMessage(net, m_Server, ev.conn, resp);
-                SM_TRACE("WorldServer: char %u selected (conn %llu)", req.char_id(), (unsigned long long)ev.conn);
+                SendMessage(net, m_Server, ie.conn, resp);
+                SM_TRACE("WorldServer: char %u selected (conn %llu)", req.char_id(), (unsigned long long)ie.conn);
             } else if (op == (uint16_t)wire::OPCODE_ENTER_GAME_REQ) {
                 wire::EnterGameResp resp; resp.set_ok(true);
-                SendMessage(net, m_Server, ev.conn, resp);
-                SM_TRACE("WorldServer: enter-game ok (conn %llu)", (unsigned long long)ev.conn);
+                SendMessage(net, m_Server, ie.conn, resp);
+                SM_TRACE("WorldServer: enter-game ok (conn %llu)", (unsigned long long)ie.conn);
             }
         }
     }
@@ -613,28 +655,21 @@ public:
             return;
         }
 
-        NetEvent ev{};
-        while (net->PollEvent(&ev)) {
-            const bool isAuth  = (ev.adapter == m_Auth);
-            const bool isWorld = (ev.adapter == m_World);
-            if (!isAuth && !isWorld) continue;
-
-            if (ev.kind == NetEventKind::Connected) {
-                Feed(ctx, net, isAuth ? SessionInput::AuthConnected : SessionInput::WorldConnected);
-            } else if (ev.kind == NetEventKind::Disconnected || ev.kind == NetEventKind::Error) {
-                Feed(ctx, net, SessionInput::Dropped);
-            } else if (ev.kind == NetEventKind::Message) {
-                Feed(ctx, net, ClassifyReply(ev));
-            }
-        }
+        // Drain this tick's inbox for each owned client (auth first, then world). InboxFor is
+        // evaluated once per range-for, so a mid-loop handoff (which swaps m_Auth->m_World) is safe.
+        for (const InboxEvent& ie : InboxFor(m_Auth))  HandleClientEvent(ctx, net, true,  ie);
+        for (const InboxEvent& ie : InboxFor(m_World)) HandleClientEvent(ctx, net, false, ie);
     }
     const char* Name() const override { return "ClientSessionSystem"; }
     SystemPhase Phase() const override { return SystemPhase::PreRender; }
 
 private:
-    SessionInput ClassifyReply(const NetEvent& ev) {
-        const uint16_t op = FrameOpcode(ev);
-        const uint8_t* body = ev.payload + 2; const uint32_t blen = ev.len - 2;
+    SessionInput ClassifyReply(const InboxEvent& ie) {
+        if (ie.payload.size() < 2) return SessionInput::Dropped;
+        const uint8_t* data = ie.payload.data();
+        const uint32_t len  = static_cast<uint32_t>(ie.payload.size());
+        const uint16_t op   = wirecodec::PeekOpcode(data, len);
+        const uint8_t* body = data + 2; const uint32_t blen = len - 2;
         switch (op) {
             case (uint16_t)wire::OPCODE_LOGIN_RESP: {
                 wire::LoginResp r; return (wirecodec::Decode(body, blen, r) && r.ok()) ? SessionInput::LoginOk : SessionInput::LoginFail;
@@ -670,6 +705,16 @@ private:
         }
     }
 
+    // Dispatch one inbox event for a client handle (isAuth selects the Connected mapping).
+    void HandleClientEvent(SystemContext& ctx, const NetServices* net, bool isAuth, const InboxEvent& ie) {
+        if (ie.kind == NetEventKind::Connected)
+            Feed(ctx, net, isAuth ? SessionInput::AuthConnected : SessionInput::WorldConnected);
+        else if (ie.kind == NetEventKind::Disconnected || ie.kind == NetEventKind::Error)
+            Feed(ctx, net, SessionInput::Dropped);
+        else if (ie.kind == NetEventKind::Message)
+            Feed(ctx, net, ClassifyReply(ie));
+    }
+
     void Feed(SystemContext& ctx, const NetServices* net, SessionInput in) {
         SessionStep step = AdvanceSession(m_State, in);
         if (step.next != m_State)
@@ -687,7 +732,7 @@ private:
             case SessionAction::SendWorldListReq: { wire::WorldListReq r; SendMessage(net, m_Auth, kNetConnInvalid, r); break; }
             case SessionAction::SendWorldSelect:  { wire::WorldSelectReq r; r.set_world_id(m_PickWorldId); SendMessage(net, m_Auth, kNetConnInvalid, r); break; }
             case SessionAction::BeginHandoff: {
-                if (m_Auth != NetHandle::Invalid) { net->Close(m_Auth); m_Auth = NetHandle::Invalid; }
+                if (m_Auth != NetHandle::Invalid) { net->Close(m_Auth); EraseInbox(m_Auth); m_Auth = NetHandle::Invalid; }
                 NetClientConfig cc{}; cc.target = netlib::Endpoint{ m_WorldHost, m_WorldPort }; cc.gameResident = true;
                 m_World = net->CreateClient(&netlib::MakeTcpClient, cc);
                 SM_TRACE("ClientSession: handoff -> world %s:%u", m_WorldHost.c_str(), (unsigned)m_WorldPort);
@@ -713,8 +758,8 @@ private:
     }
 
     void CloseClients(const NetServices* net) {
-        if (m_Auth  != NetHandle::Invalid) { net->Close(m_Auth);  m_Auth  = NetHandle::Invalid; }
-        if (m_World != NetHandle::Invalid) { net->Close(m_World); m_World = NetHandle::Invalid; }
+        if (m_Auth  != NetHandle::Invalid) { net->Close(m_Auth);  EraseInbox(m_Auth);  m_Auth  = NetHandle::Invalid; }
+        if (m_World != NetHandle::Invalid) { net->Close(m_World); EraseInbox(m_World); m_World = NetHandle::Invalid; }
     }
 
     static constexpr int    kMaxFastRetries = 20;
@@ -746,6 +791,7 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<NavObstacleSyncSystem>());           // Physics: syncs NavObstacleComponent → dtTileCache
     s->Register(std::make_unique<CameraZoomSystem>());                // PostSimulation: before follow (sets distance)
     s->Register(std::make_unique<IsometricFollowCameraSystem>());     // PostSimulation: reads post-resolution Transform
+    s->Register(std::make_unique<NetPumpSystem>());                  // Input: drains shared net ring -> per-adapter inboxes (before flow systems)
     s->Register(std::make_unique<AuthServerSystem>());               // PreRender: dual-server flow — auth (login/world)
     s->Register(std::make_unique<WorldServerSystem>());              // PreRender: dual-server flow — world (session/char/enter)
     s->Register(std::make_unique<ClientSessionSystem>());            // PreRender: dual-server flow — client (drives the FSM)
