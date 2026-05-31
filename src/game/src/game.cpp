@@ -701,6 +701,20 @@ void GameUpdate(GameState* state) {
                          back.seq(), n);
             else
                 SM_ERROR("[GAMEDLL] protobuf wire round-trip FAILED");
+
+            // New flow messages round-trip (incl. a repeated field).
+            wire::WorldListResp wl;
+            auto* w = wl.add_worlds();
+            w->set_id(1); w->set_name("Local World"); w->set_host("127.0.0.1"); w->set_port(27101);
+            uint8_t wbuf[128];
+            const uint32_t wn = wirecodec::EncodeInto(wbuf, sizeof(wbuf), wl);
+            wire::WorldListResp wlBack;
+            const bool wlOk = wn >= 2
+                && wirecodec::PeekOpcode(wbuf, wn) == static_cast<uint16_t>(wire::OPCODE_WORLD_LIST_RESP)
+                && wirecodec::Decode(wbuf + 2, wn - 2, wlBack)
+                && wlBack.worlds_size() == 1 && wlBack.worlds(0).port() == 27101;
+            if (wlOk) SM_TRACE("[GAMEDLL] flow-proto round-trip OK (WorldListResp)");
+            else      SM_ERROR("[GAMEDLL] flow-proto round-trip FAILED");
         }
 
         // Game-owned singletons.

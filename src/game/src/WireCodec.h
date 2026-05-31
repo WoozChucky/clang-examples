@@ -39,6 +39,20 @@ template <class M> wire::Opcode OpcodeOf() {
 template <> inline wire::Opcode OpcodeOf<wire::Ping>()     { return wire::OPCODE_PING; }
 template <> inline wire::Opcode OpcodeOf<wire::Pong>()     { return wire::OPCODE_PONG; }
 template <> inline wire::Opcode OpcodeOf<wire::Snapshot>() { return wire::OPCODE_SNAPSHOT; }
+template <> inline wire::Opcode OpcodeOf<wire::LoginReq>()        { return wire::OPCODE_LOGIN_REQ; }
+template <> inline wire::Opcode OpcodeOf<wire::LoginResp>()       { return wire::OPCODE_LOGIN_RESP; }
+template <> inline wire::Opcode OpcodeOf<wire::WorldListReq>()    { return wire::OPCODE_WORLD_LIST_REQ; }
+template <> inline wire::Opcode OpcodeOf<wire::WorldListResp>()   { return wire::OPCODE_WORLD_LIST_RESP; }
+template <> inline wire::Opcode OpcodeOf<wire::WorldSelectReq>()  { return wire::OPCODE_WORLD_SELECT_REQ; }
+template <> inline wire::Opcode OpcodeOf<wire::WorldSelectResp>() { return wire::OPCODE_WORLD_SELECT_RESP; }
+template <> inline wire::Opcode OpcodeOf<wire::SessionAuthReq>()  { return wire::OPCODE_SESSION_AUTH_REQ; }
+template <> inline wire::Opcode OpcodeOf<wire::SessionAuthResp>() { return wire::OPCODE_SESSION_AUTH_RESP; }
+template <> inline wire::Opcode OpcodeOf<wire::CharListReq>()     { return wire::OPCODE_CHAR_LIST_REQ; }
+template <> inline wire::Opcode OpcodeOf<wire::CharListResp>()    { return wire::OPCODE_CHAR_LIST_RESP; }
+template <> inline wire::Opcode OpcodeOf<wire::CharSelectReq>()   { return wire::OPCODE_CHAR_SELECT_REQ; }
+template <> inline wire::Opcode OpcodeOf<wire::CharSelectResp>()  { return wire::OPCODE_CHAR_SELECT_RESP; }
+template <> inline wire::Opcode OpcodeOf<wire::EnterGameReq>()    { return wire::OPCODE_ENTER_GAME_REQ; }
+template <> inline wire::Opcode OpcodeOf<wire::EnterGameResp>()   { return wire::OPCODE_ENTER_GAME_RESP; }
 
 // Serialize [u16 opcode][protobuf] for `msg` straight into `dst` (cap bytes).
 // opcode = OpcodeOf<M>(). Returns total bytes written (2 + ByteSize), or 0 if cap
