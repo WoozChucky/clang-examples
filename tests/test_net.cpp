@@ -164,8 +164,8 @@ static void test_net_types() {
 
     NetEvent ev{};
     ev.kind = NetEventKind::Message;
-    ev.opcode = 7;
-    CHECK(ev.kind == NetEventKind::Message && ev.opcode == 7, "types: NetEvent fields");
+    ev.len  = 5;
+    CHECK(ev.kind == NetEventKind::Message && ev.len == 5, "types: NetEvent fields");
     CHECK(NetHandle::Invalid == NetHandle{0}, "types: NetHandle::Invalid is 0");
 }
 
@@ -183,6 +183,20 @@ static bool net_wait_until(Pred pred, int timeoutMs = 4000) {
 
 static std::vector<uint8_t> u8(const char* s) {
     std::vector<uint8_t> v; for (const char* p = s; *p; ++p) v.push_back((uint8_t)*p); return v;
+}
+
+// Send helper: writes a [u16 tag] + body into an acquired SendBuffer, then Sends.
+static bool send_tagged(NetServices& net, NetHandle h, NetConnId conn, uint16_t tag, const std::vector<uint8_t>& body) {
+    SendBuffer sb = net.AcquireSend(2 + body.size());
+    if (!sb.data) return false;
+    sb.data[0] = static_cast<uint8_t>(tag & 0xff);
+    sb.data[1] = static_cast<uint8_t>((tag >> 8) & 0xff);
+    std::memcpy(sb.data + 2, body.data(), body.size());
+    return net.Send(h, conn, sb, static_cast<uint32_t>(2 + body.size()));
+}
+// Read the [u16 tag] from a received frame.
+static uint16_t frame_tag(const NetEvent& ev) {
+    return static_cast<uint16_t>(ev.payload[0]) | (static_cast<uint16_t>(ev.payload[1]) << 8);
 }
 
 static void test_netsub_roundtrip() {
@@ -206,23 +220,21 @@ static void test_netsub_roundtrip() {
         while (net.PollEvent(&ev)) {
             if (ev.adapter == srv && ev.kind == NetEventKind::Connected) { ++serverConns; serverConn = ev.conn; }
             if (ev.adapter == srv && ev.kind == NetEventKind::Message) {
-                if (ev.opcode == 42 && ev.len == 5 && std::memcmp(ev.payload, "hello", 5) == 0) gotClientMsg = true;
+                if (ev.len == 7 && frame_tag(ev) == 42 && std::memcmp(ev.payload + 2, "hello", 5) == 0) gotClientMsg = true;
             }
         }
     };
     CHECK(net_wait_until([&]{ pump(); return serverConns == 1; }), "netsub: server saw a connection");
 
-    auto msg = u8("hello");
-    CHECK(net.Send(cli, kNetConnInvalid, 42, msg.data(), msg.size()), "netsub: client send");
-    CHECK(net_wait_until([&]{ pump(); return gotClientMsg; }), "netsub: server received opcode+payload");
+    CHECK(send_tagged(net, cli, kNetConnInvalid, 42, u8("hello")), "netsub: client send");
+    CHECK(net_wait_until([&]{ pump(); return gotClientMsg; }), "netsub: server received tag+payload");
 
     bool gotReply = false;
-    auto reply = u8("yo");
-    net.Send(srv, serverConn, 7, reply.data(), reply.size());
+    send_tagged(net, srv, serverConn, 7, u8("yo"));
     CHECK(net_wait_until([&]{
         NetEvent ev{};
         while (net.PollEvent(&ev)) if (ev.adapter == cli && ev.kind == NetEventKind::Message
-                                        && ev.opcode == 7 && ev.len == 2 && std::memcmp(ev.payload, "yo", 2) == 0) gotReply = true;
+                                        && ev.len == 4 && frame_tag(ev) == 7 && std::memcmp(ev.payload + 2, "yo", 2) == 0) gotReply = true;
         return gotReply;
     }), "netsub: client received server reply");
 
@@ -268,7 +280,7 @@ static void test_netsub_shutdown_while_connected() {
     int conns = 0;
     net_wait_until([&]{ NetEvent ev{}; while (net.PollEvent(&ev)) if (ev.kind == NetEventKind::Connected) ++conns; return conns >= 2; });
     auto m = u8("hi");
-    net.Send(cli, kNetConnInvalid, 1, m.data(), m.size());
+    send_tagged(net, cli, kNetConnInvalid, 1, m);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Tear down with BOTH adapters still live + connected — the app-close path.
@@ -296,10 +308,13 @@ static void test_netsub_traffic_then_shutdown() {
     while (std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - start).count() < 400) {
         NetEvent ev{};
         while (net.PollEvent(&ev)) {
-            if (ev.adapter == srv && ev.kind == NetEventKind::Message)
-                net.Send(srv, ev.conn, 2, ev.payload, ev.len);   // server echoes
+            if (ev.adapter == srv && ev.kind == NetEventKind::Message) {
+                std::vector<uint8_t> body(ev.payload, ev.payload + ev.len);   // copy before next PollEvent
+                SendBuffer sb = net.AcquireSend(body.size());
+                if (sb.data) { std::memcpy(sb.data, body.data(), body.size()); net.Send(srv, ev.conn, sb, (uint32_t)body.size()); }
+            }
         }
-        net.Send(cli, kNetConnInvalid, 1, m.data(), m.size());   // client pings hard (no 2s gap)
+        send_tagged(net, cli, kNetConnInvalid, 1, m);   // client pings hard (no 2s gap)
     }
     // Close path: straight to Shutdown with traffic in flight, no final drain.
     NetSubsystem::Instance().Shutdown();

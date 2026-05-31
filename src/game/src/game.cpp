@@ -17,6 +17,7 @@
 
 #include <memory>
 #include <tuple>
+#include <cstring>
 
 #include <ApplicationContext.h>
 #include <Input.h>
@@ -465,7 +466,28 @@ private:
 // the DLL unloads, and the fresh instances re-create them. Edit/extend freely:
 // swap the loopback target for a real server address, add your own opcodes, etc.
 
-// ---- Server: bind once (to ctx.serverPort), echo pings (opcode 1 -> opcode 2) ----
+namespace {
+// Game-owned 2-byte message tag carried INSIDE the opaque frame (the engine no
+// longer has an opcode). Mirrors what the future protobuf codec will do.
+constexpr uint16_t kTagPing = 1;
+constexpr uint16_t kTagPong = 2;
+
+bool SendTagged(const NetServices* net, NetHandle h, NetConnId conn, uint16_t tag,
+                const uint8_t* body, uint32_t bodyLen) {
+    SendBuffer sb = net->AcquireSend(2u + bodyLen);
+    if (!sb.data) return false;
+    sb.data[0] = static_cast<uint8_t>(tag & 0xff);
+    sb.data[1] = static_cast<uint8_t>((tag >> 8) & 0xff);
+    if (bodyLen) std::memcpy(sb.data + 2, body, bodyLen);
+    return net->Send(h, conn, sb, 2u + bodyLen);
+}
+uint16_t FrameTag(const NetEvent& ev) {
+    return ev.len >= 2 ? (static_cast<uint16_t>(ev.payload[0]) |
+                          (static_cast<uint16_t>(ev.payload[1]) << 8)) : 0;
+}
+} // namespace
+
+// ---- Server: bind once (to ctx.serverPort), echo pings (tag 1 -> tag 2) ----
 class NetServerSystem final : public ISystem {
 public:
     void Update(SystemContext& ctx) override {
@@ -487,8 +509,9 @@ public:
         NetEvent ev{};
         while (net->PollEvent(&ev)) {
             if (ev.adapter != m_Server) continue;
-            if (ev.kind == NetEventKind::Message && ev.opcode == 1) {
-                net->Send(m_Server, ev.conn, /*opcode*/ 2, ev.payload, ev.len);   // echo
+            if (ev.kind == NetEventKind::Message && FrameTag(ev) == kTagPing) {
+                const uint8_t* body = ev.payload + 2; const uint32_t bodyLen = ev.len - 2;
+                SendTagged(net, m_Server, ev.conn, kTagPong, body, bodyLen);   // echo as pong
                 SM_TRACE("NetDemo[server]: echoed ping from conn %llu", (unsigned long long)ev.conn);
             } else if (ev.kind == NetEventKind::Connected) {
                 SM_TRACE("NetDemo[server]: client connected (conn %llu)", (unsigned long long)ev.conn);
@@ -555,7 +578,7 @@ public:
                 m_Connected = true; m_GaveUpLogged = false;
                 m_RetryCount = 0;   // replenish budget: bound CONSECUTIVE failures, not lifetime connects
                 SM_TRACE("NetDemo[client]: connected");
-            } else if (ev.kind == NetEventKind::Message && ev.opcode == 2) {
+            } else if (ev.kind == NetEventKind::Message && FrameTag(ev) == kTagPong) {
                 SM_TRACE("NetDemo[client]: got echo (%u bytes)", ev.len);
             } else if (ev.kind == NetEventKind::Disconnected || ev.kind == NetEventKind::Error) {
                 SM_WARN("NetDemo[client]: connection lost/failed; will retry");
@@ -572,8 +595,8 @@ public:
             if (m_PingAccum >= kPingIntervalSec) {
                 m_PingAccum = 0.0;
                 const uint8_t payload[4] = { 'p','i','n','g' };
-                net->Send(m_Client, kNetConnInvalid, /*opcode*/ 1, payload, sizeof(payload));
-                SM_TRACE("NetDemo[client]: sent ping (opcode 1)");
+                SendTagged(net, m_Client, kNetConnInvalid, kTagPing, payload, sizeof(payload));
+                SM_TRACE("NetDemo[client]: sent ping (tag 1)");
             }
         }
     }

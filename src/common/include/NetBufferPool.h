@@ -47,6 +47,13 @@ public:
 
     std::byte* Block(uint32_t index) { return m_Storage.data() + static_cast<size_t>(index) * m_BlockSize; }
 
+    // Index of a block pointer previously returned by Acquire/Block. UB if `block`
+    // is not a block start from this pool.
+    uint32_t IndexOf(const std::byte* block) const {
+        return static_cast<uint32_t>(
+            (block - m_Storage.data()) / static_cast<std::ptrdiff_t>(m_BlockSize));
+    }
+
     size_t BlockSize() const { return m_BlockSize; }
     size_t BlockCount() const { return m_Count; }
 

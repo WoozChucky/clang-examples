@@ -27,7 +27,9 @@ public:
     NetHandle CreateServer(NetServerFactory factory, const NetServerConfig& cfg);
     NetHandle CreateClient(NetClientFactory factory, const NetClientConfig& cfg);
     uint16_t  BoundPort(NetHandle h);
-    bool      Send(NetHandle h, NetConnId conn, uint16_t opcode, const uint8_t* data, size_t len);
+    SendBuffer AcquireSend(size_t payloadBytes);
+    bool       Send(NetHandle h, NetConnId conn, SendBuffer buf, uint32_t payloadLen);
+    void       AbortSend(SendBuffer buf);
     bool      PollEvent(NetEvent* out);
     void      Close(NetHandle h);
 
@@ -53,7 +55,6 @@ private:
         NetEventKind kind;
         NetHandle    adapter;
         NetConnId    conn;
-        uint16_t     opcode;
         uint32_t     poolIndex;
         uint32_t     len;
         bool         hasPayload;
@@ -64,6 +65,8 @@ private:
     static constexpr size_t kRingSize  = 4096;
     static constexpr size_t kBlockSize = 64 * 1024;
     static constexpr size_t kBlocks    = 1024;
+    static constexpr size_t kSendBlockSize = 16 * 1024;
+    static constexpr size_t kSendBlocks    = 1024;
 
     std::mutex m_Mx;
     std::unordered_map<uint32_t, Entry> m_Adapters;
@@ -71,5 +74,6 @@ private:
 
     std::unique_ptr<MpscRing<RingEvent, kRingSize>> m_Ring;
     std::unique_ptr<NetBufferPool>                  m_Pool;
-    std::vector<uint8_t>                            m_DrainBuf;
+    std::unique_ptr<NetBufferPool>                  m_SendPool;     // outbound send buffers (16 KB blocks)
+    uint32_t m_BorrowedIndex = UINT32_MAX;          // inbound block lent to the game until next PollEvent
 };
