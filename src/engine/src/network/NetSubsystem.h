@@ -56,11 +56,13 @@ private:
         void* Allocate(size_t, size_t) override { return nullptr; }
         void  Deallocate(void*, size_t) override {}
         const Engine::AllocatorStats& Stats() const override {
-            const size_t inUse = pool ? pool->InUse() : 0;
-            const size_t cap    = pool ? pool->BlockCount() * pool->BlockSize() : 0;
-            stats.Capacity = cap;
-            stats.Used     = pool ? inUse * pool->BlockSize() : 0;
-            if (stats.Used > stats.Peak) stats.Peak = stats.Used;
+            const size_t blk = pool ? pool->BlockSize() : 0;
+            stats.Capacity = pool ? pool->BlockCount() * blk : 0;
+            stats.Used     = pool ? pool->InUse() * blk : 0;
+            // Peak comes from the pool's TRUE high-water (recorded at Acquire), not a
+            // read-time sample of Used — short-lived send buffers would otherwise never
+            // be caught between panel frames and Peak would read 0.
+            stats.Peak     = pool ? pool->PeakInUse() * blk : 0;
             return stats;
         }
         Engine::MemCategory Category() const override { return Engine::MemCategory::General; }

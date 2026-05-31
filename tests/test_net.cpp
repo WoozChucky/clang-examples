@@ -82,6 +82,24 @@ static void test_pool_exhaustion() {
     pool.Release(a); pool.Release(b);
 }
 
+// Peak must be a TRUE high-water mark recorded at Acquire, so it survives Release.
+// Sampling InUse at read time misses short-lived allocations (e.g. send buffers
+// released on the IOCP worker microseconds after acquire) — that's the send-pool
+// "peak 0" bug. PeakInUse must latch the max regardless of when it's read.
+static void test_pool_peak() {
+    NetBufferPool pool(64, 4);
+    CHECK(pool.PeakInUse() == 0, "pool: peak starts 0");
+    uint32_t a, b;
+    pool.Acquire(a);
+    pool.Acquire(b);
+    CHECK(pool.InUse() == 2, "pool: 2 in use");
+    CHECK(pool.PeakInUse() == 2, "pool: peak 2 while held");
+    pool.Release(a);
+    pool.Release(b);
+    CHECK(pool.InUse() == 0, "pool: 0 in use after release");
+    CHECK(pool.PeakInUse() == 2, "pool: peak high-water survives release");
+}
+
 #include <set>
 // Ring-direct MPMC probe (isolates MpscRing from NetBufferPool): seed 0..255, then
 // 8 threads each Dequeue+Enqueue heavily; afterward exactly 0..255 must remain — no
@@ -329,6 +347,7 @@ int main() {
     test_mpsc_single_consumer();
     test_pool_basic();
     test_pool_exhaustion();
+    test_pool_peak();
     test_pool_concurrent();
     test_netsub_roundtrip();
     test_release_game_resident();

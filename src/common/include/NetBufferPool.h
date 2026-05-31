@@ -30,7 +30,13 @@ public:
     std::byte* Acquire(uint32_t& outIndex) {
         uint32_t idx;
         if (!m_Free->Dequeue(idx)) return nullptr;
-        m_InUse.fetch_add(1, std::memory_order_relaxed);   // observability only; off the free-list path
+        // observability only; off the free-list path. Record a TRUE high-water at
+        // acquire time so the peak survives the (often near-instant) Release — a
+        // read-time sample of InUse misses short-lived blocks (e.g. send buffers
+        // freed on the IOCP worker microseconds later).
+        const size_t now = m_InUse.fetch_add(1, std::memory_order_relaxed) + 1;
+        size_t peak = m_PeakInUse.load(std::memory_order_relaxed);
+        while (now > peak && !m_PeakInUse.compare_exchange_weak(peak, now, std::memory_order_relaxed)) {}
         outIndex = idx;
         return Block(idx);
     }
@@ -61,6 +67,9 @@ public:
     size_t BlockCount() const { return m_Count; }
     // Approximate live-block count (relaxed; for stats/observability, not synchronization).
     size_t InUse() const { return m_InUse.load(std::memory_order_relaxed); }
+    // True high-water mark of InUse since construction (recorded at Acquire, so it
+    // survives Release). Relaxed; observability only.
+    size_t PeakInUse() const { return m_PeakInUse.load(std::memory_order_relaxed); }
 
 private:
     static size_t RoundUpPow2(size_t n) {
@@ -75,4 +84,5 @@ private:
     std::vector<std::byte>  m_Storage;
     std::unique_ptr<FreeRing> m_Free;   // heap (large; avoid bloating the pool object)
     std::atomic<size_t>     m_InUse{0};
+    std::atomic<size_t>     m_PeakInUse{0};
 };
