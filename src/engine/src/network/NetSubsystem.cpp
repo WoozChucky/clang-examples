@@ -1,6 +1,7 @@
 #include "network/NetSubsystem.h"
 
 #include <cstring>
+#include <utility>   // std::move
 
 #include <netlib/OwnedBuffer.h>
 
@@ -15,6 +16,7 @@ void NetSubsystem::Init() {
     m_Pool = std::make_unique<NetBufferPool>(kBlockSize, kBlocks);
     m_SendPool = std::make_unique<NetBufferPool>(kSendBlockSize, kSendBlocks);
     m_BorrowedIndex = UINT32_MAX;
+    m_SendHeapFallbackWarned = false;
 
     // Surface both pools in the editor Memory panel (read-only observers).
     m_RecvStats.pool = m_Pool.get();     m_RecvStats.name = "Net Recv Pool";
@@ -118,24 +120,28 @@ namespace {
 }
 
 SendBuffer NetSubsystem::AcquireSend(size_t payloadBytes) {
-    SendBuffer sb{};
     const size_t total = netlib::OwnedBuffer::kHeadBytes + payloadBytes;
-    if (m_SendPool && total <= m_SendPool->BlockSize()) {
+    const bool fitsBlock = m_SendPool && total <= m_SendPool->BlockSize();
+    if (fitsBlock) {
         uint32_t idx;
-        std::byte* block = m_SendPool->Acquire(idx);
-        if (block) {
-            sb.data  = reinterpret_cast<uint8_t*>(block + netlib::OwnedBuffer::kHeadBytes);
-            sb.cap   = static_cast<uint32_t>(payloadBytes);
-            sb.token = kPoolBit | idx;
-            return sb;
+        if (std::byte* block = m_SendPool->Acquire(idx)) {
+            m_SendHeapFallbackWarned = false;   // pool healthy again
+            return SendBuffer{ reinterpret_cast<uint8_t*>(block + netlib::OwnedBuffer::kHeadBytes),
+                               static_cast<uint32_t>(payloadBytes), kPoolBit | idx };
         }
-        // pool momentarily exhausted -> fall through to heap
+        // Fits a block but the pool is momentarily exhausted — a real degradation, surface it
+        // (once per exhaustion episode; AcquireSend is GameThread-only so the flag needs no atomic).
+        if (!m_SendHeapFallbackWarned) {
+            SM_WARN("NetSubsystem::AcquireSend: send pool exhausted (%zu blocks); falling back to heap",
+                    m_SendPool->BlockCount());
+            m_SendHeapFallbackWarned = true;
+        }
     }
+    // Heap path: either the pool was exhausted (warned above) or this payload is intentionally
+    // larger than a pool block (the specced >16 KB oversize case — not a degradation, no warn).
     auto* base = new std::byte[total];
-    sb.data  = reinterpret_cast<uint8_t*>(base + netlib::OwnedBuffer::kHeadBytes);
-    sb.cap   = static_cast<uint32_t>(payloadBytes);
-    sb.token = kHeapToken;   // heap; base recovered as data-kHeadBytes
-    return sb;
+    return SendBuffer{ reinterpret_cast<uint8_t*>(base + netlib::OwnedBuffer::kHeadBytes),
+                       static_cast<uint32_t>(payloadBytes), kHeapToken };   // base recovered as data-kHeadBytes
 }
 
 void NetSubsystem::AbortSend(SendBuffer buf) {
@@ -147,6 +153,14 @@ void NetSubsystem::AbortSend(SendBuffer buf) {
 
 bool NetSubsystem::Send(NetHandle h, NetConnId conn, SendBuffer buf, uint32_t payloadLen) {
     if (!buf.data) return false;
+    // Guard against a caller writing/declaring more than it acquired — would WSASend past the
+    // end of the backing block. Refuse + release rather than send a corrupt/overrun frame.
+    if (payloadLen > buf.cap) {
+        SM_ERROR("NetSubsystem::Send: payloadLen %u exceeds acquired cap %u; refusing + releasing",
+                 payloadLen, buf.cap);
+        AbortSend(std::move(buf));
+        return false;
+    }
     std::byte* base = reinterpret_cast<std::byte*>(buf.data) - netlib::OwnedBuffer::kHeadBytes;
 
     netlib::OwnedBuffer owned =

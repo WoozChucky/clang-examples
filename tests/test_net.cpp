@@ -10,6 +10,7 @@
 #include "network/NetServicesImpl.h"
 #include <chrono>
 #include <cstring>
+#include <utility>   // std::move
 
 void platform_debug_break(const char*, const char*, int, const char*) {}
 
@@ -210,7 +211,7 @@ static bool send_tagged(NetServices& net, NetHandle h, NetConnId conn, uint16_t 
     sb.data[0] = static_cast<uint8_t>(tag & 0xff);
     sb.data[1] = static_cast<uint8_t>((tag >> 8) & 0xff);
     std::memcpy(sb.data + 2, body.data(), body.size());
-    return net.Send(h, conn, sb, static_cast<uint32_t>(2 + body.size()));
+    return net.Send(h, conn, std::move(sb), static_cast<uint32_t>(2 + body.size()));
 }
 // Read the [u16 tag] from a received frame.
 static uint16_t frame_tag(const NetEvent& ev) {
@@ -329,7 +330,7 @@ static void test_netsub_traffic_then_shutdown() {
             if (ev.adapter == srv && ev.kind == NetEventKind::Message) {
                 std::vector<uint8_t> body(ev.payload, ev.payload + ev.len);   // copy before next PollEvent
                 SendBuffer sb = net.AcquireSend(body.size());
-                if (sb.data) { std::memcpy(sb.data, body.data(), body.size()); net.Send(srv, ev.conn, sb, (uint32_t)body.size()); }
+                if (sb.data) { std::memcpy(sb.data, body.data(), body.size()); net.Send(srv, ev.conn, std::move(sb), (uint32_t)body.size()); }
             }
         }
         send_tagged(net, cli, kNetConnInvalid, 1, m);   // client pings hard (no 2s gap)
@@ -337,6 +338,45 @@ static void test_netsub_traffic_then_shutdown() {
     // Close path: straight to Shutdown with traffic in flight, no final drain.
     NetSubsystem::Instance().Shutdown();
     CHECK(true, "traffic-then-shutdown: did not crash");
+}
+
+// SendBuffer move-only contract + AbortSend release + Send overflow guard (API-safety
+// hardening). AcquireSend is the only producer; we observe consume-on-move and that
+// misuse (re-consume / overflow) is a safe no-op rather than a double-release/overrun.
+static void test_send_buffer_lifecycle() {
+    NetServices net{};
+    NetServicesImpl::Init(net);
+    NetSubsystem::Instance().Init();
+
+    SendBuffer sb = net.AcquireSend(64);
+    CHECK(sb.data != nullptr, "lifecycle: AcquireSend gives data");
+    CHECK(sb.cap == 64, "lifecycle: cap matches request");
+
+    // Move nulls the source (move-only consume semantics).
+    SendBuffer moved = std::move(sb);
+    CHECK(sb.data == nullptr, "lifecycle: moved-from SendBuffer is null");
+    CHECK(moved.data != nullptr, "lifecycle: moved-to retains buffer");
+
+    // AbortSend consumes (releases the block) + nulls the local; re-abort is a safe no-op.
+    net.AbortSend(std::move(moved));
+    CHECK(moved.data == nullptr, "lifecycle: AbortSend consumed the buffer");
+    net.AbortSend(std::move(moved));   // no double-release
+
+    // Send overflow guard: payloadLen > cap → refused + released, returns false (no overrun).
+    SendBuffer over = net.AcquireSend(16);
+    CHECK(over.data != nullptr, "lifecycle: acquire for overflow test");
+    const bool sent = net.Send(NetHandle::Invalid, kNetConnInvalid, std::move(over), 16u + 100u);
+    CHECK(!sent, "lifecycle: Send refuses payloadLen > cap");
+    CHECK(over.data == nullptr, "lifecycle: refused Send still consumed the buffer");
+
+    // Acquire/abort more times than the pool has blocks → blocks must recycle (no crash/leak).
+    for (int i = 0; i < 3000; ++i) {
+        SendBuffer s = net.AcquireSend(32);
+        CHECK(s.data != nullptr, "lifecycle: churn acquire");
+        net.AbortSend(std::move(s));
+    }
+
+    NetSubsystem::Instance().Shutdown();
 }
 
 int main() {
@@ -353,6 +393,7 @@ int main() {
     test_release_game_resident();
     test_netsub_shutdown_while_connected();
     test_netsub_traffic_then_shutdown();
+    test_send_buffer_lifecycle();
     if (g_Failures == 0) { std::printf("All net tests passed.\n"); return 0; }
     std::printf("%d net test(s) FAILED.\n", g_Failures);
     return 1;

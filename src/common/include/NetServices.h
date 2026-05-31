@@ -30,12 +30,30 @@ struct NetEvent {
 };
 
 // A writable send buffer handed to the caller by AcquireSend. The caller serializes
-// directly into `data` (up to `cap` bytes), then passes it to Send. `token` is an
-// opaque engine handle (do not interpret). Engine reserves a length head before `data`.
+// directly into `data` (up to `cap` bytes), then passes it to EXACTLY ONE of Send /
+// AbortSend (each consumes it). `token` is an opaque engine handle (do not interpret);
+// the engine reserves a length head before `data`.
+//
+// MOVE-ONLY by design: Send/AbortSend take it by value, so the std::move at the call
+// site nulls the caller's copy. A second Send/AbortSend (or a use-after) then sees
+// data==nullptr and is a safe no-op — no double-release of the backing block. Dropping
+// it without Send/AbortSend leaks the block (you must move it into one of them).
 struct SendBuffer {
     uint8_t* data  = nullptr;   // writable payload region
     uint32_t cap   = 0;         // bytes available at `data`
     uint64_t token = 0;         // opaque; identifies the backing block/heap for Send/AbortSend
+
+    SendBuffer() = default;
+    SendBuffer(uint8_t* d, uint32_t c, uint64_t t) : data(d), cap(c), token(t) {}
+    SendBuffer(const SendBuffer&)            = delete;
+    SendBuffer& operator=(const SendBuffer&) = delete;
+    SendBuffer(SendBuffer&& o) noexcept : data(o.data), cap(o.cap), token(o.token) {
+        o.data = nullptr; o.cap = 0; o.token = 0;
+    }
+    SendBuffer& operator=(SendBuffer&& o) noexcept {
+        if (this != &o) { data = o.data; cap = o.cap; token = o.token; o.data = nullptr; o.cap = 0; o.token = 0; }
+        return *this;
+    }
 };
 
 struct NetServerConfig {

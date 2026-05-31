@@ -475,8 +475,8 @@ bool SendMessage(const NetServices* net, NetHandle h, NetConnId conn, const M& m
     SendBuffer sb = net->AcquireSend(total);
     if (!sb.data) return false;
     const uint32_t written = wirecodec::EncodeInto(sb.data, sb.cap, msg);
-    if (written == 0) { net->AbortSend(sb); return false; }   // cap == total, so this shouldn't happen
-    return net->Send(h, conn, sb, written);
+    if (written == 0) { net->AbortSend(std::move(sb)); return false; }   // cap == total, so this shouldn't happen
+    return net->Send(h, conn, std::move(sb), written);
 }
 } // namespace
 

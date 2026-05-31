@@ -101,6 +101,7 @@ private:
     std::unique_ptr<NetBufferPool>                  m_Pool;
     std::unique_ptr<NetBufferPool>                  m_SendPool;     // outbound send buffers (16 KB blocks)
     uint32_t m_BorrowedIndex = UINT32_MAX;          // inbound block lent to the game until next PollEvent
+    bool     m_SendHeapFallbackWarned = false;      // warn-once latch for send-pool-exhausted heap fallback (GameThread-only)
 
     PoolStatsAdapter m_RecvStats;   // registered with Engine::Registry() over m_Pool
     PoolStatsAdapter m_SendStats;   // registered with Engine::Registry() over m_SendPool
