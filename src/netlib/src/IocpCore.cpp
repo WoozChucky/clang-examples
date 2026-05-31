@@ -78,9 +78,9 @@ void IocpCore::PostRecv(const std::shared_ptr<Conn>& c) {
     auto* op = new IoOp();
     op->type = IoOp::Type::Recv;
     op->conn = c;                    // strong ref: keeps Conn alive while op in flight
-    op->buffer.resize(64 * 1024);
-    op->wsabuf.buf = reinterpret_cast<CHAR*>(op->buffer.data());
-    op->wsabuf.len = static_cast<ULONG>(op->buffer.size());
+    op->recvBuffer.resize(64 * 1024);
+    op->wsabuf.buf = reinterpret_cast<CHAR*>(op->recvBuffer.data());
+    op->wsabuf.len = static_cast<ULONG>(op->recvBuffer.size());
     // Load the handle once. If it is already INVALID, a concurrent close won the
     // race — do not issue WSARecv on INVALID_SOCKET. Clean up the op and bail; the
     // close path will (or already did) drive Disconnect.
@@ -99,26 +99,23 @@ void IocpCore::PostRecv(const std::shared_ptr<Conn>& c) {
     }
 }
 
-void IocpCore::Send(ConnId id, std::span<const std::byte> payload) {
+void IocpCore::Send(ConnId id, OwnedBuffer&& payload) {
     // Look up + copy out the shared_ptr under m_Mx, then release m_Mx BEFORE
     // touching sendMx / issuing WSASend (avoids m_Mx re-entrancy + m_Mx->sendMx ABBA).
     std::shared_ptr<Conn> c;
     {
         std::scoped_lock lk(m_Mx);
         auto it = m_Conns.find(static_cast<uint64_t>(id));
-        if (it == m_Conns.end()) return;
+        if (it == m_Conns.end()) return;   // payload destructs here -> deleter reclaims
         c = it->second;                 // keeps `c` alive after we unlock m_Mx
     }
 
-    // Frame: [uint32 LE length][payload], copied into a send buffer.
-    std::vector<std::byte> buf;
-    const uint32_t len = static_cast<uint32_t>(payload.size());
-    buf.resize(4 + payload.size());
-    std::memcpy(buf.data(), &len, 4);
-    if (!payload.empty()) std::memcpy(buf.data() + 4, payload.data(), payload.size());
+    // Write the [uint32 LE length] prefix into the reserved head, in place. No copy.
+    const uint32_t len = payload.PayloadLen();
+    std::memcpy(payload.Data(), &len, 4);   // x64 LE; head is the first 4 bytes
 
     std::scoped_lock slk(c->sendMx);    // m_Mx is NOT held here
-    c->sendQ.push_back(std::move(buf));
+    c->sendQ.push_back(std::move(payload));
     if (!c->sending) { c->sending = true; PostSend(c); }
 }
 
@@ -127,10 +124,10 @@ void IocpCore::PostSend(const std::shared_ptr<Conn>& c) {   // sendMx held; m_Mx
     auto* op = new IoOp();
     op->type = IoOp::Type::Send;
     op->conn = c;                    // strong ref: keeps Conn alive while op in flight
-    op->buffer = std::move(c->sendQ.front());
+    op->sendBuffer = std::move(c->sendQ.front());
     c->sendQ.pop_front();
-    op->wsabuf.buf = reinterpret_cast<CHAR*>(op->buffer.data());
-    op->wsabuf.len = static_cast<ULONG>(op->buffer.size());
+    op->wsabuf.buf = reinterpret_cast<CHAR*>(op->sendBuffer.Data());
+    op->wsabuf.len = static_cast<ULONG>(op->sendBuffer.TotalSize());
     // Load the handle once. If a concurrent close already invalidated it, do not
     // issue WSASend on INVALID_SOCKET: clear `sending` and drop the op. The close
     // path drives Disconnect; the queued buffer is discarded with the Conn.
@@ -144,7 +141,7 @@ void IocpCore::PostSend(const std::shared_ptr<Conn>& c) {   // sendMx held; m_Mx
             if (err != WSAECONNRESET && err != WSAECONNABORTED)
                 SM_WARN("netlib: WSASend failed (%d)", err);
             c->sending = false;
-            delete op;            // drops this op's Conn ref
+            delete op;            // drops Conn ref AND destructs sendBuffer -> deleter reclaims
             // Disconnect only touches m_Mx for the map erase (not sendMx), and `c`
             // stays alive via the caller's ref — no re-entrancy of sendMx/m_Mx hazard.
             Disconnect(c);
@@ -175,7 +172,7 @@ void IocpCore::HandleRecv(const std::shared_ptr<Conn>& c, IoOp* op, DWORD bytes,
         return;
     }
     const bool framerOk = c->framer.Push(
-        std::span<const std::byte>(op->buffer.data(), bytes),
+        std::span<const std::byte>(op->recvBuffer.data(), bytes),
         [&](std::span<const std::byte> frame) { Emit(c->id, IoEvent::Kind::Message, frame); });
     delete op;
     if (!framerOk) { Disconnect(c); return; }      // oversize frame

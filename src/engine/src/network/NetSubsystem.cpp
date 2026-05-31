@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include <netlib/OwnedBuffer.h>
+
 #include "lib.h"
 
 namespace { constexpr uint32_t kOpcodeBytes = 2; }
@@ -92,17 +94,21 @@ uint16_t NetSubsystem::BoundPort(NetHandle h) {
 }
 
 bool NetSubsystem::Send(NetHandle h, NetConnId conn, uint16_t opcode, const uint8_t* data, size_t len) {
-    std::vector<std::byte> buf;
-    buf.resize(kOpcodeBytes + len);
-    buf[0] = static_cast<std::byte>(opcode & 0xff);
-    buf[1] = static_cast<std::byte>((opcode >> 8) & 0xff);
-    if (len) std::memcpy(buf.data() + kOpcodeBytes, data, len);
-
     std::scoped_lock lk(m_Mx);
     auto it = m_Adapters.find(static_cast<uint32_t>(h));
     if (it == m_Adapters.end()) return false;
-    if (it->second.server) { it->second.server->Send(netlib::ConnId{ conn }, buf); return true; }
-    if (it->second.client) { it->second.client->Send(buf); return true; }
+
+    // Interim bridge to netlib's OwnedBuffer API. Builds [u16 opcode][data] into a
+    // heap-backed buffer (still the pre-reshape copy + opcode; replaced in the send-pool task).
+    const uint32_t payloadLen = kOpcodeBytes + static_cast<uint32_t>(len);
+    netlib::OwnedBuffer buf = netlib::MakeHeapBuffer(payloadLen);
+    std::byte* p = buf.Payload();
+    p[0] = static_cast<std::byte>(opcode & 0xff);
+    p[1] = static_cast<std::byte>((opcode >> 8) & 0xff);
+    if (len) std::memcpy(p + kOpcodeBytes, data, len);
+
+    if (it->second.server) { it->second.server->Send(netlib::ConnId{ conn }, std::move(buf)); return true; }
+    if (it->second.client) { it->second.client->Send(std::move(buf)); return true; }
     return false;
 }
 

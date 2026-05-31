@@ -81,6 +81,19 @@ static std::vector<std::byte> bytes_of(const char* s) {
     return v;
 }
 
+// Build a heap OwnedBuffer whose payload is a copy of `s` (for tests that send bytes).
+static netlib::OwnedBuffer owned_of(const char* s) {
+    auto v = bytes_of(s);
+    netlib::OwnedBuffer b = netlib::MakeHeapBuffer(static_cast<uint32_t>(v.size()));
+    for (size_t i = 0; i < v.size(); ++i) b.Payload()[i] = v[i];
+    return b;
+}
+static netlib::OwnedBuffer owned_of(std::span<const std::byte> s) {
+    netlib::OwnedBuffer b = netlib::MakeHeapBuffer(static_cast<uint32_t>(s.size()));
+    for (size_t i = 0; i < s.size(); ++i) b.Payload()[i] = s[i];
+    return b;
+}
+
 // Build a wire frame: [uint32 LE length][payload].
 static std::vector<std::byte> wire_frame(const char* payload) {
     auto p = bytes_of(payload);
@@ -148,7 +161,7 @@ struct RecordingSink : netlib::IIoSink {
 
     void OnIoEvent(const netlib::IoEvent& ev) override {
         if (ev.kind == netlib::IoEvent::Kind::Message && echoServer)
-            echoServer->Send(ev.conn, ev.payload);   // Send copies the borrowed span
+            echoServer->Send(ev.conn, owned_of(ev.payload));   // echo via OwnedBuffer
         std::scoped_lock lk(mx);
         kinds.push_back(ev.kind);
         if (ev.kind == netlib::IoEvent::Kind::Connected)    ++connected;
@@ -170,14 +183,12 @@ static void test_inmemory() {
     CHECK(serverSink.connected == 1, "inmem: server saw Connected");
     CHECK(clientSink.connected == 1, "inmem: client saw Connected");
 
-    auto msg = bytes_of("ping");
-    pair.client->Send(msg);
+    pair.client->Send(owned_of("ping"));
     CHECK(serverSink.msgCount() == 1, "inmem: server received 1 msg");
     CHECK(serverSink.messages[0] == bytes_of("ping"), "inmem: server payload correct");
 
-    auto reply = bytes_of("pong");
     // server replies to the single client connection (ConnId 1 by convention).
-    pair.server->Send(netlib::ConnId{1}, reply);
+    pair.server->Send(netlib::ConnId{1}, owned_of("pong"));
     CHECK(clientSink.msgCount() == 1, "inmem: client received reply");
     CHECK(clientSink.messages[0] == bytes_of("pong"), "inmem: client reply correct");
 
@@ -351,13 +362,13 @@ static void test_tcp_roundtrip() {
     CHECK(wait_until([&]{ return cliSink.connected.load() == 1; }), "rt: client Connected");
     CHECK(wait_until([&]{ return srvSink.connected.load() == 1; }), "rt: server Connected");
 
-    client->Send(bytes_of("from-client"));
+    client->Send(owned_of("from-client"));
     CHECK(wait_until([&]{ return srvSink.msgCount() == 1; }), "rt: server got client msg");
     { std::scoped_lock lk(srvSink.mx);
       CHECK(srvSink.messages[0] == bytes_of("from-client"), "rt: server payload"); }
 
     // Reply to that connection (its ConnId is the first registered = 1).
-    server->Send(netlib::ConnId{1}, bytes_of("from-server"));
+    server->Send(netlib::ConnId{1}, owned_of("from-server"));
     CHECK(wait_until([&]{ return cliSink.msgCount() == 1; }), "rt: client got server reply");
     { std::scoped_lock lk(cliSink.mx);
       CHECK(cliSink.messages[0] == bytes_of("from-server"), "rt: client payload"); }
@@ -379,8 +390,8 @@ static void test_tcp_multiconn() {
     c2->Start(netlib::Endpoint{ "127.0.0.1", port }, cfg, &s2);
     CHECK(wait_until([&]{ return srvSink.connected.load() == 2; }), "multi: server saw 2 Connected");
 
-    c1->Send(bytes_of("one"));
-    c2->Send(bytes_of("two"));
+    c1->Send(owned_of("one"));
+    c2->Send(owned_of("two"));
     CHECK(wait_until([&]{ return srvSink.msgCount() == 2; }), "multi: server got 2 msgs");
     {
         std::scoped_lock lk(srvSink.mx);
