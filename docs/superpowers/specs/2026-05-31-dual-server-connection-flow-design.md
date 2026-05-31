@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-31
 **Branch:** `feat/auth-world-flow`
-**Status:** design approved; plan + implementation pending.
+**Status:** IMPLEMENTED 2026-05-31 (commits `3b8bfff`..`1bf0790` on `feat/auth-world-flow`). Auto-tests green (`test_authflow` pure FSM; full regression). Four systems in `Game.dll`: `NetPumpSystem` (single shared-ring drain → per-adapter inboxes), `AuthServerSystem`, `WorldServerSystem`, `ClientSessionSystem` (both client handles + FSM + handoff + `GameState`→`InLevel`). **Key correction during build:** the shared inbound ring has ONE consumer, so multiple in-process polling systems cannibalize each other's events — fixed with a single `NetPumpSystem` (Input phase) fanning events per-adapter; the systems read their own inbox. **Pending: user-owned interactive GUI smoke** (run editor; log walks ConnectingAuth → … → IN GAME, both listeners bound, handoff to 27101). Deferred per spec: real auth/UI/persistence, dedicated-process split + role gating.
 
 ## Goal
 
