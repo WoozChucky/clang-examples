@@ -43,6 +43,7 @@ add_executable(editor
     src/panels/inspector/NavTargetEditor.cpp
     src/panels/inspector/NavConstrainedEditor.cpp
     src/panels/inspector/NavClassEditor.cpp
+    src/panels/inspector/GenericComponentEditor.cpp
 
     # Viewport interaction + editor camera
     src/viewport/SceneViewport.cpp
