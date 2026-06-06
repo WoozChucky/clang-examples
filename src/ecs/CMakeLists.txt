@@ -2,6 +2,7 @@ add_library(ecs SHARED
     src/ecs.cpp
     src/systems.cpp
     src/EcsLogSink.cpp
+    src/ComponentSerializers.cpp
 )
 
 target_include_directories(ecs PUBLIC ../common/include)
@@ -9,6 +10,7 @@ target_include_directories(ecs PUBLIC ../common/include)
 target_link_libraries(ecs PUBLIC
     CommonHeaders
     glm::glm
+    nlohmann_json::nlohmann_json
 )
 
 set(GLM_DEFINES "GLM_FORCE_DEPTH_ZERO_TO_ONE; GLM_FORCE_RIGHT_HANDED; GLM_ENABLE_EXPERIMENTAL;")
