@@ -22,6 +22,7 @@
 #include "tiny_obj_loader.h"
 
 #include "lib.h"
+#include "InputDrain.h"
 #include "MaterialLoader.h"
 #include "Timing.h"
 #include "assimp/scene.h"
@@ -616,41 +617,13 @@ void GameThread::DrainInputToSingleton(GameState& state) {
     if (!state.World.GetSingleton<InputStateComponent>()) {
         state.World.SetSingleton(InputStateComponent{});
     }
-    double prevX = 0.0, prevY = 0.0;
-    if (const auto* in = state.World.GetSingleton<InputStateComponent>()) {
-        prevX = in->MouseX;
-        prevY = in->MouseY;
-    }
-
     state.World.ModifySingleton<InputStateComponent>([&](InputStateComponent& s) {
-        std::memset(s.Pressed, 0, sizeof(s.Pressed));
-        s.Wheel = 0;
-        std::memset(s.MousePressed, 0, sizeof(s.MousePressed));
-        InputEvent ev{};
-        while (m_AppContext->InputRing.Pop(ev)) {
-            if (ev.Type == InputEventType::Key) {
-                const int k = static_cast<int>(ev.KeyEvent.Key);
-                if (k >= 0 && k <= KEY_LAST) {
-                    if (ev.KeyEvent.Action == PRESS || ev.KeyEvent.Action == REPEAT) s.KeysDown[k] = true;
-                    if (ev.KeyEvent.Action == RELEASE) s.KeysDown[k] = false;
-                    if (ev.KeyEvent.Action == PRESS) s.Pressed[k] = true;
-                }
-            } else if (ev.Type == InputEventType::MouseMove) {
-                s.MouseX = ev.MouseMoveEvent.X;
-                s.MouseY = ev.MouseMoveEvent.Y;
-            } else if (ev.Type == InputEventType::MouseWheel) {
-                s.Wheel = static_cast<int32_t>(ev.MouseScrollEvent.OffsetY);
-            } else if (ev.Type == InputEventType::MouseButton) {
-                const int b = static_cast<int>(ev.MouseButtonEvent.Button);
-                if (b >= 0 && b <= MOUSE_BUTTON_LAST) {
-                    if (ev.MouseButtonEvent.Action == PRESS)   { s.MouseDown[b] = true; s.MousePressed[b] = true; }
-                    if (ev.MouseButtonEvent.Action == RELEASE) {  s.MouseDown[b] = false; }
-                }
-            }
-        }
-        s.MouseDX = s.MouseX - prevX;
-        s.MouseDY = s.MouseY - prevY;
+        DrainInput(m_AppContext->InputRing, s, m_FrameInput);
     });
+    // Publish this tick's raw events (incl TextInput) for GameUpdate + systems. Valid until
+    // the next tick's drain re-fills m_FrameInput.
+    state.FrameInputEvents     = m_FrameInput.data();
+    state.FrameInputEventCount = m_FrameInput.size();
 }
 
 void GameThread::EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir)

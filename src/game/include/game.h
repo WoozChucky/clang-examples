@@ -1,5 +1,7 @@
 #pragma once
 #include "ApplicationContext.h"
+#include "input.h"
+#include <cstddef>
 #include "ECS.h"
 #include "Systems.h"
 #include "AppRole.h"
@@ -19,7 +21,7 @@
 // Bump every time GameState layout changes or any export signature changes.
 // Editor compares against the compiled-in value at load time; mismatch rejects
 // the reload and keeps the previous Game.dll active.
-#define GAME_API_VERSION 20u
+#define GAME_API_VERSION 21u
 
 // GameStateId lives in the game-owned GameStates.h (next to this header). The engine
 // stores the current state as an opaque uint32_t (GameStateComponent.Current).
@@ -37,6 +39,13 @@ struct GameState {
     ECS World{};
     bool     WorldLoaded            = false;
     AppRole  Role                   = AppRole::Client;  // set by bootstrap; Server only in server.exe
+
+    // Raw input events for THIS tick (incl TextInput), in arrival order, set by the engine
+    // before GameUpdate; valid only for the current tick (Count 0 => none). The digested
+    // convenience state still lives in the InputStateComponent singleton; this is for
+    // consumers that need raw text/keys (e.g. text fields). Read via g_GameState in systems.
+    const InputEvent* FrameInputEvents     = nullptr;
+    std::size_t       FrameInputEventCount = 0;
 };
 
 using GameGetVersionFunc = uint32_t(*)();
