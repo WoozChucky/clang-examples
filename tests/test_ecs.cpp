@@ -34,6 +34,31 @@ static int g_Failures = 0;
 #define EXPECT_EQ(a, b) EXPECT((a) == (b))
 #define EXPECT_NE(a, b) EXPECT((a) != (b))
 
+// A component type intentionally NOT in ECS_FOR_EACH_REGISTERED_COMPONENT.
+// Proves a consumer (this test TU, outside ecs.dll) can define + use its own
+// component with no ecs.dll registration. Before Piece 1 this fails to LINK.
+struct ExternProbeComponent {
+    int   Value = 0;
+    float Ratio = 0.0f;
+};
+
+static void TX01_extern_component_basic()
+{
+    ECS world;
+    const EntityId e = world.CreateEntity();
+
+    world.AddComponent<ExternProbeComponent>(e, ExternProbeComponent{ 42, 1.5f });
+    EXPECT(world.HasComponent<ExternProbeComponent>(e));
+
+    const ExternProbeComponent* got = world.GetComponent<ExternProbeComponent>(e);
+    EXPECT(got != nullptr);
+    EXPECT_EQ(got->Value, 42);
+    EXPECT_EQ(got->Ratio, 1.5f);
+
+    world.RemoveComponent<ExternProbeComponent>(e);
+    EXPECT(!world.HasComponent<ExternProbeComponent>(e));
+}
+
 static void T00_smoke()
 {
     EXPECT_EQ(1 + 1, 2);
@@ -1104,6 +1129,7 @@ int main()
     TCOW04_remove_all_components_path_pools_and_isolates();
     T60_duplicate_entity_copies_editor_components();
     T61_duplicate_invalid_src_is_noop();
+    TX01_extern_component_basic();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

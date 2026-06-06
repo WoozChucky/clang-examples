@@ -14,6 +14,8 @@
 #include <thread>
 #include <type_traits>
 #include <utility>
+#include <mutex>
+#include <atomic>
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
@@ -432,7 +434,7 @@ public:
 };
 
 template<typename T>
-class ECS_API ComponentArray final : public IComponentArray {
+class ComponentArray final : public IComponentArray {
 public:
     ComponentArray() = default;
     ~ComponentArray() override = default;
@@ -589,6 +591,69 @@ ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_EXTERN_TEMPLATE_DECL)
 #undef ECS_EXTERN_TEMPLATE_DECL
 #endif
 
+// ---- COW array recycle pool (header so consumer-defined component types
+// instantiate their own pool locally; built-in T's pools live in ecs.dll via
+// the explicit instantiations). Counters are a single exported instance so the
+// editor Memory panel aggregates every module's pools. ----
+namespace ecs::detail {
+
+struct ArrayPoolCountersT {
+    std::atomic<size_t>   Free{0};
+    std::atomic<size_t>   InUse{0};
+    std::atomic<size_t>   Created{0};
+    std::atomic<uint64_t> Reuses{0};
+    void OnCreate()  noexcept { ++InUse; ++Created; }
+    void OnReuse()   noexcept { --Free;  ++InUse; ++Reuses; }
+    void OnRecycle() noexcept { ++Free;  --InUse; }
+};
+
+// Single instance, defined + exported from ecs.dll so all modules share counts.
+ECS_API ArrayPoolCountersT& ArrayPoolCounters();
+
+template<typename T>
+class ComponentArrayPool {
+public:
+    ComponentArray<T>* Acquire() {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        if (!m_Free.empty()) {
+            ComponentArray<T>* a = m_Free.back();
+            m_Free.pop_back();
+            ArrayPoolCounters().OnReuse();
+            return a;
+        }
+        ArrayPoolCounters().OnCreate();
+        return new ComponentArray<T>();
+    }
+    void Recycle(ComponentArray<T>* a) noexcept {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        m_Free.push_back(a);
+        ArrayPoolCounters().OnRecycle();
+    }
+    ~ComponentArrayPool() { for (ComponentArray<T>* a : m_Free) delete a; }
+private:
+    std::mutex m_Mutex;
+    std::vector<ComponentArray<T>*> m_Free;
+};
+
+template<typename T>
+ComponentArrayPool<T>& GetArrayPool() { static ComponentArrayPool<T> pool; return pool; }
+
+template<typename T>
+std::shared_ptr<ComponentArray<T>> MakePooledClone(const ComponentArray<T>& src) {
+    std::shared_ptr<ComponentArray<T>> arr(
+        GetArrayPool<T>().Acquire(),
+        [](ComponentArray<T>* p) noexcept { GetArrayPool<T>().Recycle(p); });
+    arr->CopyFrom(src);
+    return arr;
+}
+
+} // namespace ecs::detail
+
+template<typename T>
+inline std::shared_ptr<IComponentArray> ComponentArray<T>::Clone() const {
+    return ecs::detail::MakePooledClone(*this);
+}
+
 // #############################################################################
 //                           Component Store (Type registry)
 // #############################################################################
@@ -607,16 +672,22 @@ public:
     }
 
     template<typename T>
-    void AddComponent(EntityId entity, T component);
+    void AddComponent(EntityId entity, T component) { MutateArray<T>().Add(entity, component); }
 
     template<typename T>
-    void RemoveComponent(EntityId entity);
+    void RemoveComponent(EntityId entity) { MutateArray<T>().Remove(entity); }
 
     template<typename T>
-    const T* GetComponent(EntityId entity) const;
+    const T* GetComponent(EntityId entity) const {
+        const auto componentArray = GetComponentArray<T>();
+        return componentArray ? componentArray->Get(entity) : nullptr;
+    }
 
     template<typename T>
-    [[nodiscard]] bool HasComponent(EntityId entity) const;
+    [[nodiscard]] bool HasComponent(EntityId entity) const {
+        auto array = GetComponentArray<T>();
+        return array && array->Has(entity);
+    }
 
     template<typename T>
     const ComponentArray<T>* GetComponentArray() const {
@@ -648,7 +719,16 @@ public:
      *      same (already-cloned) array.
      */
     template<typename T>
-    ComponentArray<T>& MutateArray();
+    ComponentArray<T>& MutateArray() {
+        AssertOwnerThread();
+        const auto typeIndex = std::type_index(typeid(T));
+        auto& slot = m_ComponentArrays[typeIndex];
+        if (!slot) slot = std::make_shared<ComponentArray<T>>();
+        if (m_DirtyThisTick.insert(typeIndex).second) {
+            slot = ecs::detail::MakePooledClone<T>(static_cast<const ComponentArray<T>&>(*slot));
+        }
+        return static_cast<ComponentArray<T>&>(*slot);
+    }
 
     /**
      * @brief Returns a const pointer to the array for T, or nullptr if no
@@ -657,7 +737,13 @@ public:
      *           is immutable for the snapshot's lifetime.
      */
     template<typename T>
-    const ComponentArray<T>* GetArray() const;
+    const ComponentArray<T>* GetArray() const {
+        const auto typeIndex = std::type_index(typeid(T));
+        const auto it = m_ComponentArrays.find(typeIndex);
+        return it == m_ComponentArrays.end()
+            ? nullptr
+            : static_cast<const ComponentArray<T>*>(it->second.get());
+    }
 
     /**
      * @brief Copies the array map (shared_ptr refcount bumps) from `other`.
@@ -835,16 +921,16 @@ public:
 
     // Component management
     template<typename T>
-    void AddComponent(EntityId entity, T component);
+    void AddComponent(EntityId entity, T component) { m_ComponentStore.AddComponent<T>(entity, std::move(component)); }
 
     template<typename T>
-    void RemoveComponent(EntityId entity);
+    void RemoveComponent(EntityId entity) { m_ComponentStore.RemoveComponent<T>(entity); }
 
     template<typename T>
-    const T* GetComponent(EntityId entity) const;
+    const T* GetComponent(EntityId entity) const { return m_ComponentStore.GetComponent<T>(entity); }
 
     template<typename T>
-    [[nodiscard]] bool HasComponent(EntityId entity) const;
+    [[nodiscard]] bool HasComponent(EntityId entity) const { return m_ComponentStore.HasComponent<T>(entity); }
 
     // Multi-component queries
     template<typename... Components>
@@ -925,7 +1011,7 @@ public:
      * @cow Triggers a clone on first call per tick.
      */
     template<typename T>
-    ComponentArray<T>& MutateArray();
+    ComponentArray<T>& MutateArray() { return m_ComponentStore.MutateArray<T>(); }
 
     /**
      * @brief Bulk-read access. Use for systems iterating one component type densely.
@@ -933,7 +1019,7 @@ public:
      * @snapshot Safe through a snapshot reference; immutable for snapshot lifetime.
      */
     template<typename T>
-    const ComponentArray<T>* GetArray() const;
+    const ComponentArray<T>* GetArray() const { return m_ComponentStore.GetArray<T>(); }
 
     void Clear();
 
