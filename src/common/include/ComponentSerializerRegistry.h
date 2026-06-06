@@ -11,6 +11,8 @@
 // compile in whatever module registers the type. A single exported instance is shared by all
 // modules.
 //
+struct EditorUI; // defined in EditorUI.h (editor implements it over ImGui); only a fn-ptr param here
+
 // Entry function pointers are CAPTURELESS lambdas compiled in the registering module:
 //   has(world, e)       -> does entity e have this component?
 //   save(world, e, out) -> out = the component's json value (caller keys it by `name`)
@@ -23,6 +25,9 @@ struct ComponentSerializerEntry {
     void (*addDefault)(ECS&, EntityId);   // AddComponent<T>(e, T{})
     void (*remove)(ECS&, EntityId);       // RemoveComponent<T>(e)
     bool builtin;                         // true for ecs.dll's built-ins; false for game types
+    // Optional custom editor renderer (game-provided, ImGui-free via the EditorUI bridge).
+    // Null => the inspector uses the generic JSON-tree editor. Set via RegisterEditorHook.
+    bool (*editorDraw)(const EditorUI&, nlohmann::json&) = nullptr;
 };
 
 class ComponentSerializerRegistry {
@@ -53,6 +58,10 @@ public:
         for (const auto& e : m_Entries) if (e.name == name) return &e;
         return nullptr;
     }
+
+    // Attach an optional custom editor renderer to an already-registered component (by name).
+    // No-op (warns) if the name isn't registered. Defined in ComponentSerializers.cpp.
+    ECS_API void RegisterEditorHook(const std::string& name, bool (*draw)(const EditorUI&, nlohmann::json&));
 
 private:
     std::vector<ComponentSerializerEntry> m_Entries;

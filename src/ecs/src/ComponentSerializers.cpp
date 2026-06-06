@@ -29,6 +29,12 @@ ComponentSerializerRegistry& SerializerRegistry() {
     return reg;
 }
 
+void ComponentSerializerRegistry::RegisterEditorHook(const std::string& name,
+                                                     bool (*draw)(const EditorUI&, nlohmann::json&)) {
+    for (auto& e : m_Entries) { if (e.name == name) { e.editorDraw = draw; return; } }
+    SM_WARN("RegisterEditorHook: no serializer registered for '%s' — hook ignored", name.c_str());
+}
+
 void SaveEntityComponents(const ECS& world, EntityId e, nlohmann::json& jEntity) {
     for (const auto& en : SerializerRegistry().Entries())
         if (en.has(world, e)) en.save(world, e, jEntity[en.name]);

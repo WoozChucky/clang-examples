@@ -2,6 +2,7 @@
 #include <cmath>
 #include <nlohmann/json.hpp>
 #include "ComponentSerializerRegistry.h"
+#include "EditorUI.h"
 #include "ECSCommands.h"
 #include "StateNameRegistry.h"
 
@@ -112,6 +113,28 @@ static void T06_state_name_registry()
     EXPECT(count1 == 1);
 }
 
+// A stub editor hook (no ImGui — unit tests can't run an ImGui frame). Just a function
+// pointer the registry should store + expose.
+static bool StubEditorHook(const EditorUI&, nlohmann::json&) { return false; }
+
+static void T07_register_editor_hook()
+{
+    SerializerRegistry().Register<PersistProbe>("PersistProbe"); // ensure entry exists
+    // Default: no hook.
+    EXPECT(SerializerRegistry().Find("PersistProbe") != nullptr);
+    EXPECT(SerializerRegistry().Find("PersistProbe")->editorDraw == nullptr);
+
+    SerializerRegistry().RegisterEditorHook("PersistProbe", &StubEditorHook);
+    EXPECT(SerializerRegistry().Find("PersistProbe")->editorDraw == &StubEditorHook);
+
+    // Unknown name: no-op, no crash.
+    SerializerRegistry().RegisterEditorHook("NopeNotReal", &StubEditorHook);
+    EXPECT(SerializerRegistry().Find("NopeNotReal") == nullptr);
+
+    // Built-ins default to no hook.
+    EXPECT(SerializerRegistry().Find("TransformComponent")->editorDraw == nullptr);
+}
+
 int main()
 {
     T01_builtins_registered();
@@ -120,6 +143,7 @@ int main()
     T04_name_json_command_path();
     T05_entry_flags_builtin_vs_game();
     T06_state_name_registry();
+    T07_register_editor_hook();
     if (g_Failures == 0) { std::printf("All component-serializer tests passed.\n"); return 0; }
     std::printf("%d component-serializer test(s) FAILED.\n", g_Failures);
     return 1;
