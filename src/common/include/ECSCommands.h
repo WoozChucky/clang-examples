@@ -4,9 +4,14 @@
 #include <memory>
 #include <cstdint>
 #include <functional>
+#include <string>
+
+#include <nlohmann/json.hpp>
 
 #include "ECS.h"
 #include "SpscRing.h"
+#include "ComponentSerializerRegistry.h"
+#include "lib.h"  // SM_WARN
 
 // #############################################################################
 //                           ECS Command System (Render -> Game)
@@ -21,6 +26,9 @@ enum class ECSCommandType : uint8_t {
     DuplicateEntity = 5,
     RebuildNavMesh = 6,  // engine hook — dispatched via ECSCommandHooks::OnRebuildNavMesh
     BakeNavMesh = 7,     // engine hook — dispatched via ECSCommandHooks::OnBakeNavMesh
+    ModifyComponentJson = 8,
+    AddComponentByName  = 9,
+    RemoveComponentByName = 10,
 };
 
 // Type-erased component storage for commands
@@ -75,6 +83,8 @@ struct ECSCommand {
     EntityId TargetEntity;
     ComponentData Component; // For Add/Modify operations
     std::type_index ComponentType; // For Remove operations
+    std::string ComponentName;  // for *ByName / ModifyComponentJson (registry key)
+    std::string ComponentJson;  // for ModifyComponentJson (serialized component)
 
     // Default constructor
     ECSCommand()
@@ -164,6 +174,23 @@ struct ECSCommand {
             ComponentData::Create(component)
         );
     }
+
+    static ECSCommand ModifyComponentJson(EntityId entity, std::string name, std::string json) {
+        ECSCommand c(ECSCommandType::ModifyComponentJson, entity);
+        c.ComponentName = std::move(name);
+        c.ComponentJson = std::move(json);
+        return c;
+    }
+    static ECSCommand AddComponentByName(EntityId entity, std::string name) {
+        ECSCommand c(ECSCommandType::AddComponentByName, entity);
+        c.ComponentName = std::move(name);
+        return c;
+    }
+    static ECSCommand RemoveComponentByName(EntityId entity, std::string name) {
+        ECSCommand c(ECSCommandType::RemoveComponentByName, entity);
+        c.ComponentName = std::move(name);
+        return c;
+    }
 };
 
 // #############################################################################
@@ -216,6 +243,30 @@ public:
                 case ECSCommandType::ModifyComponent: {
                     if (cmd.TargetEntity != INVALID_ENTITY) {
                         ApplyComponentCommand(world, cmd.TargetEntity, cmd.Component, false);
+                    }
+                    break;
+                }
+
+                case ECSCommandType::AddComponentByName: {
+                    if (cmd.TargetEntity != INVALID_ENTITY) {
+                        if (const auto* en = SerializerRegistry().Find(cmd.ComponentName)) en->addDefault(world, cmd.TargetEntity);
+                        else SM_WARN("AddComponentByName: no serializer for '%s'", cmd.ComponentName.c_str());
+                    }
+                    break;
+                }
+                case ECSCommandType::RemoveComponentByName: {
+                    if (cmd.TargetEntity != INVALID_ENTITY) {
+                        if (const auto* en = SerializerRegistry().Find(cmd.ComponentName)) en->remove(world, cmd.TargetEntity);
+                        else SM_WARN("RemoveComponentByName: no serializer for '%s'", cmd.ComponentName.c_str());
+                    }
+                    break;
+                }
+                case ECSCommandType::ModifyComponentJson: {
+                    if (cmd.TargetEntity != INVALID_ENTITY) {
+                        const auto* en = SerializerRegistry().Find(cmd.ComponentName);
+                        if (!en) { SM_WARN("ModifyComponentJson: no serializer for '%s'", cmd.ComponentName.c_str()); break; }
+                        try { en->load(world, cmd.TargetEntity, nlohmann::json::parse(cmd.ComponentJson)); }
+                        catch (const std::exception& ex) { SM_WARN("ModifyComponentJson('%s') parse/apply failed: %s", cmd.ComponentName.c_str(), ex.what()); }
                     }
                     break;
                 }

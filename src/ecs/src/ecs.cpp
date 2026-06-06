@@ -3,134 +3,18 @@
 #include <mutex>
 #include <atomic>
 
-namespace {
-
-// Aggregate counters across all per-type ComponentArray pools. Atomic so the panel
-// (RenderThread) can read while GameThread/RenderThread Acquire/Recycle. Free stays
-// equal to the summed free-list sizes (++ on Recycle, -- on reuse-Acquire).
-struct ArrayPoolCountersT {
-    std::atomic<size_t>   Free{0};
-    std::atomic<size_t>   InUse{0};
-    std::atomic<size_t>   Created{0};
-    std::atomic<uint64_t> Reuses{0};
-    void OnCreate()  noexcept { ++InUse; ++Created; }
-    void OnReuse()   noexcept { --Free;  ++InUse; ++Reuses; }
-    void OnRecycle() noexcept { ++Free;  --InUse; }
-};
+// Single exported definition of the shared array-pool counters. The struct,
+// per-type pools, and MakePooledClone now live in ECS.h (ecs::detail) so
+// consumer-defined component types instantiate their own pools locally.
+namespace ecs::detail {
 ArrayPoolCountersT& ArrayPoolCounters() { static ArrayPoolCountersT c; return c; }
-
-// Per-type free-list of recycled ComponentArray<T>. Mutex-guarded: Recycle fires from a
-// shared_ptr deleter on whatever thread drops the last ref (RenderThread when a snapshot
-// recycles, GameThread otherwise). Non-leaked Meyers singleton per T; safe because the
-// app joins both threads + resets LatestWorldSnapshot before static destruction, so no
-// Recycle races the dtor. No InUse==0 assert (shutdown ordering, matching the staging pool).
-template<typename T>
-class ComponentArrayPool {
-public:
-    ComponentArray<T>* Acquire() {
-        std::lock_guard<std::mutex> lock(m_Mutex);
-        if (!m_Free.empty()) {
-            ComponentArray<T>* a = m_Free.back();
-            m_Free.pop_back();
-            ArrayPoolCounters().OnReuse();
-            return a;
-        }
-        ArrayPoolCounters().OnCreate();
-        return new ComponentArray<T>();
-    }
-    void Recycle(ComponentArray<T>* a) noexcept {
-        std::lock_guard<std::mutex> lock(m_Mutex);
-        m_Free.push_back(a);
-        ArrayPoolCounters().OnRecycle();
-    }
-    ~ComponentArrayPool() { for (ComponentArray<T>* a : m_Free) delete a; }
-private:
-    std::mutex m_Mutex;
-    std::vector<ComponentArray<T>*> m_Free;
-};
-
-template<typename T>
-ComponentArrayPool<T>& GetArrayPool() { static ComponentArrayPool<T> pool; return pool; }
-
-// Acquire a recycled (or fresh) array, copy src into it reusing capacity, and wrap it in a
-// shared_ptr whose deleter returns it to the pool instead of freeing.
-template<typename T>
-std::shared_ptr<ComponentArray<T>> MakePooledClone(const ComponentArray<T>& src) {
-    // Wrap BEFORE copying: if CopyFrom throws (e.g. bad_alloc on a grow), the deleter
-    // returns the array to the pool, keeping InUse/Free balanced (no leak).
-    std::shared_ptr<ComponentArray<T>> arr(
-        GetArrayPool<T>().Acquire(),
-        [](ComponentArray<T>* p) noexcept { GetArrayPool<T>().Recycle(p); });
-    arr->CopyFrom(src);
-    return arr;
-}
-
-} // namespace
-
-// Out-of-line so it can reach the file-local array pool. Instantiated for each registered
-// T by the explicit `template class ComponentArray<T>` block below.
-template<typename T>
-std::shared_ptr<IComponentArray> ComponentArray<T>::Clone() const {
-    return MakePooledClone(*this);
-}
+} // namespace ecs::detail
 
 // Explicit class template instantiations — emits one full copy of
 // ComponentArray<T> (methods, vtable, RTTI) per registered T into ecs.dll.
-#define ECS_INSTANTIATE_CLASS(T) template class ComponentArray<T>;
+#define ECS_INSTANTIATE_CLASS(T) template class ECS_API ComponentArray<T>;
 ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_INSTANTIATE_CLASS)
 #undef ECS_INSTANTIATE_CLASS
-
-// ----- ComponentStore templated method definitions -----
-
-template<typename T>
-ComponentArray<T>& ComponentStore::MutateArray() {
-    AssertOwnerThread();
-    const auto typeIndex = std::type_index(typeid(T));
-    auto& slot = m_ComponentArrays[typeIndex];
-    if (!slot) {
-        slot = std::make_shared<ComponentArray<T>>();
-    }
-    if (m_DirtyThisTick.insert(typeIndex).second) {
-        // First mutation since last snapshot — clone.
-        slot = MakePooledClone<T>(static_cast<const ComponentArray<T>&>(*slot));
-    }
-    return static_cast<ComponentArray<T>&>(*slot);
-}
-
-template<typename T>
-const ComponentArray<T>* ComponentStore::GetArray() const {
-    const auto typeIndex = std::type_index(typeid(T));
-    const auto it = m_ComponentArrays.find(typeIndex);
-    if (it == m_ComponentArrays.end()) {
-        return nullptr;
-    }
-    return static_cast<const ComponentArray<T>*>(it->second.get());
-}
-
-template<typename T>
-void ComponentStore::AddComponent(EntityId entity, T component) {
-    MutateArray<T>().Add(entity, component);
-}
-
-template<typename T>
-void ComponentStore::RemoveComponent(EntityId entity) {
-    MutateArray<T>().Remove(entity);
-}
-
-template<typename T>
-bool ComponentStore::HasComponent(EntityId entity) const {
-    auto array = GetComponentArray<T>();
-    return array && array->Has(entity);
-}
-
-template<typename T>
-const T* ComponentStore::GetComponent(EntityId entity) const {
-    const auto componentArray = GetComponentArray<T>();
-    if (!componentArray) {
-        return nullptr;
-    }
-    return componentArray->Get(entity);
-}
 
 // ----- Explicit instantiations of ComponentStore methods per registered T -----
 
@@ -143,38 +27,6 @@ const T* ComponentStore::GetComponent(EntityId entity) const {
     template ECS_API const T* ComponentStore::GetComponent<T>(EntityId) const;
 ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_INSTANTIATE_COMPONENT_STORE_METHODS)
 #undef ECS_INSTANTIATE_COMPONENT_STORE_METHODS
-
-// ----- ECS templated method definitions -----
-
-template<typename T>
-void ECS::AddComponent(EntityId entity, T component) {
-    m_ComponentStore.AddComponent<T>(entity, component);
-}
-
-template<typename T>
-void ECS::RemoveComponent(EntityId entity) {
-    m_ComponentStore.RemoveComponent<T>(entity);
-}
-
-template<typename T>
-bool ECS::HasComponent(EntityId entity) const {
-    return m_ComponentStore.HasComponent<T>(entity);
-}
-
-template<typename T>
-const T* ECS::GetComponent(EntityId entity) const {
-    return m_ComponentStore.GetComponent<T>(entity);
-}
-
-template<typename T>
-const ComponentArray<T>* ECS::GetArray() const {
-    return m_ComponentStore.GetArray<T>();
-}
-
-template<typename T>
-ComponentArray<T>& ECS::MutateArray() {
-    return m_ComponentStore.MutateArray<T>();
-}
 
 // ----- ECS non-templated method definitions -----
 
@@ -259,7 +111,7 @@ SnapshotPoolStats GetSnapshotPoolStats() {
 }
 
 ComponentArrayPoolStats GetComponentArrayPoolStats() {
-    const auto& c = ArrayPoolCounters();
+    const auto& c = ecs::detail::ArrayPoolCounters();
     return ComponentArrayPoolStats{
         c.Free.load(std::memory_order_relaxed),
         c.InUse.load(std::memory_order_relaxed),

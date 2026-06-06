@@ -3,6 +3,7 @@
 #include <vector>
 #include "ECS.h"
 #include "inspector/IComponentEditor.h"
+#include "inspector/GenericComponentEditor.h"
 
 struct EditorContext;
 
@@ -15,4 +16,5 @@ public:
 private:
     EntityId selectedEntity = INVALID_ENTITY;
     std::vector<std::unique_ptr<IComponentEditor>> m_Editors;
+    GenericComponentEditor m_GenericEditor;
 };

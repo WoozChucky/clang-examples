@@ -8,6 +8,7 @@
 
 #include "ApplicationContext.h"
 #include "ECSCommands.h"
+#include "ComponentSerializerRegistry.h"
 #include "lib.h"
 
 #include "inspector/TransformEditor.h"
@@ -131,6 +132,16 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                     }
                 }
 
+                // Generic add for game-registered (non-builtin) components.
+                for (const auto& en : SerializerRegistry().Entries()) {
+                    if (en.builtin || en.has(*ctx.WorldSnapshot, entity)) continue;
+                    char lbl[96]; snprintf(lbl, sizeof(lbl), "Add %s", en.name.c_str());
+                    if (ImGui::MenuItem(lbl)) {
+                        if (!ctx.App->ECSCommandRing.Push(ECSCommand::AddComponentByName(entity, en.name)))
+                            SM_WARN("ECS command queue full! AddComponentByName dropped.");
+                    }
+                }
+
                 ImGui::Separator();
 
                 // Remove component options
@@ -138,6 +149,16 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                     if (ed->Has(*ctx.WorldSnapshot, entity)) {
                         char lbl[96]; snprintf(lbl, sizeof(lbl), "Remove %s", ed->Label());
                         if (ImGui::MenuItem(lbl)) ed->Remove(ctx, entity);
+                    }
+                }
+
+                // Generic remove for game-registered (non-builtin) components.
+                for (const auto& en : SerializerRegistry().Entries()) {
+                    if (en.builtin || !en.has(*ctx.WorldSnapshot, entity)) continue;
+                    char lbl[96]; snprintf(lbl, sizeof(lbl), "Remove %s", en.name.c_str());
+                    if (ImGui::MenuItem(lbl)) {
+                        if (!ctx.App->ECSCommandRing.Push(ECSCommand::RemoveComponentByName(entity, en.name)))
+                            SM_WARN("ECS command queue full! RemoveComponentByName dropped.");
                     }
                 }
 
@@ -176,6 +197,12 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                     if (ImGui::CollapsingHeader(ed->Label(), ImGuiTreeNodeFlags_DefaultOpen))
                         ed->DrawEditor(ctx, selectedEntity);
                 }
+            }
+
+            // Generic JSON editor for game-registered (non-builtin) components on this entity.
+            for (const auto& en : SerializerRegistry().Entries()) {
+                if (en.builtin || !en.has(*ctx.WorldSnapshot, selectedEntity)) continue;
+                m_GenericEditor.Draw(ctx, selectedEntity, en.name);
             }
 
         } else if (selectedEntity != INVALID_ENTITY) {

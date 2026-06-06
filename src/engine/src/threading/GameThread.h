@@ -70,6 +70,10 @@ private:
     float m_simX{0.0f};
     float m_simVX{0.5f};
 
+    // This tick's raw input events, filled by DrainInputToSingleton and exposed read-only
+    // via GameState::FrameInputEvents. A member so its storage is stable across ticks.
+    std::vector<InputEvent> m_FrameInput;
+
     // Worker thread & queues
     std::thread m_Worker;
     std::atomic<bool> m_WorkerStop{false};

@@ -299,7 +299,9 @@ void UiRenderPass::Render(nvrhi::ICommandList *commandList, nvrhi::IFramebuffer 
 
         // Current state drives scope filtering (entities with a StateScopeComponent only render
         // when their mask allows the current state; unscoped entities always render).
-        GameStateId uiState = GameStateId::MainMenu;
+        // Opaque state index; the game seeds the authoritative value. 0 (unset) renders
+        // only unscoped entities until the game publishes its first state.
+        uint32_t uiState = 0u;
         if (const auto* gs = world->GetSingleton<GameStateComponent>()) uiState = gs->Current;
         auto scopeVisible = [&](EntityId e) -> bool {
             const auto* sc = world->GetComponent<StateScopeComponent>(e);

@@ -1,6 +1,11 @@
 #include <cstdio>
-#include "StateScope.h" // ScopeAllows + GameStateId
+#include "StateScope.h" // ScopeAllows (uint32_t state index)
 #include "MenuHitTest.h" // ToUiSpace
+
+// Mirrors the game's GameStateId bit indices (game-owned enum; values are the
+// implicit contract with StateMask bits). This test exercises the pure ScopeAllows
+// masking logic in common, so it uses the raw indices directly.
+namespace { constexpr uint32_t kMainMenu = 1, kInLevel = 2, kPaused = 4; }
 
 static int g_Failures = 0;
 #define EXPECT(cond)                                                     \
@@ -13,24 +18,23 @@ static int g_Failures = 0;
 
 // mask == 0 => always-on (unscoped entity).
 static void T00_unscoped_is_always_on() {
-    EXPECT(ScopeAllows(0u, GameStateId::MainMenu));
-    EXPECT(ScopeAllows(0u, GameStateId::InLevel));
+    EXPECT(ScopeAllows(0u, kMainMenu));
+    EXPECT(ScopeAllows(0u, kInLevel));
 }
 
 // A single-state mask matches only that state.
 static void T01_single_state() {
-    const uint32_t menu = 1u << static_cast<uint32_t>(GameStateId::MainMenu);
-    EXPECT(ScopeAllows(menu, GameStateId::MainMenu));
-    EXPECT(!ScopeAllows(menu, GameStateId::InLevel));
+    const uint32_t menu = 1u << kMainMenu;
+    EXPECT(ScopeAllows(menu, kMainMenu));
+    EXPECT(!ScopeAllows(menu, kInLevel));
 }
 
 // A multi-state mask matches any of its states.
 static void T02_multi_state() {
-    const uint32_t mask = (1u << static_cast<uint32_t>(GameStateId::MainMenu))
-                        | (1u << static_cast<uint32_t>(GameStateId::Paused));
-    EXPECT(ScopeAllows(mask, GameStateId::MainMenu));
-    EXPECT(ScopeAllows(mask, GameStateId::Paused));
-    EXPECT(!ScopeAllows(mask, GameStateId::InLevel));
+    const uint32_t mask = (1u << kMainMenu) | (1u << kPaused);
+    EXPECT(ScopeAllows(mask, kMainMenu));
+    EXPECT(ScopeAllows(mask, kPaused));
+    EXPECT(!ScopeAllows(mask, kInLevel));
 }
 
 // Window-space mouse -> UI/viewport space by subtracting the viewport origin.
