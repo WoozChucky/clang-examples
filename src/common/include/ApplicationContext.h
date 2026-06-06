@@ -151,6 +151,12 @@ struct ApplicationContext {
     std::atomic<bool> SwapInProgress{false};
     std::atomic<bool> GameThreadPaused{false};
 
+    // Game.dll reload coordination. GameThread sets ReloadInProgress and waits for the
+    // RenderThread to ack RenderThreadPausedForReload (a no-snapshot-held point) before
+    // destroying game-defined component arrays + unloading the DLL.
+    std::atomic<bool> ReloadInProgress{false};
+    std::atomic<bool> RenderThreadPausedForReload{false};
+
     // Editor scene-viewport size, packed (width<<32 | height). 0 => use the OS window size.
     // Written by the editor overlay (RenderThread) each frame; read by the GameThread for the
     // camera aspect + UI ortho. The runtime never writes it, so it keeps the full-window aspect.

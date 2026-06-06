@@ -110,6 +110,21 @@ SnapshotPoolStats GetSnapshotPoolStats() {
     return GetSnapshotPool().Stats();
 }
 
+const std::unordered_set<std::type_index>& BuiltinComponentTypes() {
+    static const std::unordered_set<std::type_index> s = [] {
+        std::unordered_set<std::type_index> set;
+        #define ECS_ADD_BUILTIN(T) set.emplace(std::type_index(typeid(T)));
+        ECS_FOR_EACH_REGISTERED_COMPONENT(ECS_ADD_BUILTIN)
+        #undef ECS_ADD_BUILTIN
+        return set;
+    }();
+    return s;
+}
+
+void ECS::RemoveNonBuiltinComponentArrays() {
+    m_ComponentStore.RemoveArraysNotIn(BuiltinComponentTypes());
+}
+
 ComponentArrayPoolStats GetComponentArrayPoolStats() {
     const auto& c = ecs::detail::ArrayPoolCounters();
     return ComponentArrayPoolStats{
