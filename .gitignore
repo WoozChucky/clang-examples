@@ -10,3 +10,8 @@ compile_commands.json
 
 # Blender auto-save backups
 *.blend1
+
+# Editor/runtime-written local state (persistence tiers; generated, not tracked)
+/assets/world.json
+/assets/engine_settings.json
+/assets/editor_preferences.json
