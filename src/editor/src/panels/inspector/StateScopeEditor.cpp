@@ -17,7 +17,7 @@ void StateScopeEditor::Remove(const EditorContext& ctx, EntityId e) {
         SM_WARN("ECS command queue full! Remove component command dropped.");
     }
 }
-// Edit State Scope Component (one checkbox per state; mask bit i = GameStateId i)
+// Edit State Scope Component (one checkbox per state; mask bit i = game state index i)
 void StateScopeEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
     const auto* c = m_St.Begin(ctx, e);
     if (!c) return;
@@ -26,6 +26,7 @@ void StateScopeEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
     // Bit indices mirror the game-owned GameStateId (Uninitialized=0 is omitted — nothing
     // scopes to it). A registered state-name table (boundary Piece 5) will replace this
     // hardcoded mirror so the editor stops duplicating the game's state vocabulary.
+    // keep in sync with src/game/include/GameStates.h until Piece 5's registered name table
     struct { const char* label; uint32_t bitIndex; } kStates[] = {
         {"Main Menu", 1},
         {"In Level",  2},

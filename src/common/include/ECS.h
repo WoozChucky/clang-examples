@@ -192,7 +192,7 @@ struct UIRectComponent {
     glm::vec4 Color{0.15f, 0.15f, 0.18f, 1.0f};
 };
 
-// Scopes an entity to one or more game states (bit i = GameStateId value i; 0 = always-on).
+// Scopes an entity to one or more game states (bit i = game state index i; 0 = always-on).
 // The UI renderer + menu interaction only act on entities whose scope allows the current state.
 struct StateScopeComponent {
     uint32_t StateMask = 0;
