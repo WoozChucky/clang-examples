@@ -702,3 +702,17 @@ set_target_properties(test_compserial PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_loginedit
+    test_loginedit.cpp
+)
+
+target_include_directories(test_loginedit PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/game/src
+)
+
+set_target_properties(test_loginedit PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
