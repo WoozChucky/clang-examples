@@ -59,6 +59,38 @@ static void TX01_extern_component_basic()
     EXPECT(!world.HasComponent<ExternProbeComponent>(e));
 }
 
+static void TX02_extern_snapshot_cow()
+{
+    ECS world;
+    const EntityId e = world.CreateEntity();
+    world.AddComponent<ExternProbeComponent>(e, ExternProbeComponent{ 7, 0.5f });
+
+    // Snapshot, then mutate the master. The snapshot must NOT see the change (COW).
+    std::shared_ptr<const ECS> snap = world.CreateSnapshot();
+    world.MutateArray<ExternProbeComponent>().Get(e)->Value = 999;
+
+    const ExternProbeComponent* snapComp = snap->GetComponent<ExternProbeComponent>(e);
+    EXPECT(snapComp != nullptr);
+    EXPECT_EQ(snapComp->Value, 7);                                  // snapshot retains pre-mutation value
+    EXPECT_EQ(world.GetComponent<ExternProbeComponent>(e)->Value, 999); // master diverged
+}
+
+static void TX03_extern_pool_balance()
+{
+    // Acquire+release cycles must leave InUse balanced (deleter recycles across
+    // the module boundary). Compare InUse before/after a scope that clones.
+    const size_t inUseBefore = GetComponentArrayPoolStats().InUse;
+    {
+        ECS world;
+        const EntityId e = world.CreateEntity();
+        world.AddComponent<ExternProbeComponent>(e, ExternProbeComponent{ 1, 1.0f });
+        std::shared_ptr<const ECS> snap = world.CreateSnapshot();
+        world.MutateArray<ExternProbeComponent>().Get(e)->Value = 2; // forces a clone from the pool
+    } // snap + world drop here; pooled arrays recycle via deleters
+    const size_t inUseAfter = GetComponentArrayPoolStats().InUse;
+    EXPECT_EQ(inUseAfter, inUseBefore);                            // no leak / double-free
+}
+
 static void T00_smoke()
 {
     EXPECT_EQ(1 + 1, 2);
@@ -1130,6 +1162,8 @@ int main()
     T60_duplicate_entity_copies_editor_components();
     T61_duplicate_invalid_src_is_noop();
     TX01_extern_component_basic();
+    TX02_extern_snapshot_cow();
+    TX03_extern_pool_balance();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);
