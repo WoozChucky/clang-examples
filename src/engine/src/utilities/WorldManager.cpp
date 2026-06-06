@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include "ComponentSerialization.h" // shared component json (de)serializers
+#include "ComponentSerializerRegistry.h"
 #include "navigation/NavMeshSystem.h"
 
 using json = nlohmann::json;
@@ -30,58 +31,9 @@ bool WorldManager::SaveWorldSnapshot(const std::string& filepath, const ECS* wor
         json jEntity;
         jEntity["EntityId"] = entity;
 
-        // Serialize components if they exist
-        if (world->HasComponent<TransformComponent>(entity)) {
-            jEntity["TransformComponent"] = *(world->GetComponent<TransformComponent>(entity));
-        }
-        if (world->HasComponent<MeshComponent>(entity)) {
-            jEntity["MeshComponent"] = *(world->GetComponent<MeshComponent>(entity));
-        }
-        if (world->HasComponent<MaterialComponent>(entity)) {
-            jEntity["MaterialComponent"] = *(world->GetComponent<MaterialComponent>(entity));
-        }
-        if (world->HasComponent<LightningComponent>(entity)) {
-            jEntity["LightningComponent"] = *(world->GetComponent<LightningComponent>(entity));
-        }
-        if (world->HasComponent<TextComponent>(entity)) {
-            jEntity["TextComponent"] = *(world->GetComponent<TextComponent>(entity));
-        }
-        if (world->HasComponent<SunMarker>(entity)) {
-            jEntity["SunMarker"] = *(world->GetComponent<SunMarker>(entity));
-        }
-        if (world->HasComponent<PlayerComponent>(entity)) {
-            jEntity["PlayerComponent"] = *(world->GetComponent<PlayerComponent>(entity));
-        }
-        if (world->HasComponent<UIRectComponent>(entity)) {
-            jEntity["UIRectComponent"] = *(world->GetComponent<UIRectComponent>(entity));
-        }
-        if (world->HasComponent<StateScopeComponent>(entity)) {
-            jEntity["StateScopeComponent"] = *(world->GetComponent<StateScopeComponent>(entity));
-        }
-        if (world->HasComponent<MenuButtonComponent>(entity)) {
-            jEntity["MenuButtonComponent"] = *(world->GetComponent<MenuButtonComponent>(entity));
-        }
-        if (world->HasComponent<ColliderComponent>(entity)) {
-            jEntity["ColliderComponent"] = *(world->GetComponent<ColliderComponent>(entity));
-        }
-        if (world->HasComponent<NavMeshSourceComponent>(entity)) {
-            jEntity["NavMeshSourceComponent"] = *(world->GetComponent<NavMeshSourceComponent>(entity));
-        }
-        if (world->HasComponent<NavObstacleComponent>(entity)) {
-            jEntity["NavObstacleComponent"] = *(world->GetComponent<NavObstacleComponent>(entity));
-        }
-        if (world->HasComponent<NavAgentComponent>(entity)) {
-            jEntity["NavAgentComponent"] = *(world->GetComponent<NavAgentComponent>(entity));
-        }
-        if (world->HasComponent<NavTargetComponent>(entity)) {
-            jEntity["NavTargetComponent"] = *(world->GetComponent<NavTargetComponent>(entity));
-        }
-        if (world->HasComponent<NavConstrainedComponent>(entity)) {
-            jEntity["NavConstrainedComponent"] = *(world->GetComponent<NavConstrainedComponent>(entity));
-        }
-        if (world->HasComponent<NavClassComponent>(entity)) {
-            jEntity["NavClassComponent"] = *(world->GetComponent<NavClassComponent>(entity));
-        }
+        // Generic: every registered (built-in + game-registered) component present on this
+        // entity is written under its registered name. See ComponentSerializerRegistry.h.
+        SaveEntityComponents(*world, entity, jEntity);
 
         j["Entities"].push_back(jEntity);
     }
@@ -125,41 +77,8 @@ bool WorldManager::LoadWorldSnapshot(const std::string& filepath, ECS* world) {
         world->Clear();
         for (const auto& jEntity : j.at("Entities")) {
             const EntityId createdEntity = world->CreateEntity();
-
-            if (jEntity.contains("TransformComponent"))
-                world->AddComponent(createdEntity, jEntity["TransformComponent"].get<TransformComponent>());
-            if (jEntity.contains("MeshComponent"))
-                world->AddComponent(createdEntity, jEntity["MeshComponent"].get<MeshComponent>());
-            if (jEntity.contains("MaterialComponent"))
-                world->AddComponent(createdEntity, jEntity["MaterialComponent"].get<MaterialComponent>());
-            if (jEntity.contains("LightningComponent"))
-                world->AddComponent(createdEntity, jEntity["LightningComponent"].get<LightningComponent>());
-            if (jEntity.contains("TextComponent"))
-                world->AddComponent(createdEntity, jEntity["TextComponent"].get<TextComponent>());
-            if (jEntity.contains("SunMarker"))
-                world->AddComponent(createdEntity, SunMarker{});
-            if (jEntity.contains("PlayerComponent"))
-                world->AddComponent(createdEntity, jEntity["PlayerComponent"].get<PlayerComponent>());
-            if (jEntity.contains("UIRectComponent"))
-                world->AddComponent(createdEntity, jEntity["UIRectComponent"].get<UIRectComponent>());
-            if (jEntity.contains("StateScopeComponent"))
-                world->AddComponent(createdEntity, jEntity["StateScopeComponent"].get<StateScopeComponent>());
-            if (jEntity.contains("MenuButtonComponent"))
-                world->AddComponent(createdEntity, jEntity["MenuButtonComponent"].get<MenuButtonComponent>());
-            if (jEntity.contains("ColliderComponent"))
-                world->AddComponent(createdEntity, jEntity["ColliderComponent"].get<ColliderComponent>());
-            if (jEntity.contains("NavMeshSourceComponent"))
-                world->AddComponent(createdEntity, jEntity["NavMeshSourceComponent"].get<NavMeshSourceComponent>());
-            if (jEntity.contains("NavObstacleComponent"))
-                world->AddComponent(createdEntity, jEntity["NavObstacleComponent"].get<NavObstacleComponent>());
-            if (jEntity.contains("NavAgentComponent"))
-                world->AddComponent(createdEntity, jEntity["NavAgentComponent"].get<NavAgentComponent>());
-            if (jEntity.contains("NavTargetComponent"))
-                world->AddComponent(createdEntity, jEntity["NavTargetComponent"].get<NavTargetComponent>());
-            if (jEntity.contains("NavConstrainedComponent"))
-                world->AddComponent(createdEntity, NavConstrainedComponent{});
-            if (jEntity.contains("NavClassComponent"))
-                world->AddComponent(createdEntity, jEntity["NavClassComponent"].get<NavClassComponent>());
+            // Generic: load every component key (skips "EntityId", warns on unknown keys).
+            LoadEntityComponents(*world, createdEntity, jEntity);
         }
 
         // Apply scene atmosphere + nav config if present. Singletons survive Clear(), so when
