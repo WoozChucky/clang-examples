@@ -576,6 +576,16 @@ void GameThread::RunLoop() {
     // the Model-B ordering (game-tied resources released before the game DLL unloads).
     NetSubsystem::Instance().Shutdown();
 
+    // Game-defined component arrays (e.g. LoginForm) carry vtables/code in Game.dll, so they
+    // must be destroyed before FreeLibrary — same as the reload barrier. By here the RenderThread
+    // is already stopped+joined (Application joins it before the GameThread), so the only live
+    // snapshot is LatestWorldSnapshot. Drop it (recycle runs on this thread), then clear the
+    // master's non-builtin arrays; both releases destroy the ComponentArray<GameType> objects
+    // HERE while Game.dll is still mapped. Without this, World.Clear() below — and the later
+    // LatestWorldSnapshot reset — call virtuals/dtors on those arrays after the DLL unloads → AV.
+    m_AppContext->LatestWorldSnapshot.store(nullptr, std::memory_order_release);
+    gameState.World.RemoveNonBuiltinComponentArrays();
+
     m_GameLib.Unload(&gameState);
 
     gameState.World.Clear();
