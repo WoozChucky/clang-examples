@@ -13,6 +13,8 @@
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 #include "WireCodec.h"  // protobuf wire-format encode/decode (plumbing demo)
 #include "SessionFlow.h"  // pure client session FSM driven by ClientSessionSystem
+#include "LoginTextEdit.h"   // ApplyTextEdit (used in Task 3; harmless to include now)
+#include "LoginForm.h"
 
 #include <netlib/netlib.h> // MakeTcpServer/MakeTcpClient factories for the net demo
 #include "ServerControl.h" // kDedicatedServerDefaultPort
@@ -480,6 +482,15 @@ namespace flow {
     constexpr const char* kHost   = "127.0.0.1";
 }
 
+namespace loginui {
+    constexpr uint32_t kSubmitLogin    = MakeAction(ActionCategory::Nav, 20);
+    constexpr uint32_t kFocusUsername  = MakeAction(ActionCategory::Nav, 21);
+    constexpr uint32_t kFocusPassword  = MakeAction(ActionCategory::Nav, 22);
+    constexpr uint32_t kErrorLine      = MakeAction(ActionCategory::Nav, 23);
+    constexpr uint32_t kLoginScope      = 1u << static_cast<uint32_t>(GameStateId::Login);
+    constexpr uint32_t kConnectingScope = 1u << static_cast<uint32_t>(GameStateId::Connecting);
+}
+
 // All adapters (both servers + both clients) feed ONE shared inbound ring drained by a single
 // PollEvent consumer. With multiple in-process systems each owning an adapter, ONE poller must
 // fan events to the right owner — otherwise the first system to poll drains+drops everyone else's
@@ -909,16 +920,58 @@ void GameUpdate(GameState* state) {
             g_GameState->World.AddComponent(title, TextComponent{.Text = "My Game", .Color = glm::vec4{1.0f}, .FontSize = 64});
             g_GameState->World.AddComponent(title, StateScopeComponent{ .StateMask = menuScope });
 
-            auto spawnButton = [&](float x, float y, const char* label, uint32_t action) {
+            auto spawnButtonScoped = [&](float x, float y, const char* label, uint32_t action, uint32_t scope) {
                 const auto e = g_GameState->World.CreateEntity();
                 g_GameState->World.AddComponent(e, TransformComponent{.Position = glm::vec3{x, y, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
                 g_GameState->World.AddComponent(e, UIRectComponent{ .Size = glm::vec2{220.f, 56.f} });
                 g_GameState->World.AddComponent(e, TextComponent{.Text = label, .Color = glm::vec4{1.0f}, .FontSize = 28});
                 g_GameState->World.AddComponent(e, MenuButtonComponent{ .ActionId = action });
-                g_GameState->World.AddComponent(e, StateScopeComponent{ .StateMask = menuScope });
+                g_GameState->World.AddComponent(e, StateScopeComponent{ .StateMask = scope });
             };
-            spawnButton(200.f, 260.f, "Play", Actions::Play);
+            auto spawnButton = [&](float x, float y, const char* label, uint32_t action) {
+                spawnButtonScoped(x, y, label, action, menuScope);
+            };
+            spawnButton(200.f, 260.f, "Start Game", Actions::Play);
             spawnButton(200.f, 330.f, "Quit", Actions::Quit);
+
+            // --- Login + Connecting UI (StateScope-gated; behavior wired in Task 3) ---
+            auto spawnText = [&](float x, float y, const char* label, size_t font, uint32_t scope, glm::vec4 col) -> EntityId {
+                const auto e = g_GameState->World.CreateEntity();
+                g_GameState->World.AddComponent(e, TransformComponent{.Position = glm::vec3{x, y, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+                g_GameState->World.AddComponent(e, TextComponent{.Text = label, .Color = col, .FontSize = font});
+                g_GameState->World.AddComponent(e, StateScopeComponent{ .StateMask = scope });
+                return e;
+            };
+            auto spawnField = [&](float x, float y, uint32_t focusAction) {
+                const auto e = g_GameState->World.CreateEntity();
+                g_GameState->World.AddComponent(e, TransformComponent{.Position = glm::vec3{x, y, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+                g_GameState->World.AddComponent(e, UIRectComponent{ .Size = glm::vec2{300.f, 40.f} });
+                g_GameState->World.AddComponent(e, TextComponent{.Text = "", .Color = glm::vec4{1.f}, .FontSize = 24});
+                g_GameState->World.AddComponent(e, MenuButtonComponent{ .ActionId = focusAction });
+                g_GameState->World.AddComponent(e, StateScopeComponent{ .StateMask = loginui::kLoginScope });
+            };
+
+            // Login screen (scoped to Login)
+            spawnText(200.f, 120.f, "Login", 48, loginui::kLoginScope, glm::vec4{1.f});
+            spawnText(200.f, 200.f, "Username:", 22, loginui::kLoginScope, glm::vec4{0.8f, 0.8f, 0.8f, 1.f});
+            spawnField(200.f, 230.f, loginui::kFocusUsername);
+            spawnText(200.f, 290.f, "Password:", 22, loginui::kLoginScope, glm::vec4{0.8f, 0.8f, 0.8f, 1.f});
+            spawnField(200.f, 320.f, loginui::kFocusPassword);
+            spawnButtonScoped(200.f, 390.f, "Submit", loginui::kSubmitLogin, loginui::kLoginScope);
+            spawnButtonScoped(200.f, 460.f, "Back",   Actions::Back,         loginui::kLoginScope);
+            // error line: a non-interactive TextComponent tagged with a MenuButton{kErrorLine} (NO UIRect,
+            // so MenuInteractionSystem — which requires UIRectComponent — never hit-tests it). Task 3
+            // finds it by ActionId to display LoginForm.Error.
+            {
+                const auto err = g_GameState->World.CreateEntity();
+                g_GameState->World.AddComponent(err, TransformComponent{.Position = glm::vec3{200.f, 530.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});
+                g_GameState->World.AddComponent(err, TextComponent{.Text = "", .Color = glm::vec4{1.f, 0.4f, 0.4f, 1.f}, .FontSize = 22});
+                g_GameState->World.AddComponent(err, MenuButtonComponent{ .ActionId = loginui::kErrorLine });
+                g_GameState->World.AddComponent(err, StateScopeComponent{ .StateMask = loginui::kLoginScope });
+            }
+
+            // Connecting screen (scoped to Connecting)
+            spawnText(200.f, 200.f, "Connecting...", 36, loginui::kConnectingScope, glm::vec4{1.f});
 
             const auto sun = g_GameState->World.CreateEntity();
             g_GameState->World.AddComponent(sun, TransformComponent{.Position = glm::vec3{0.f, 0.f, 0.f}, .Rotation = glm::vec3{0.f}, .Scale = glm::vec3{1.f}});

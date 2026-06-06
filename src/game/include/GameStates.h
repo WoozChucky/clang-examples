@@ -11,6 +11,8 @@ enum class GameStateId : uint32_t {
     InLevel       = 2,
     InEditor      = 3,
     Paused        = 4,
+    Login         = 5,
+    Connecting    = 6,
 };
 
 // Convert between the typed game enum and the engine's opaque uint32_t index.
