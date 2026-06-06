@@ -23,7 +23,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "input.h"
-#include "GameStateId.h"
 
 // Cross-DLL export annotation. Defined as dllexport in ecs.dll's TU,
 // dllimport everywhere else. Allow override (defining ECS_API empty
@@ -220,10 +219,11 @@ struct PlayerComponent {
     float MoveSpeed = 5.0f; // world units / second
 };
 
-// Current game lifecycle state (singleton). Authoritative source of truth: AppFlowSystem
-// writes Current; systems + the renderer read it. Not persisted in world.json (runtime).
+// Singleton: the current application state as an opaque bit index. The game owns the
+// state vocabulary (see the game's GameStates.h); 0 = unset/initial, seeded by the game
+// at startup. The engine compares this against StateScopeComponent.StateMask bits.
 struct GameStateComponent {
-    GameStateId Current = GameStateId::MainMenu;
+    uint32_t Current = 0;
 };
 
 // One queued UI/game action. Producers (menu interaction, Phase 4) push; owning systems

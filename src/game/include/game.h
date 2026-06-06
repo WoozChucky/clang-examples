@@ -3,6 +3,7 @@
 #include "ECS.h"
 #include "Systems.h"
 #include "AppRole.h"
+#include "GameStates.h"
 
 #ifdef _WIN32
 #define DEBUG_BREAK() __debugbreak()
@@ -20,8 +21,8 @@
 // the reload and keeps the previous Game.dll active.
 #define GAME_API_VERSION 20u
 
-// GameStateId moved to src/common/include/GameStateId.h (included via ECS.h) so ECS
-// components + engine code can reference it.
+// GameStateId lives in the game-owned GameStates.h (next to this header). The engine
+// stores the current state as an opaque uint32_t (GameStateComponent.Current).
 
 struct ApplicationSettings;
 

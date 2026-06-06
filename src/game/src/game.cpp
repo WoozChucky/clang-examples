@@ -123,7 +123,7 @@ public:
     void Update(SystemContext& ctx) override {
         // Gameplay runs only in-level.
         const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
-        if (!gs || gs->Current != GameStateId::InLevel) return;
+        if (!gs || gs->Current != StateIndex(GameStateId::InLevel)) return;
 
         bool found = false;
         glm::vec3 target(0.0f);
@@ -168,7 +168,7 @@ public:
     void Update(SystemContext& ctx) override {
         // Gameplay runs only in-level.
         const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
-        if (!gs || gs->Current != GameStateId::InLevel) return;
+        if (!gs || gs->Current != StateIndex(GameStateId::InLevel)) return;
 
         const auto* in = ctx.world.GetSingleton<InputStateComponent>();
         if (!in || in->Wheel == 0) return; // Wheel is a per-tick delta (reset each tick)
@@ -229,7 +229,7 @@ public:
     void Update(SystemContext& ctx) override {
         // Gameplay runs only in-level.
         const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
-        if (!gs || gs->Current != GameStateId::InLevel) return;
+        if (!gs || gs->Current != StateIndex(GameStateId::InLevel)) return;
 
         const auto* in = ctx.world.GetSingleton<InputStateComponent>();
         if (!in) return;
@@ -351,8 +351,8 @@ public:
         const auto* in = ctx.world.GetSingleton<InputStateComponent>();
         if (!in) return;
 
-        GameStateId cur = GameStateId::MainMenu;
-        if (const auto* gs = ctx.world.GetSingleton<GameStateComponent>()) cur = gs->Current;
+        const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
+        GameStateId cur = gs ? AsGameState(gs->Current) : GameStateId::MainMenu;
 
         const auto* vp = ctx.world.GetSingleton<ViewportComponent>();
         const uint32_t ox = vp ? vp->OriginX : 0u;
@@ -369,7 +369,7 @@ public:
 
         auto scopeVisible = [&](EntityId e) {
             const auto* sc = ctx.world.GetComponent<StateScopeComponent>(e);
-            return !sc || ScopeAllows(sc->StateMask, cur);
+            return !sc || ScopeAllows(sc->StateMask, StateIndex(cur));
         };
         auto rectOf = [&](EntityId e, glm::vec2& pos, glm::vec2& size) {
             const auto* tr = ctx.world.GetComponent<TransformComponent>(e);
@@ -444,7 +444,7 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 private:
     static void SetState(SystemContext& ctx, GameStateId s) {
-        ctx.world.ModifySingleton<GameStateComponent>([&](GameStateComponent& g){ g.Current = s; });
+        ctx.world.ModifySingleton<GameStateComponent>([&](GameStateComponent& g){ g.Current = StateIndex(s); });
     }
 };
 
@@ -744,7 +744,7 @@ private:
             case SessionAction::SendCharSelect:  { wire::CharSelectReq r; r.set_char_id(m_PickCharId); SendMessage(net, m_World, kNetConnInvalid, r); break; }
             case SessionAction::SendEnterGame:   { wire::EnterGameReq r; SendMessage(net, m_World, kNetConnInvalid, r); break; }
             case SessionAction::EnterGame:
-                ctx.world.ModifySingleton<GameStateComponent>([](GameStateComponent& g){ g.Current = GameStateId::InLevel; });
+                ctx.world.ModifySingleton<GameStateComponent>([](GameStateComponent& g){ g.Current = StateIndex(GameStateId::InLevel); });
                 SM_TRACE("ClientSession: IN GAME - flow complete; GameState -> InLevel");
                 break;
             case SessionAction::Reset:
@@ -816,7 +816,7 @@ void GameUpdate(GameState* state) {
     // Mirror authoritative ECS state onto the host field (legacy/editor reads). Absent on the
     // very first tick (seeded in the boot block below).
     if (const auto* gs = g_GameState->World.GetSingleton<GameStateComponent>())
-        g_GameState->StateId = gs->Current;
+        g_GameState->StateId = AsGameState(gs->Current);
 
     // Clear the per-tick action queue; producers push fresh events this tick.
     if (g_GameState->World.GetSingleton<ActionQueueComponent>())
@@ -872,7 +872,7 @@ void GameUpdate(GameState* state) {
         g_GameState->World.SetSingleton(WorldCameraComponent{});
         g_GameState->World.SetSingleton(AppControlComponent{});
         g_GameState->World.SetSingleton(AtmosphereStateComponent{});
-        g_GameState->World.SetSingleton(GameStateComponent{ GameStateId::MainMenu });
+        g_GameState->World.SetSingleton(GameStateComponent{ StateIndex(GameStateId::MainMenu) });
         g_GameState->World.SetSingleton(ActionQueueComponent{});
         g_GameState->World.SetSingleton(MenuStateComponent{});
 

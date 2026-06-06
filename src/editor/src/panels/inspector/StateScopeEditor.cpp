@@ -23,14 +23,17 @@ void StateScopeEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
     if (!c) return;
 
     ImGui::TextDisabled("Active in states (none = always):");
-    struct { const char* label; GameStateId id; } kStates[] = {
-        {"Main Menu", GameStateId::MainMenu},
-        {"In Level",  GameStateId::InLevel},
-        {"In Editor", GameStateId::InEditor},
-        {"Paused",    GameStateId::Paused},
+    // Bit indices mirror the game-owned GameStateId (Uninitialized=0 is omitted — nothing
+    // scopes to it). A registered state-name table (boundary Piece 5) will replace this
+    // hardcoded mirror so the editor stops duplicating the game's state vocabulary.
+    struct { const char* label; uint32_t bitIndex; } kStates[] = {
+        {"Main Menu", 1},
+        {"In Level",  2},
+        {"In Editor", 3},
+        {"Paused",    4},
     };
     for (const auto& s : kStates) {
-        const uint32_t bit = 1u << static_cast<uint32_t>(s.id);
+        const uint32_t bit = 1u << s.bitIndex;
         bool on = (m_St.edit.StateMask & bit) != 0u;
         if (ImGui::Checkbox(s.label, &on)) {
             if (on) m_St.edit.StateMask |= bit; else m_St.edit.StateMask &= ~bit;
