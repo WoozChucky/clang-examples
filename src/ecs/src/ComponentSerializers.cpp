@@ -1,5 +1,6 @@
 #include "ComponentSerializerRegistry.h"
 #include "ComponentSerialization.h"  // built-in to_json/from_json for the persisted types
+#include "StateNameRegistry.h"        // game-registered state bit-index -> label table
 #include "lib.h"                      // SM_WARN
 
 ComponentSerializerRegistry& SerializerRegistry() {
@@ -41,4 +42,9 @@ void LoadEntityComponents(ECS& world, EntityId e, const nlohmann::json& jEntity)
         else
             SM_WARN("LoadEntityComponents: no serializer for component '%s' — skipped", it.key().c_str());
     }
+}
+
+StateNameRegistry& StateNames() {
+    static StateNameRegistry reg;
+    return reg;
 }

@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 #include "ComponentSerializerRegistry.h"
 #include "ECSCommands.h"
+#include "StateNameRegistry.h"
 
 // Test exe stub for SM_ASSERT's break hook (matches sibling tests like test_ecs.cpp).
 void platform_debug_break(const char* expr, const char* file, int line, const char* message) {
@@ -95,6 +96,22 @@ static void T05_entry_flags_builtin_vs_game()
     EXPECT(pp && pp->builtin == false);
 }
 
+static void T06_state_name_registry()
+{
+    StateNames().Register(1, "Main Menu");
+    StateNames().Register(2, "In Level");
+    StateNames().Register(1, "Main Menu (renamed)"); // upsert by index
+
+    const auto found = [](uint32_t idx) -> const std::string* {
+        for (auto& e : StateNames().Entries()) if (e.first == idx) return &e.second;
+        return nullptr;
+    };
+    EXPECT(found(1) && *found(1) == "Main Menu (renamed)"); // upserted
+    EXPECT(found(2) && *found(2) == "In Level");
+    size_t count1 = 0; for (auto& e : StateNames().Entries()) if (e.first == 1) ++count1;
+    EXPECT(count1 == 1);
+}
+
 int main()
 {
     T01_builtins_registered();
@@ -102,6 +119,7 @@ int main()
     T03_register_upserts_no_duplicate();
     T04_name_json_command_path();
     T05_entry_flags_builtin_vs_game();
+    T06_state_name_registry();
     if (g_Failures == 0) { std::printf("All component-serializer tests passed.\n"); return 0; }
     std::printf("%d component-serializer test(s) FAILED.\n", g_Failures);
     return 1;

@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include "ApplicationContext.h"
 #include "ECSCommands.h"
+#include "StateNameRegistry.h"
 #include "lib.h"
 
 void StateScopeEditor::AddDefault(const EditorContext& ctx, EntityId e) {
@@ -23,20 +24,12 @@ void StateScopeEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
     if (!c) return;
 
     ImGui::TextDisabled("Active in states (none = always):");
-    // Bit indices mirror the game-owned GameStateId (Uninitialized=0 is omitted — nothing
-    // scopes to it). A registered state-name table (boundary Piece 5) will replace this
-    // hardcoded mirror so the editor stops duplicating the game's state vocabulary.
-    // keep in sync with src/game/include/GameStates.h until Piece 5's registered name table
-    struct { const char* label; uint32_t bitIndex; } kStates[] = {
-        {"Main Menu", 1},
-        {"In Level",  2},
-        {"In Editor", 3},
-        {"Paused",    4},
-    };
-    for (const auto& s : kStates) {
-        const uint32_t bit = 1u << s.bitIndex;
+    // State labels come from the game-registered StateNameRegistry (game owns GameStateId).
+    // Empty (game not loaded / not yet seeded) => no checkboxes this frame.
+    for (const auto& [bitIndex, label] : StateNames().Entries()) {
+        const uint32_t bit = 1u << bitIndex;
         bool on = (m_St.edit.StateMask & bit) != 0u;
-        if (ImGui::Checkbox(s.label, &on)) {
+        if (ImGui::Checkbox(label.c_str(), &on)) {
             if (on) m_St.edit.StateMask |= bit; else m_St.edit.StateMask &= ~bit;
             m_St.modified = true;
         }

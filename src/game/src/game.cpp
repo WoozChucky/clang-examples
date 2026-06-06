@@ -8,6 +8,7 @@
 #include "NavClass.h"
 #include "MenuHitTest.h" // ToUiSpace + PointInRect
 #include "StateScope.h"  // ScopeAllows
+#include "StateNameRegistry.h"  // register game state bit-index -> label for the editor
 #include "Actions.h"     // ActionCategory / Actions::
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 #include "WireCodec.h"  // protobuf wire-format encode/decode (plumbing demo)
@@ -875,6 +876,13 @@ void GameUpdate(GameState* state) {
         g_GameState->World.SetSingleton(GameStateComponent{ StateIndex(GameStateId::MainMenu) });
         g_GameState->World.SetSingleton(ActionQueueComponent{});
         g_GameState->World.SetSingleton(MenuStateComponent{});
+
+        // Publish state bit-index -> label so the editor's StateScope panel can show named
+        // checkboxes without naming GameStateId. Idempotent upsert (safe each boot/reload).
+        StateNames().Register(StateIndex(GameStateId::MainMenu), "Main Menu");
+        StateNames().Register(StateIndex(GameStateId::InLevel),  "In Level");
+        StateNames().Register(StateIndex(GameStateId::InEditor), "In Editor");
+        StateNames().Register(StateIndex(GameStateId::Paused),   "Paused");
 
         // Persisted scene atmosphere may already be set by a startup world.json load; seed
         // defaults only when absent so loaded values aren't clobbered.
