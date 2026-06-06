@@ -747,6 +747,13 @@ public:
 
         // Disconnected: (re)start by connecting the auth client (bounded retry).
         if (m_State == SessionState::Disconnected) {
+            // Stay idle unless the user has submitted the login form (AppFlow -> Connecting).
+            const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
+            if (!gs || gs->Current != StateIndex(GameStateId::Connecting)) {
+                m_RetryAccum = 0.0;
+                m_RetryCount = 0;
+                return;
+            }
             m_RetryAccum += ctx.dt;
             const double interval = (m_RetryCount < kMaxFastRetries) ? kFastRetrySec : kSlowRetrySec;
             if (m_RetryAccum < interval) return;
@@ -832,7 +839,13 @@ private:
     void DoAction(SystemContext& ctx, const NetServices* net, SessionAction a) {
         switch (a) {
             case SessionAction::SendLogin: {
-                wire::LoginReq r; r.set_username("player"); r.set_password("stub");
+                wire::LoginReq r;
+                if (const auto* f = ctx.world.GetSingleton<LoginForm>()) {
+                    r.set_username(f->Username);
+                    r.set_password(f->Password);
+                } else {
+                    r.set_username("player"); r.set_password("stub"); // fallback; shouldn't happen
+                }
                 SendMessage(net, m_Auth, kNetConnInvalid, r); break;
             }
             case SessionAction::SendWorldListReq: { wire::WorldListReq r; SendMessage(net, m_Auth, kNetConnInvalid, r); break; }
@@ -854,10 +867,16 @@ private:
                 SM_TRACE("ClientSession: IN GAME - flow complete; GameState -> InLevel");
                 break;
             case SessionAction::Reset:
-                SM_WARN("ClientSession: flow reset; will retry");
+                // Reset fires on the *Fail/Dropped failure inputs. Surface the error and return to
+                // the login screen; the Step-1 gate keeps us idle there (no auto-retry) until the
+                // user submits again.
+                SM_WARN("ClientSession: flow reset; returning to login");
                 CloseClients(net);
                 m_State = SessionState::Disconnected;
                 m_RetryAccum = 0.0;
+                m_RetryCount = 0;
+                ctx.world.ModifySingleton<LoginForm>([](LoginForm& f){ f.Error = "Login failed"; });
+                ctx.world.ModifySingleton<GameStateComponent>([](GameStateComponent& g){ g.Current = StateIndex(GameStateId::Login); });
                 break;
             case SessionAction::None: default: break;
         }
