@@ -19,6 +19,7 @@
 #include <netlib/netlib.h> // MakeTcpServer/MakeTcpClient factories for the net demo
 #include "ServerControl.h" // kDedicatedServerDefaultPort
 
+#include <algorithm>
 #include <memory>
 #include <tuple>
 #include <cstring>
@@ -344,6 +345,21 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Physics; }
 };
 
+// Host-owned GameState pointer (set in GameUpdate). Declared ahead of the systems because
+// LoginUISystem reads this tick's TextInput events off it; defined just below.
+static GameState* g_GameState = nullptr;
+
+// Login-UI action ids + state scopes. Defined here (ahead of AppFlowSystem / LoginUISystem)
+// so both can reference them; also used by the login UI seeding further below.
+namespace loginui {
+    constexpr uint32_t kSubmitLogin    = MakeAction(ActionCategory::Nav, 20);
+    constexpr uint32_t kFocusUsername  = MakeAction(ActionCategory::Nav, 21);
+    constexpr uint32_t kFocusPassword  = MakeAction(ActionCategory::Nav, 22);
+    constexpr uint32_t kErrorLine      = MakeAction(ActionCategory::Nav, 23);
+    constexpr uint32_t kLoginScope      = 1u << static_cast<uint32_t>(GameStateId::Login);
+    constexpr uint32_t kConnectingScope = 1u << static_cast<uint32_t>(GameStateId::Connecting);
+}
+
 // Hit-tests scoped menu buttons against the UI-space mouse, drives their UIRectComponent.Color
 // (Normal/Hover/Press), and on a press-inside -> release-inside click pushes an ActionEvent.
 // Runs before AppFlowSystem so the action is consumed the same tick. Scope filtering means it's
@@ -421,6 +437,92 @@ public:
     SystemPhase Phase() const override { return SystemPhase::Simulation; }
 };
 
+// Drives the Login screen's text-entry UI: focus (field click / Tab), typing (frame TextInput
+// events + Backspace), submit validation (Enter or Submit button; empty username is rejected with
+// an inline error and the kSubmitLogin action is dropped so AppFlowSystem never advances), and
+// mirrors the LoginForm singleton onto the field/error UI entities. Inert outside the Login state.
+class LoginUISystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
+        if (!gs || gs->Current != StateIndex(GameStateId::Login)) return;
+
+        if (!ctx.world.GetSingleton<LoginForm>()) ctx.world.SetSingleton(LoginForm{});
+
+        // 1) Focus: MenuInteractionSystem fired a field's focus action this tick.
+        if (const auto* q = ctx.world.GetSingleton<ActionQueueComponent>()) {
+            for (const ActionEvent& e : q->Events) {
+                if (e.ActionId == loginui::kFocusUsername)
+                    ctx.world.ModifySingleton<LoginForm>([](LoginForm& f){ f.Focused = LoginField::Username; });
+                else if (e.ActionId == loginui::kFocusPassword)
+                    ctx.world.ModifySingleton<LoginForm>([](LoginForm& f){ f.Focused = LoginField::Password; });
+            }
+        }
+        const auto* in = ctx.world.GetSingleton<InputStateComponent>();
+        if (in && in->Pressed[KEY_TAB]) {
+            ctx.world.ModifySingleton<LoginForm>([](LoginForm& f){
+                f.Focused = (f.Focused == LoginField::Username) ? LoginField::Password : LoginField::Username;
+            });
+        }
+
+        // 2) Typing into the focused field + backspace.
+        ctx.world.ModifySingleton<LoginForm>([&](LoginForm& f){
+            if (f.Focused == LoginField::None) return;
+            std::string& field = (f.Focused == LoginField::Username) ? f.Username : f.Password;
+            for (std::size_t i = 0; i < g_GameState->FrameInputEventCount; ++i)
+                ApplyTextEdit(field, g_GameState->FrameInputEvents[i]);
+            if (in && in->Pressed[KEY_BACKSPACE] && !field.empty()) field.pop_back();
+            if (!field.empty()) f.Error.clear();
+        });
+
+        // 3) Submit (Enter OR Submit button) with empty-username validation.
+        {
+            const bool enter = in && in->Pressed[KEY_ENTER];
+            bool queued = false;
+            if (const auto* q = ctx.world.GetSingleton<ActionQueueComponent>())
+                for (const ActionEvent& e : q->Events) if (e.ActionId == loginui::kSubmitLogin) queued = true;
+            if (enter || queued) {
+                const auto* f2 = ctx.world.GetSingleton<LoginForm>();
+                const bool ok = f2 && !f2->Username.empty();
+                if (!ok) {
+                    ctx.world.ModifySingleton<LoginForm>([](LoginForm& f){ f.Error = "Username required"; });
+                    ctx.world.ModifySingleton<ActionQueueComponent>([](ActionQueueComponent& q){
+                        q.Events.erase(std::remove_if(q.Events.begin(), q.Events.end(),
+                            [](const ActionEvent& e){ return e.ActionId == loginui::kSubmitLogin; }), q.Events.end());
+                    });
+                } else if (enter && !queued) {
+                    ctx.world.ModifySingleton<ActionQueueComponent>([](ActionQueueComponent& q){
+                        q.Events.push_back(ActionEvent{ loginui::kSubmitLogin, 0, 0 });
+                    });
+                }
+            }
+        }
+
+        // 4) Mirror form -> field display text (+ focus highlight) + error line.
+        const auto* form = ctx.world.GetSingleton<LoginForm>();
+        if (!form) return;
+        ctx.world.Each<MenuButtonComponent, TextComponent>([&](EntityId e) {
+            const auto* mb = ctx.world.GetComponent<MenuButtonComponent>(e);
+            if (!mb) return;
+            if (mb->ActionId == loginui::kErrorLine) {
+                ctx.world.Modify<TextComponent>(e, [&](TextComponent& t){ t.Text = form->Error; });
+                return;
+            }
+            const bool isUser = mb->ActionId == loginui::kFocusUsername;
+            const bool isPass = mb->ActionId == loginui::kFocusPassword;
+            if (!isUser && !isPass) return;
+            const std::string shown = isUser ? form->Username : std::string(form->Password.size(), '*');
+            ctx.world.Modify<TextComponent>(e, [&](TextComponent& t){ t.Text = shown; });
+            const bool focused = (isUser && form->Focused == LoginField::Username) ||
+                                 (isPass && form->Focused == LoginField::Password);
+            if (focused && ctx.world.GetComponent<UIRectComponent>(e))
+                ctx.world.Modify<UIRectComponent>(e, [](UIRectComponent& r){ r.Color = glm::vec4{0.30f,0.30f,0.40f,1.f}; });
+        });
+    }
+    const char* Name() const override { return "LoginUISystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Simulation; }
+};
+
 // Owns game-state transitions. Consumes Nav-category actions from the ActionQueue (emitted by
 // MenuInteractionSystem) and applies them; also returns to the menu on ESC while in-level.
 class AppFlowSystem final : public ISystem {
@@ -429,8 +531,9 @@ public:
         if (const auto* q = ctx.world.GetSingleton<ActionQueueComponent>()) {
             for (const ActionEvent& e : q->Events) {
                 if (CategoryOf(e.ActionId) != ActionCategory::Nav) continue; // owned elsewhere
-                if (e.ActionId == Actions::Play)      SetState(ctx, GameStateId::InLevel);
-                else if (e.ActionId == Actions::Back) SetState(ctx, GameStateId::MainMenu);
+                if (e.ActionId == Actions::Play)             SetState(ctx, GameStateId::Login);
+                else if (e.ActionId == loginui::kSubmitLogin) SetState(ctx, GameStateId::Connecting);
+                else if (e.ActionId == Actions::Back)        SetState(ctx, GameStateId::MainMenu);
                 else if (e.ActionId == Actions::Quit)
                     ctx.world.ModifySingleton<AppControlComponent>([](AppControlComponent& a){ a.QuitRequested = true; });
             }
@@ -480,15 +583,6 @@ namespace flow {
     constexpr uint16_t kAuthPort  = 27100;
     constexpr uint16_t kWorldPort = 27101;
     constexpr const char* kHost   = "127.0.0.1";
-}
-
-namespace loginui {
-    constexpr uint32_t kSubmitLogin    = MakeAction(ActionCategory::Nav, 20);
-    constexpr uint32_t kFocusUsername  = MakeAction(ActionCategory::Nav, 21);
-    constexpr uint32_t kFocusPassword  = MakeAction(ActionCategory::Nav, 22);
-    constexpr uint32_t kErrorLine      = MakeAction(ActionCategory::Nav, 23);
-    constexpr uint32_t kLoginScope      = 1u << static_cast<uint32_t>(GameStateId::Login);
-    constexpr uint32_t kConnectingScope = 1u << static_cast<uint32_t>(GameStateId::Connecting);
 }
 
 // All adapters (both servers + both clients) feed ONE shared inbound ring drained by a single
@@ -795,6 +889,7 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<TextRotationSystem>());
     s->Register(std::make_unique<DayNightSystem>());
     s->Register(std::make_unique<MenuInteractionSystem>());  // emits actions; before AppFlow
+    s->Register(std::make_unique<LoginUISystem>());   // login text-entry; validates+drops bad submit before AppFlow
     s->Register(std::make_unique<AppFlowSystem>());   // owns transitions; runs before gameplay
     s->Register(std::make_unique<DebugSpawnSystem>());
     s->Register(std::make_unique<PlayerMovementSystem>());            // Simulation: writes MoveIntent from input
@@ -810,8 +905,6 @@ void GameRegisterSystems(SystemScheduler* s) {
 }
 
 extern "C" EXPORT_FN void GameInstallLogSink(LogSinkFn fn) { sm_set_log_sink(fn); }
-
-static GameState* g_GameState = nullptr;
 
 uint32_t GameGetVersion() {
     return GAME_API_VERSION;
