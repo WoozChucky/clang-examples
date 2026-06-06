@@ -534,7 +534,7 @@ public:
         return m;
     }
 
-    [[nodiscard]] std::shared_ptr<IComponentArray> Clone() const override; // defined in ecs.cpp (uses the array pool)
+    [[nodiscard]] std::shared_ptr<IComponentArray> Clone() const override; // defined below, out-of-class (uses the array pool)
 
     // Iterator access for systems
     std::vector<T>& GetComponents() { return m_Components; }
@@ -610,6 +610,11 @@ struct ArrayPoolCountersT {
 // Single instance, defined + exported from ecs.dll so all modules share counts.
 ECS_API ArrayPoolCountersT& ArrayPoolCounters();
 
+// Per-type free-list of recycled ComponentArray<T>. Mutex-guarded: Recycle fires from a
+// shared_ptr deleter on whatever thread drops the last ref (RenderThread when a snapshot
+// recycles, GameThread otherwise). Non-leaked Meyers singleton per T; safe because the
+// app joins both threads + resets LatestWorldSnapshot before static destruction, so no
+// Recycle races the dtor.
 template<typename T>
 class ComponentArrayPool {
 public:
@@ -640,6 +645,8 @@ ComponentArrayPool<T>& GetArrayPool() { static ComponentArrayPool<T> pool; retur
 
 template<typename T>
 std::shared_ptr<ComponentArray<T>> MakePooledClone(const ComponentArray<T>& src) {
+    // Wrap BEFORE copying: if CopyFrom throws (e.g. bad_alloc on a grow), the deleter
+    // returns the array to the pool, keeping InUse/Free balanced (no leak).
     std::shared_ptr<ComponentArray<T>> arr(
         GetArrayPool<T>().Acquire(),
         [](ComponentArray<T>* p) noexcept { GetArrayPool<T>().Recycle(p); });
