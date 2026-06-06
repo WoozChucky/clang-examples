@@ -91,6 +91,28 @@ static void TX03_extern_pool_balance()
     EXPECT_EQ(inUseAfter, inUseBefore);                            // no leak / double-free
 }
 
+static void TX04_remove_non_builtin_component_arrays()
+{
+    EXPECT(BuiltinComponentTypes().count(std::type_index(typeid(TransformComponent))) == 1);
+    EXPECT(BuiltinComponentTypes().count(std::type_index(typeid(ExternProbeComponent))) == 0);
+
+    ECS world;
+    const EntityId e = world.CreateEntity();
+    world.AddComponent<TransformComponent>(e, TransformComponent{});
+    world.AddComponent<ExternProbeComponent>(e, ExternProbeComponent{ 5, 1.0f });
+
+    // A snapshot taken BEFORE the clear must still resolve the game component
+    // (snapshots keep game arrays).
+    std::shared_ptr<const ECS> snap = world.CreateSnapshot();
+    EXPECT(snap->GetComponent<ExternProbeComponent>(e) != nullptr);
+
+    world.RemoveNonBuiltinComponentArrays();
+
+    EXPECT(world.HasComponent<TransformComponent>(e));            // built-in survives
+    EXPECT(!world.HasComponent<ExternProbeComponent>(e));         // game array removed from master
+    EXPECT(snap->GetComponent<ExternProbeComponent>(e) != nullptr); // pre-clear snapshot still has it
+}
+
 static void T00_smoke()
 {
     EXPECT_EQ(1 + 1, 2);
@@ -1164,6 +1186,7 @@ int main()
     TX01_extern_component_basic();
     TX02_extern_snapshot_cow();
     TX03_extern_pool_balance();
+    TX04_remove_non_builtin_component_arrays();
 
     if (g_Failures) {
         SM_ERROR("%d ECS test(s) failed", g_Failures);

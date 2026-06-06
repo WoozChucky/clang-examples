@@ -714,6 +714,16 @@ public:
         m_ComponentArrays.clear();
     }
 
+    // Erase component arrays whose type is not in `keep` (used to drop game-defined arrays
+    // before Game.dll unload). Releases their shared_ptrs — uniquely-owned ones destroyed
+    // here on the caller's thread.
+    void RemoveArraysNotIn(const std::unordered_set<std::type_index>& keep) {
+        for (auto it = m_ComponentArrays.begin(); it != m_ComponentArrays.end(); ) {
+            if (keep.find(it->first) == keep.end()) it = m_ComponentArrays.erase(it);
+            else ++it;
+        }
+    }
+
     /**
      * @brief Returns a mutable reference to the component array for type T,
      *        cloning the array on first write per tick to preserve any in-flight
@@ -893,6 +903,10 @@ struct ComponentArrayPoolStats {
 };
 ECS_API ComponentArrayPoolStats GetComponentArrayPoolStats();
 
+// The set of built-in component type_indexes (the ECS_FOR_EACH_REGISTERED_COMPONENT set).
+// Anything not in here is game-defined. Built once; single ecs.dll instance.
+ECS_API const std::unordered_set<std::type_index>& BuiltinComponentTypes();
+
 // Aggregate ECS storage bytes (read-only diagnostics; excludes map/control-block overhead).
 struct EcsMemoryStats {
     size_t ComponentUsed = 0;
@@ -1029,6 +1043,11 @@ public:
     const ComponentArray<T>* GetArray() const { return m_ComponentStore.GetArray<T>(); }
 
     void Clear();
+
+    // Drop all game-defined (non-built-in) component arrays. Call on the GameThread
+    // immediately before Game.dll unload, while the DLL is still mapped, so the
+    // ComponentArray<GameType> destructors (code in Game.dll) run against live code.
+    void RemoveNonBuiltinComponentArrays();
 
     /**
      * @brief Publishes an immutable snapshot of the world for cross-thread reads.
