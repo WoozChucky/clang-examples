@@ -205,10 +205,35 @@ void GameThread::RunLoop() {
 			// Model B: release Game.dll-resident network adapters (joins their threads) before
 			// the DLL is unloaded — the networking analog of SystemScheduler::Clear().
 			NetSubsystem::Instance().ReleaseGameResidentConnections();
+
+			// Reload barrier: pause the RenderThread at a no-snapshot-held point so we can
+			// destroy game-defined ComponentArray<T> objects (code in Game.dll) on THIS
+			// thread while the DLL is still mapped.
+			m_AppContext->ReloadInProgress.store(true, std::memory_order_release);
+			{
+				const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+				while (!m_AppContext->RenderThreadPausedForReload.load(std::memory_order_acquire)) {
+					if (std::chrono::steady_clock::now() > deadline) {
+						SM_ERROR("GameThread: RenderThread did not pause for reload; proceeding (reload may be unsafe)");
+						break; // best-effort; never deadlock the reload (e.g. headless/no render loop)
+					}
+					std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				}
+			}
+
+			// Drop game-defined arrays from the master, then replace the published snapshot
+			// (which shares those array objects) with a built-in-only one. Both releases
+			// destroy the ComponentArray<GameType> objects HERE on the GameThread, DLL mapped.
+			gameState.World.RemoveNonBuiltinComponentArrays();
+			m_AppContext->LatestWorldSnapshot.store(gameState.World.CreateSnapshot(),
+			                                        std::memory_order_release);
+
 			if (m_GameLib.LoadOrReload("Game.dll", &gameState)) {
 				SM_TRACE("GameThread: Game.dll reloaded successfully");
 			}
 			// On failure, GameLibrary already logged and kept the previous module.
+
+			m_AppContext->ReloadInProgress.store(false, std::memory_order_release); // resume RenderThread
 		}
 
 		// Read latest settings from render thread

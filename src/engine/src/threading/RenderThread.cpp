@@ -157,6 +157,19 @@ void RenderThread::RunLoop()
             }
         }
 
+        // Game.dll reload barrier: pause here holding NO snapshot, so the GameThread can
+        // destroy game-defined component arrays before FreeLibrary. Checked after the command
+        // drains and before snapshot acquire, so the previous frame's snapshot is released.
+        if (m_AppContext->ReloadInProgress.load(std::memory_order_acquire)) {
+            m_AppContext->RenderThreadPausedForReload.store(true, std::memory_order_release);
+            while (m_AppContext->ReloadInProgress.load(std::memory_order_acquire)
+                   && !m_AppContext->ShutdownRequested.load(std::memory_order_acquire)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            m_AppContext->RenderThreadPausedForReload.store(false, std::memory_order_release);
+            continue; // re-loop and acquire a fresh (clean) snapshot
+        }
+
         // IMPORTANT: Load ECS snapshot FIRST to acquire reference and prevent deletion
         // This must happen before loading SimulationSnapshot to avoid race condition
         std::shared_ptr<const ECS> worldSnapshot = m_AppContext->LatestWorldSnapshot.load(std::memory_order_acquire);
