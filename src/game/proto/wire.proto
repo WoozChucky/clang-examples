@@ -11,6 +11,20 @@ enum Opcode {
   OPCODE_PING        = 1;
   OPCODE_PONG        = 2;
   OPCODE_SNAPSHOT    = 3;
+  OPCODE_LOGIN_REQ          = 10;
+  OPCODE_LOGIN_RESP         = 11;
+  OPCODE_WORLD_LIST_REQ     = 12;
+  OPCODE_WORLD_LIST_RESP    = 13;
+  OPCODE_WORLD_SELECT_REQ   = 14;
+  OPCODE_WORLD_SELECT_RESP  = 15;
+  OPCODE_SESSION_AUTH_REQ   = 16;
+  OPCODE_SESSION_AUTH_RESP  = 17;
+  OPCODE_CHAR_LIST_REQ      = 18;
+  OPCODE_CHAR_LIST_RESP     = 19;
+  OPCODE_CHAR_SELECT_REQ    = 20;
+  OPCODE_CHAR_SELECT_RESP   = 21;
+  OPCODE_ENTER_GAME_REQ     = 22;
+  OPCODE_ENTER_GAME_RESP    = 23;
 }
 
 message Ping {
@@ -39,3 +53,24 @@ message Snapshot {
   uint32              tick    = 1;
   repeated PlayerState players = 2;
 }
+
+message LoginReq        { string username = 1; string password = 2; }
+message LoginResp       { bool ok = 1; string reason = 2; }
+
+message WorldInfo       { uint32 id = 1; string name = 2; string host = 3; uint32 port = 4; }
+message WorldListReq    {}
+message WorldListResp   { repeated WorldInfo worlds = 1; }
+message WorldSelectReq  { uint32 world_id = 1; }
+message WorldSelectResp { bool ok = 1; string host = 2; uint32 port = 3; string session_token = 4; }
+
+message SessionAuthReq  { string session_token = 1; }
+message SessionAuthResp { bool ok = 1; }
+
+message CharInfo        { uint32 id = 1; string name = 2; uint32 level = 3; }
+message CharListReq     {}
+message CharListResp    { repeated CharInfo chars = 1; }
+message CharSelectReq   { uint32 char_id = 1; }
+message CharSelectResp  { bool ok = 1; }
+
+message EnterGameReq    {}
+message EnterGameResp   { bool ok = 1; }

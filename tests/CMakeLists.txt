@@ -638,3 +638,16 @@ set_target_properties(test_logbus PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_authflow
+    test_authflow.cpp
+)
+
+target_include_directories(test_authflow PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/game/src
+)
+
+set_target_properties(test_authflow PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
