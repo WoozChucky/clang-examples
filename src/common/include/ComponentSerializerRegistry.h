@@ -20,6 +20,9 @@ struct ComponentSerializerEntry {
     bool (*has)(const ECS&, EntityId);
     void (*save)(const ECS&, EntityId, nlohmann::json&);
     void (*load)(ECS&, EntityId, const nlohmann::json&);
+    void (*addDefault)(ECS&, EntityId);   // AddComponent<T>(e, T{})
+    void (*remove)(ECS&, EntityId);       // RemoveComponent<T>(e)
+    bool builtin;                         // true for ecs.dll's built-ins; false for game types
 };
 
 class ComponentSerializerRegistry {
@@ -28,12 +31,15 @@ public:
     // Game.dll hot-reload — a reloaded DLL re-registers its types so the registry never holds
     // dangling pointers into the unloaded module.
     template <class T>
-    void Register(const std::string& name) {
+    void Register(const std::string& name, bool builtin = false) {
         ComponentSerializerEntry e{
             name,
-            [](const ECS& w, EntityId en)                        { return w.HasComponent<T>(en); },
-            [](const ECS& w, EntityId en, nlohmann::json& out)   { out = *w.GetComponent<T>(en); },
-            [](ECS& w, EntityId en, const nlohmann::json& in)    { w.AddComponent<T>(en, in.template get<T>()); }
+            [](const ECS& w, EntityId en)                      { return w.HasComponent<T>(en); },
+            [](const ECS& w, EntityId en, nlohmann::json& out) { out = *w.GetComponent<T>(en); },
+            [](ECS& w, EntityId en, const nlohmann::json& in)  { w.AddComponent<T>(en, in.template get<T>()); },
+            [](ECS& w, EntityId en)                            { w.AddComponent<T>(en, T{}); },
+            [](ECS& w, EntityId en)                            { w.RemoveComponent<T>(en); },
+            builtin
         };
         for (auto& existing : m_Entries) {
             if (existing.name == name) { existing = e; return; }

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <nlohmann/json.hpp>
 #include "ComponentSerializerRegistry.h"
+#include "ECSCommands.h"
 
 // Test exe stub for SM_ASSERT's break hook (matches sibling tests like test_ecs.cpp).
 void platform_debug_break(const char* expr, const char* file, int line, const char* message) {
@@ -59,11 +60,48 @@ static void T03_register_upserts_no_duplicate()
     EXPECT(SerializerRegistry().Entries().size() == before); // upsert, not append
 }
 
+// Drives the name+JSON command path end-to-end through ProcessCommands for a synthetic
+// out-of-dll component (the case the editor needs for game types).
+static void T04_name_json_command_path()
+{
+    SerializerRegistry().Register<PersistProbe>("PersistProbe"); // builtin defaults to false
+
+    ECS world;
+    const EntityId e = world.CreateEntity();
+    SpscRing<ECSCommand, 128> ring;
+
+    EXPECT(ring.Push(ECSCommand::AddComponentByName(e, "PersistProbe")));
+    ECSCommandProcessor::ProcessCommands(world, ring);
+    EXPECT(world.HasComponent<PersistProbe>(e));
+
+    nlohmann::json j = PersistProbe{ 99, 2.5f };
+    EXPECT(ring.Push(ECSCommand::ModifyComponentJson(e, "PersistProbe", j.dump())));
+    ECSCommandProcessor::ProcessCommands(world, ring);
+    const PersistProbe* got = world.GetComponent<PersistProbe>(e);
+    EXPECT(got != nullptr);
+    EXPECT(got && got->A == 99);
+    EXPECT(got && std::fabs(got->B - 2.5f) < 1e-6f);
+
+    EXPECT(ring.Push(ECSCommand::RemoveComponentByName(e, "PersistProbe")));
+    ECSCommandProcessor::ProcessCommands(world, ring);
+    EXPECT(!world.HasComponent<PersistProbe>(e));
+}
+
+static void T05_entry_flags_builtin_vs_game()
+{
+    const auto* tr = SerializerRegistry().Find("TransformComponent");
+    const auto* pp = SerializerRegistry().Find("PersistProbe");
+    EXPECT(tr && tr->builtin == true);
+    EXPECT(pp && pp->builtin == false);
+}
+
 int main()
 {
     T01_builtins_registered();
     T02_register_and_roundtrip_game_component();
     T03_register_upserts_no_duplicate();
+    T04_name_json_command_path();
+    T05_entry_flags_builtin_vs_game();
     if (g_Failures == 0) { std::printf("All component-serializer tests passed.\n"); return 0; }
     std::printf("%d component-serializer test(s) FAILED.\n", g_Failures);
     return 1;
