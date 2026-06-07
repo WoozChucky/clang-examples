@@ -104,6 +104,7 @@ void RenderThread::RunLoop()
                     SM_TRACE("Mesh Requested (ticket %llu)", cmd.TicketId);
 
                     const auto meshHandle = m_Renderer->AddMesh(
+                        std::string(cmd.MeshRequest.Key),
                         cmd.MeshRequest.Vertices, static_cast<uint32_t>(cmd.MeshRequest.VertexCount),
                         cmd.MeshRequest.Indices, static_cast<uint32_t>(cmd.MeshRequest.IndexCount),
                         cmd.MeshRequest.SubMeshes, static_cast<uint32_t>(cmd.MeshRequest.SubMeshCount)

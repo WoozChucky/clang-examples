@@ -36,11 +36,13 @@ private:
         uint64_t ticketId{0};
         std::string objPath;
         std::string mtlBaseDir;
+        std::string assetKey;
     };
 
     struct ModelLoadResult
     {
         uint64_t ticketId{0};
+        std::string assetKey;
         bool success{false};
         std::string error;
         std::vector<MeshVertex> vertices{};
@@ -55,7 +57,7 @@ private:
 
     void DrainInputToSingleton(GameState& state);
     void WorkerThreadFunc();
-    void EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir);
+    void EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir, const std::string& assetKey);
 
     std::unique_ptr<DotNetPluginManager> m_PluginManager{nullptr};
     SystemScheduler m_Scheduler;   // declared before m_GameLib: GameLibrary's dtor

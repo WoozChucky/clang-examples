@@ -4,6 +4,9 @@
 #include <vector>
 #include <cstdint>
 #include <span>
+#include <unordered_map>
+#include <string>
+#include <utility>
 
 #include "Engine.h"
 #include "ApplicationContext.h"
@@ -21,11 +24,17 @@ public:
 
     // Upload mesh data and return a handle
     // Returns MeshHandle with Index = UINT64_MAX on failure
-    MeshHandle AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
+    MeshHandle AddMesh(std::string key,
+                       const MeshVertex* vertices, uint32_t vertexCount,
                        const uint32_t* indices, uint32_t indexCount,
                        SubMesh* subMeshes = nullptr, uint32_t subMeshCount = 0);
 
     void AssociateMeshMaterial(MeshHandle meshHandle, MaterialHandle materialHandle, uint32_t materialIndex);
+
+    // Stable logical key (virtual path) <-> runtime handle. KeyForHandle is the reverse lookup for
+    // serialization/editor display; forward (key->handle) is just AssetKeyHash.
+    std::string KeyForHandle(uint64_t handle) const;
+    std::vector<std::pair<uint64_t, std::string>> GetAssetList() const; // (handle, key) per loaded mesh
 
     // Query GPU resources by mesh ID
     struct MeshResources {
@@ -76,6 +85,7 @@ public:
 
 private:
     struct MeshEntry {
+        std::string key;
         nvrhi::BufferHandle vertexBuffer;
         nvrhi::BufferHandle indexBuffer;
         std::vector<SubMesh> subMeshes;
@@ -91,4 +101,7 @@ private:
 
     nvrhi::IDevice* m_Device = nullptr;
     std::vector<MeshEntry> m_Meshes;
+    std::unordered_map<uint64_t, uint32_t> m_SlotByHandle; // stable handle (hash) -> vector slot
+
+    int32_t SlotForHandle(uint64_t handle) const;
 };

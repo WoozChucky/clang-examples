@@ -1,10 +1,12 @@
 #include "MeshSystem.h"
 #include "lib.h"
+#include "AssetKey.h"
 
 void MeshSystem::Initialize(nvrhi::IDevice* device)
 {
     m_Device = device;
     m_Meshes.clear();
+    m_SlotByHandle.clear();
 
     {
         // Add a default mesh to avoid invalid handle issues
@@ -58,13 +60,13 @@ void MeshSystem::Initialize(nvrhi::IDevice* device)
            20,21,22,22,23,20
         };;
 
-        AddMesh(vertices.data(), static_cast<uint32_t>(vertices.size()),
-                 indices.data(), static_cast<uint32_t>(indices.size()),
-                 nullptr, 0);
+        AddMesh("", vertices.data(), static_cast<uint32_t>(vertices.size()),
+                 indices.data(), static_cast<uint32_t>(indices.size()), nullptr, 0);
     }
 }
 
-MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
+MeshHandle MeshSystem::AddMesh(std::string key,
+                                const MeshVertex* vertices, uint32_t vertexCount,
                                 const uint32_t* indices, uint32_t indexCount,
                                 SubMesh* subMeshes, uint32_t subMeshCount)
 {
@@ -74,7 +76,13 @@ MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
         return MeshHandle{ UINT64_MAX };
     }
 
+    const uint64_t handle = AssetKeyHash(key);   // key=="" -> kMissingAssetHandle (0)
+    if (auto it = m_SlotByHandle.find(handle); it != m_SlotByHandle.end()) {
+        return MeshHandle{ handle }; // already loaded (de-dup): return existing stable handle
+    }
+
     MeshEntry entry{};
+    entry.key = std::move(key);
     entry.vertexCount = vertexCount;
     entry.indexCount = indexCount;
     if (subMeshes && subMeshCount > 0)
@@ -144,24 +152,24 @@ MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
     m_Device->executeCommandList(cl);
 
     // Store mesh entry and return handle
-    const uint32_t meshId = static_cast<uint32_t>(m_Meshes.size());
-    m_Meshes.push_back(entry);
-
-    SM_TRACE("MeshSystem::AddMesh: Created mesh %u with %u vertices, %u indices",
-             meshId, vertexCount, indexCount);
-
-    return MeshHandle{ meshId };
+    const uint32_t slot = static_cast<uint32_t>(m_Meshes.size());
+    m_Meshes.push_back(std::move(entry));
+    m_SlotByHandle[handle] = slot;
+    SM_TRACE("MeshSystem::AddMesh: '%s' -> handle %llu (slot %u, %u verts %u idx)",
+             m_Meshes[slot].key.c_str(), (unsigned long long)handle, slot, vertexCount, indexCount);
+    return MeshHandle{ handle };
 }
 
 void MeshSystem::AssociateMeshMaterial(MeshHandle meshHandle, MaterialHandle materialHandle, uint32_t materialIndex) {
 
-    if (meshHandle.Index >= m_Meshes.size())
+    const int32_t slot = SlotForHandle(meshHandle.Index);
+    if (slot < 0)
     {
         SM_WARN("MeshSystem::AssociateMeshMaterial: Invalid mesh ID %llu", (unsigned long long)meshHandle.Index);
         return;
     }
 
-    MeshEntry& entry = m_Meshes[meshHandle.Index];
+    MeshEntry& entry = m_Meshes[slot];
 
     for (auto &subMesh: entry.subMeshes) {
         if (subMesh.MaterialIndex == materialIndex) {
@@ -174,35 +182,32 @@ void MeshSystem::AssociateMeshMaterial(MeshHandle meshHandle, MaterialHandle mat
 
 }
 
+int32_t MeshSystem::SlotForHandle(uint64_t handle) const {
+    auto it = m_SlotByHandle.find(handle);
+    return it == m_SlotByHandle.end() ? -1 : static_cast<int32_t>(it->second);
+}
+
 MeshSystem::MeshResources MeshSystem::GetMeshResources(uint64_t meshId) const
 {
     MeshResources resources{};
-
-    if (meshId >= m_Meshes.size())
-    {
-        SM_WARN("MeshSystem::GetMeshResources: Invalid mesh ID %llu", (unsigned long long)meshId);
-        return resources;
-    }
-
-    const MeshEntry& entry = m_Meshes[meshId];
+    const int32_t slot = SlotForHandle(meshId);
+    if (slot < 0) { SM_WARN("MeshSystem::GetMeshResources: unknown mesh handle %llu", (unsigned long long)meshId); return resources; }
+    const MeshEntry& entry = m_Meshes[slot];
     resources.vertexBuffer = entry.vertexBuffer;
-    resources.indexBuffer = entry.indexBuffer;
-    resources.vertexCount = entry.vertexCount;
-    resources.indexCount = entry.indexCount;
-    // Non-owning view into the entry's vector. Valid only while m_Meshes is not
-    // mutated; mesh adds are drained before render passes run, so the span is
-    // valid for the duration of a frame's Render calls.
-    resources.subMeshes = std::span<const SubMesh>(entry.subMeshes);
-    resources.valid = true;
-
+    resources.indexBuffer  = entry.indexBuffer;
+    resources.vertexCount  = entry.vertexCount;
+    resources.indexCount   = entry.indexCount;
+    resources.subMeshes    = std::span<const SubMesh>(entry.subMeshes);
+    resources.valid        = true;
     return resources;
 }
 
 MeshSystem::MeshCpuData MeshSystem::GetMeshCpuData(uint64_t meshId) const
 {
     MeshCpuData out{};
-    if (meshId >= m_Meshes.size()) return out;
-    const auto& e = m_Meshes[meshId];
+    const int32_t slot = SlotForHandle(meshId);
+    if (slot < 0) return out;
+    const auto& e = m_Meshes[slot];
     if (e.cpuVertices.empty() || e.cpuIndices.empty()) return out;
     out.vertices = std::span<const MeshVertex>(e.cpuVertices.data(), e.cpuVertices.size());
     out.indices  = std::span<const uint32_t>(e.cpuIndices.data(), e.cpuIndices.size());
@@ -215,22 +220,32 @@ uint32_t MeshSystem::GetMeshCount() const
     return static_cast<uint32_t>(m_Meshes.size());
 }
 
-bool MeshSystem::IsValidMeshId(const uint64_t meshId) const
-{
-    return meshId < m_Meshes.size();
+bool MeshSystem::IsValidMeshId(const uint64_t meshId) const { return SlotForHandle(meshId) >= 0; }
+
+std::string MeshSystem::KeyForHandle(uint64_t handle) const {
+    const int32_t slot = SlotForHandle(handle);
+    return slot < 0 ? std::string() : m_Meshes[slot].key;
+}
+
+std::vector<std::pair<uint64_t,std::string>> MeshSystem::GetAssetList() const {
+    std::vector<std::pair<uint64_t,std::string>> out;
+    out.reserve(m_SlotByHandle.size());
+    for (const auto& [h, slot] : m_SlotByHandle) out.emplace_back(h, m_Meshes[slot].key);
+    return out;
 }
 
 MeshSystem::BoundingBox MeshSystem::GetMeshBounds(const uint64_t meshId) const
 {
     BoundingBox bounds{};
 
-    if (meshId >= m_Meshes.size())
+    const int32_t slot = SlotForHandle(meshId);
+    if (slot < 0)
     {
         SM_WARN("MeshSystem::GetMeshBounds: Invalid mesh ID %llu", (unsigned long long)meshId);
         return bounds;
     }
 
-    const MeshEntry& entry = m_Meshes[meshId];
+    const MeshEntry& entry = m_Meshes[slot];
     bounds.min = entry.boundsMin;
     bounds.max = entry.boundsMax;
     bounds.valid = true;
@@ -247,6 +262,7 @@ void MeshSystem::Shutdown()
         entry.subMeshes.clear();
     }
     m_Meshes.clear();
+    m_SlotByHandle.clear();
     m_Device = nullptr;
 }
 

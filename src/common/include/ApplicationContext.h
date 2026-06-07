@@ -97,6 +97,7 @@ struct RendererCommand {
             size_t IndexCount;
             SubMesh* SubMeshes;
             size_t SubMeshCount;
+            char Key[256];   // logical asset key (virtual path); empty => default mesh
         } MeshRequest;
 
         struct {

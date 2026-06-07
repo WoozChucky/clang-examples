@@ -27,45 +27,22 @@ void MeshEditor::Remove(const EditorContext& ctx, EntityId e) {
 void MeshEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
     if (!m_St.Begin(ctx, e)) return;
 
-    // Mesh ID editor with dropdown
+    // Mesh picker keyed by logical asset path
     if (ctx.MeshSys) {
-        const uint32_t meshCount = ctx.MeshSys->GetMeshCount();
-        if (meshCount > 0) {
-            // Build combo items
-            std::vector<std::string> meshItems;
-            meshItems.reserve(meshCount);
-            for (uint32_t i = 0; i < meshCount; ++i) {
-                meshItems.push_back("Mesh " + std::to_string(i));
+        const auto assets = ctx.MeshSys->GetAssetList(); // vector<pair<uint64_t,string>>
+        std::string current = ctx.MeshSys->KeyForHandle(m_St.edit.MeshId);
+        if (current.empty()) current = "(none)";
+        if (ImGui::BeginCombo("Mesh", current.c_str())) {
+            for (const auto& [handle, key] : assets) {
+                const bool isSelected = (handle == m_St.edit.MeshId);
+                if (ImGui::Selectable(key.c_str(), isSelected)) { m_St.edit.MeshId = handle; m_St.modified = true; }
+                if (isSelected) ImGui::SetItemDefaultFocus();
             }
-
-            // Current selection
-            int currentMeshIdx = static_cast<int>(m_St.edit.MeshId);
-            if (currentMeshIdx >= static_cast<int>(meshCount)) {
-                currentMeshIdx = 0; // Default to first mesh if invalid
-            }
-
-            // Combo dropdown
-            if (ImGui::BeginCombo("Mesh ID", meshItems[currentMeshIdx].c_str())) {
-                for (uint32_t i = 0; i < meshCount; ++i) {
-                    const bool isSelected = (currentMeshIdx == static_cast<int>(i));
-                    if (ImGui::Selectable(meshItems[i].c_str(), isSelected)) {
-                        m_St.edit.MeshId = i;
-                        m_St.modified = true;
-                    }
-                    if (isSelected) {
-                        ImGui::SetItemDefaultFocus();
-                    }
-                }
-                ImGui::EndCombo();
-            }
-        } else {
-            ImGui::TextDisabled("No meshes loaded");
+            ImGui::EndCombo();
         }
+        if (assets.empty()) ImGui::TextDisabled("No meshes loaded");
     } else {
-        // Fallback if MeshSystem is not available
-        if (ImGui::InputScalar("Mesh ID", ImGuiDataType_U32, &m_St.edit.MeshId)) {
-            m_St.modified = true;
-        }
+        if (ImGui::InputScalar("Mesh handle", ImGuiDataType_U64, &m_St.edit.MeshId)) m_St.modified = true;
     }
 
     // Visibility toggle

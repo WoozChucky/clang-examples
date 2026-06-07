@@ -448,9 +448,9 @@ void Renderer::RemoveRenderPass(IRenderPass* pass) {
     }
 }
 
-MeshHandle Renderer::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
+MeshHandle Renderer::AddMesh(std::string key, const MeshVertex* vertices, uint32_t vertexCount,
                               const uint32_t* indices, uint32_t indexCount, SubMesh* subMeshes, uint32_t subMeshCount) {
-    return m_MeshSystem.AddMesh(vertices, vertexCount, indices, indexCount, subMeshes, subMeshCount);
+    return m_MeshSystem.AddMesh(std::move(key), vertices, vertexCount, indices, indexCount, subMeshes, subMeshCount);
 }
 
 MaterialHandle Renderer::AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight) {

@@ -13,6 +13,7 @@
 
 #include "MeshSystem.h"
 #include "MaterialSystem.h"
+#include "AssetKey.h"
 #include "MeshLoader.h"
 #include "MeshPreviewRenderer.h"
 
@@ -193,6 +194,7 @@ void MeshManagerPanel::Draw(const EditorContext& ctx)
                     bool hasSubMeshes = !subMeshes.empty();
                     // Successfully loaded, upload to GPU via MeshSystem
                     MeshHandle meshHandle = ctx.MeshSys->AddMesh(
+                        NormalizeAssetKey(filePath),
                         vertices.data(), static_cast<uint32_t>(vertices.size()),
                         indices.data(), static_cast<uint32_t>(indices.size()),
                         hasSubMeshes ? subMeshes.data() : nullptr,

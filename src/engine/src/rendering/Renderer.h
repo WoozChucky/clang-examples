@@ -108,7 +108,7 @@ public:
     void SetOverlay(std::unique_ptr<IOverlay> overlay) { m_Overlay = std::move(overlay); }
 
     // Resource upload APIs
-    MeshHandle AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
+    MeshHandle AddMesh(std::string key, const MeshVertex* vertices, uint32_t vertexCount,
                        const uint32_t* indices, uint32_t indexCount, SubMesh* subMeshes = nullptr, uint32_t subMeshCount = 0);
     MaterialHandle AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight);
 

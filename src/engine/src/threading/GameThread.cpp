@@ -22,6 +22,7 @@
 #include "tiny_obj_loader.h"
 
 #include "lib.h"
+#include "AssetKey.h"
 #include "InputDrain.h"
 #include "MaterialLoader.h"
 #include "Timing.h"
@@ -131,10 +132,11 @@ void GameThread::RunLoop() {
             if (entry.is_regular_file() && (entry.path().extension() == ".obj") || (entry.path().extension() == ".gltf")) {
                 const std::string objPath = entry.path().string();
                 const std::string mtlBaseDir = entry.path().parent_path().string();
+                const std::string assetKey = NormalizeAssetKey(objPath); // e.g. "models/tree.obj"
                 // Unique non-entity ticket per startup load — prevents pendingMeshData
                 // key collision in the Spec 5 mesh-cache flow. IsValidEntity stays false.
                 EnqueueModelLoadJob(m_NextLoadTicket.fetch_add(1, std::memory_order_relaxed),
-                                    objPath, mtlBaseDir);
+                                    objPath, mtlBaseDir, assetKey);
             }
         }
     }
@@ -361,6 +363,7 @@ void GameThread::RunLoop() {
                         RendererCommand meshCmd{};
                         meshCmd.Type = RendererCommandType::RequestMesh;
                         meshCmd.TicketId = res.ticketId; // Use entity ID as ticket
+                        std::snprintf(meshCmd.MeshRequest.Key, sizeof(meshCmd.MeshRequest.Key), "%s", res.assetKey.c_str());
                         meshCmd.MeshRequest.VertexCount = res.vertices.size();
                         meshCmd.MeshRequest.IndexCount = res.indices.size();
                         meshCmd.MeshRequest.SubMeshCount = res.subMeshes.size() > 1 ? res.subMeshes.size() : 0;
@@ -674,12 +677,13 @@ void GameThread::DrainInputToSingleton(GameState& state) {
     state.FrameInputEventCount = m_FrameInput.size();
 }
 
-void GameThread::EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir)
+void GameThread::EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir, const std::string& assetKey)
 {
     ModelLoadJob job;
     job.ticketId = ticketId;
     job.objPath = objPath;
     job.mtlBaseDir = mtlBaseDir;
+    job.assetKey = assetKey;
     {
         std::scoped_lock lg(m_JobMutex);
         m_PendingJobs.push(std::move(job));
@@ -708,6 +712,7 @@ void GameThread::WorkerThreadFunc()
 
         ModelLoadResult result;
         result.ticketId = job.ticketId;
+        result.assetKey = job.assetKey;
 
         tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
