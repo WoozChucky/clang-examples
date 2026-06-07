@@ -94,8 +94,12 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
 
             // Selectable entity item
             bool isSelected = (selectedEntity == entity);
-            char entityLabel[64];
-            snprintf(entityLabel, sizeof(entityLabel), "Entity %llu", entity);
+            char entityLabel[128];
+            const NameComponent* nameComp = ctx.WorldSnapshot->GetComponent<NameComponent>(entity);
+            if (nameComp && !nameComp->Name.empty())
+                snprintf(entityLabel, sizeof(entityLabel), "%s", nameComp->Name.c_str());
+            else
+                snprintf(entityLabel, sizeof(entityLabel), "Entity %llu", entity);
             if (ImGui::Selectable(entityLabel, isSelected)) {
                 selectedEntity = entity;
             }
