@@ -1,5 +1,6 @@
 // ECS code home. All template instantiations + dllexport definitions live here.
 #include "ECS.h"
+#include "AssetRegistry.h"
 #include <mutex>
 #include <atomic>
 
@@ -120,6 +121,10 @@ const std::unordered_set<std::type_index>& BuiltinComponentTypes() {
     }();
     return s;
 }
+
+static const AssetRegistry* g_AssetRegistry = nullptr;
+void SetAssetRegistry(const AssetRegistry* reg) { g_AssetRegistry = reg; }
+const AssetRegistry* GetAssetRegistry() { return g_AssetRegistry; }
 
 void ECS::RemoveNonBuiltinComponentArrays() {
     m_ComponentStore.RemoveArraysNotIn(BuiltinComponentTypes());
