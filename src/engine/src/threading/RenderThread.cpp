@@ -10,8 +10,17 @@
 #include "lib.h"
 #include "Timing.h"
 #include "StagingBufferPool.h"
+#include "AssetRegistry.h"
 
 #include <tracy/Tracy.hpp>
+
+namespace {
+    MeshSystem*     g_MeshSysForRegistry = nullptr;
+    MaterialSystem* g_MatSysForRegistry  = nullptr;
+    std::string MeshKeyForHandleImpl(uint64_t h)     { return g_MeshSysForRegistry ? g_MeshSysForRegistry->KeyForHandle(h) : std::string(); }
+    std::string MaterialKeyForHandleImpl(uint64_t h) { return g_MatSysForRegistry  ? g_MatSysForRegistry->KeyForHandle(h)  : std::string(); }
+    const AssetRegistry kAssetRegistry{ &MeshKeyForHandleImpl, &MaterialKeyForHandleImpl };
+}
 
 RenderThread::RenderThread(const std::shared_ptr<ApplicationContext> &appContext, GLFWwindow* window, RendererAPI api, OverlayFactory overlayFactory)
     : m_AppContext(appContext), m_Window(window), m_Running(true), m_API(api), m_OverlayFactory(std::move(overlayFactory))
@@ -242,6 +251,9 @@ bool RenderThread::Initialize()
         SM_ERROR("RenderThread: Initialize failed");
         return false;
     }
+    g_MeshSysForRegistry = m_Renderer->GetMeshSystem();
+    g_MatSysForRegistry  = m_Renderer->GetMaterialSystem();
+    SetAssetRegistry(&kAssetRegistry);
     return true;
 }
 

@@ -13,6 +13,9 @@
 #include "ECS.h"
 
 #include "GlmJson.h"   // glm vec3/vec4 JSON helpers (extracted; ECS-free)
+#include "AssetKey.h"
+#include "AssetRegistry.h"
+#include "lib.h"        // SM_WARN
 
 inline void to_json(nlohmann::json& j, const TransformComponent& t) {
     j = nlohmann::json{{"Position", t.Position}, {"Rotation", t.Rotation}, {"Scale", t.Scale}};
@@ -24,18 +27,28 @@ inline void from_json(const nlohmann::json& j, TransformComponent& t) {
 }
 
 inline void to_json(nlohmann::json& j, const MeshComponent& t) {
-    j = nlohmann::json{{"MeshId", t.MeshId}, {"Visible", t.Visible}};
+    std::string key;
+    if (const AssetRegistry* r = GetAssetRegistry(); r && r->MeshKeyForHandle) key = r->MeshKeyForHandle(t.MeshId);
+    if (key.empty() && t.MeshId != kMissingAssetHandle)
+        SM_WARN("MeshComponent: unresolved mesh handle %llu — saved with empty key", (unsigned long long)t.MeshId);
+    j = nlohmann::json{{"MeshKey", key}, {"Visible", t.Visible}};
 }
 inline void from_json(const nlohmann::json& j, MeshComponent& t) {
-    j.at("MeshId").get_to(t.MeshId);
+    std::string key; j.at("MeshKey").get_to(key);
+    t.MeshId = AssetKeyHash(key);   // "" -> kMissingAssetHandle
     j.at("Visible").get_to(t.Visible);
 }
 
 inline void to_json(nlohmann::json& j, const MaterialComponent& t) {
-    j = nlohmann::json{{"MaterialId", t.MaterialId}, {"BaseColor", t.BaseColor}, {"Flags", t.Flags}};
+    std::string key;
+    if (const AssetRegistry* r = GetAssetRegistry(); r && r->MaterialKeyForHandle) key = r->MaterialKeyForHandle(t.MaterialId);
+    if (key.empty() && t.MaterialId != kMissingAssetHandle)
+        SM_WARN("MaterialComponent: unresolved material handle %llu — saved with empty key", (unsigned long long)t.MaterialId);
+    j = nlohmann::json{{"MaterialKey", key}, {"BaseColor", t.BaseColor}, {"Flags", t.Flags}};
 }
 inline void from_json(const nlohmann::json& j, MaterialComponent& t) {
-    j.at("MaterialId").get_to(t.MaterialId);
+    std::string key; j.at("MaterialKey").get_to(key);
+    t.MaterialId = AssetKeyHash(key);
     j.at("BaseColor").get_to(t.BaseColor);
     j.at("Flags").get_to(t.Flags);
 }

@@ -4,6 +4,8 @@
 
 #include "ComponentSerialization.h" // inline json (de)serializers for components
 #include "Fog.h"                     // ComputeFog(const glm::vec3&, const FogComponent&)
+#include "AssetRegistry.h"
+#include "AssetKey.h"
 
 static int g_Failures = 0;
 #define EXPECT(cond)                                                     \
@@ -198,6 +200,35 @@ static void T11_collider_backward_compatible_defaults()
     EXPECT(out.Mask == 0xffffffffu);
 }
 
+static std::string StubMeshKey(uint64_t h) { return h == AssetKeyHash("models/x.obj") ? std::string("models/x.obj") : std::string(); }
+static std::string StubMatKey(uint64_t h)  { return h == AssetKeyHash("textures/y.png") ? std::string("textures/y.png") : std::string(); }
+
+static void T12_asset_key_roundtrip()
+{
+    static const AssetRegistry stub{ &StubMeshKey, &StubMatKey };
+    SetAssetRegistry(&stub);
+
+    MeshComponent mIn; mIn.MeshId = AssetKeyHash("models/x.obj"); mIn.Visible = true;
+    const nlohmann::json jm = mIn;
+    EXPECT(jm.at("MeshKey").get<std::string>() == "models/x.obj");
+    const auto mOut = jm.get<MeshComponent>();
+    EXPECT(mOut.MeshId == AssetKeyHash("models/x.obj"));
+    EXPECT(mOut.Visible == true);
+
+    MaterialComponent matIn; matIn.MaterialId = AssetKeyHash("textures/y.png");
+    matIn.BaseColor = glm::vec4(0.2f,0.4f,0.6f,1.0f); matIn.Flags = 1u;
+    const nlohmann::json jt = matIn;
+    EXPECT(jt.at("MaterialKey").get<std::string>() == "textures/y.png");
+    const auto matOut = jt.get<MaterialComponent>();
+    EXPECT(matOut.MaterialId == AssetKeyHash("textures/y.png"));
+    EXPECT(matOut.Flags == 1u);
+
+    nlohmann::json jEmpty = { {"MeshKey", ""}, {"Visible", false} };
+    EXPECT(jEmpty.get<MeshComponent>().MeshId == kMissingAssetHandle);
+
+    SetAssetRegistry(nullptr); // don't leak the stub to other tests
+}
+
 static void T12_name_roundtrip()
 {
     NameComponent in;
@@ -353,6 +384,7 @@ int main()
     T08_statescope_roundtrip();
     T10_collider_roundtrip();
     T11_collider_backward_compatible_defaults();
+    T12_asset_key_roundtrip();
     T12_name_roundtrip();
     Test_Navigation();
     T_navcfg_multiclass_roundtrip();
