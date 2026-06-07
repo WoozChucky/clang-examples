@@ -1,5 +1,7 @@
 #include <cstdio>
 #include <cmath>
+#include <cstddef> // std::byte
+#include <string>
 #include <nlohmann/json.hpp>
 #include "ComponentSerializerRegistry.h"
 #include "EditorUI.h"
@@ -21,6 +23,14 @@ static int g_Failures = 0;
 struct PersistProbe { int A = 0; float B = 0.0f; };
 inline void to_json(nlohmann::json& j, const PersistProbe& p)   { j = nlohmann::json{ {"A", p.A}, {"B", p.B} }; }
 inline void from_json(const nlohmann::json& j, PersistProbe& p) { p.A = j.at("A").get<int>(); p.B = j.at("B").get<float>(); }
+
+// Trivially-copyable, NO to_json/from_json → byte (memcpy) preservation only.
+struct PodOnlyProbe { int X = 0; float Y = 0.0f; };
+
+// Has heap member → NOT trivially-copyable; has to_json/from_json → json preservation only.
+struct StrProbe { std::string S; int N = 0; };
+inline void to_json(nlohmann::json& j, const StrProbe& p)   { j = nlohmann::json{ {"S", p.S}, {"N", p.N} }; }
+inline void from_json(const nlohmann::json& j, StrProbe& p) { p.S = j.at("S").get<std::string>(); p.N = j.at("N").get<int>(); }
 
 static void T01_builtins_registered()
 {
@@ -135,6 +145,23 @@ static void T07_register_editor_hook()
     EXPECT(SerializerRegistry().Find("TransformComponent")->editorDraw == nullptr);
 }
 
+static void T08_preservation_strategy_selection()
+{
+    SerializerRegistry().Register<PersistProbe>("PersistProbe"); // POD + to_json → BOTH paths
+    SerializerRegistry().Register<PodOnlyProbe>("PodOnlyProbe"); // POD, no to_json → byte only
+    SerializerRegistry().Register<StrProbe>("StrProbe");         // complex + to_json → json only
+
+    const auto* pp = SerializerRegistry().Find("PersistProbe");
+    const auto* pod = SerializerRegistry().Find("PodOnlyProbe");
+    const auto* str = SerializerRegistry().Find("StrProbe");
+    EXPECT(pp && pp->save != nullptr && pp->reloadExtract != nullptr);   // both
+    EXPECT(pod && pod->save == nullptr && pod->reloadExtract != nullptr); // byte only
+    EXPECT(str && str->save != nullptr && str->reloadExtract == nullptr); // json only
+
+    // Builtins: serializable + (mostly) trivially copyable — save present.
+    EXPECT(SerializerRegistry().Find("TransformComponent")->save != nullptr);
+}
+
 int main()
 {
     T01_builtins_registered();
@@ -144,6 +171,7 @@ int main()
     T05_entry_flags_builtin_vs_game();
     T06_state_name_registry();
     T07_register_editor_hook();
+    T08_preservation_strategy_selection();
     if (g_Failures == 0) { std::printf("All component-serializer tests passed.\n"); return 0; }
     std::printf("%d component-serializer test(s) FAILED.\n", g_Failures);
     return 1;
