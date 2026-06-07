@@ -65,6 +65,17 @@ void GameThread::RunLoop() {
     gameState.Settings = &m_AppContext->Settings;
     gameState.Role = AppRole::Client;   // editor.exe / runtime.exe boot through GameThread
 
+    // Load Game.dll FIRST so GameRegisterComponents registers game-owned component
+    // serializers BEFORE the world is loaded — otherwise LoadEntityComponents
+    // drops unregistered game components.
+    // Initial load of Game.dll. If it fails, editor still runs without game logic
+    // until the file watcher (installed in T14) picks up a subsequent rebuild.
+    m_GameLib.SetScheduler(&m_Scheduler);
+    if (!m_GameLib.LoadOrReload("Game.dll", &gameState)) {
+        SM_ERROR("GameThread: initial Game.dll load failed. "
+                 "Editor will run without game logic until Game.dll becomes loadable.");
+    }
+
     // Load default world before any GameUpdate call. Guarded by WorldLoaded so
     // reload (which doesn't reconstruct GameState) doesn't reload the world.
     if (!gameState.WorldLoaded) {
@@ -90,14 +101,6 @@ void GameThread::RunLoop() {
     gameState.World.SetSingleton(ViewportComponent{
         m_AppContext->Settings.windowWidth, m_AppContext->Settings.windowHeight });
     gameState.World.SetSingleton(UICameraComponent{});
-
-    // Initial load of Game.dll. If it fails, editor still runs without game logic
-    // until the file watcher (installed in T14) picks up a subsequent rebuild.
-    m_GameLib.SetScheduler(&m_Scheduler);
-    if (!m_GameLib.LoadOrReload("Game.dll", &gameState)) {
-        SM_ERROR("GameThread: initial Game.dll load failed. "
-                 "Editor will run without game logic until Game.dll becomes loadable.");
-    }
 
     // File watcher: detects Game.dll changes on a background thread.
     // Callback sets m_ReloadPending; GameThread drains it at the top of each tick.
