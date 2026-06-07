@@ -23,6 +23,8 @@
 
 #include "lib.h"
 #include "AssetKey.h"
+#include "Skeleton.h"
+#include "animation/SkeletonStore.h"
 #include "InputDrain.h"
 #include "MaterialLoader.h"
 #include "Timing.h"
@@ -35,6 +37,15 @@
 #include "network/NetSubsystem.h"
 
 using namespace std::chrono_literals;
+
+static glm::mat4 AiToGlm(const aiMatrix4x4& m) {
+    // assimp is row-major; glm is column-major. Each (a,b,c,d) row below becomes a glm column.
+    return glm::mat4(
+        m.a1, m.b1, m.c1, m.d1,
+        m.a2, m.b2, m.c2, m.d2,
+        m.a3, m.b3, m.c3, m.d3,
+        m.a4, m.b4, m.c4, m.d4);
+}
 
 GameThread::GameThread(const std::shared_ptr<ApplicationContext> &appContext)
  : m_AppContext(appContext), m_Running(true), m_TickCounter(1) {
@@ -355,6 +366,17 @@ void GameThread::RunLoop() {
                         SM_ERROR("Model load failed for ticket %llu: %s", (unsigned long long)res.ticketId, res.error.c_str());
                         if (res.Texture) { GetStagingPool().Return(res.Texture); res.Texture = nullptr; }
                         continue;
+                    }
+
+                    // Register the skeleton (idempotent by key) + bind it to the entity (if any).
+                    if (res.hasSkeleton) {
+                        const uint64_t skelHandle = SkeletonStore::Instance().Add(res.skeletonKey, res.skeleton);
+                        if (gameState.World.IsValidEntity(res.ticketId)) {
+                            if (!gameState.World.HasComponent<SkeletonComponent>(res.ticketId))
+                                gameState.World.AddComponent(res.ticketId, SkeletonComponent{ skelHandle });
+                            else
+                                gameState.World.Modify<SkeletonComponent>(res.ticketId, [&](auto& s){ s.SkeletonId = skelHandle; });
+                        }
                     }
 
                     if (!res.MeshUploaded)
@@ -842,6 +864,46 @@ void GameThread::WorkerThreadFunc()
         };
 
         processNode(scene->mRootNode, scene, result.vertices, result.indices);
+
+        // --- Skeleton extraction (animation SP1) ---
+        {
+            // 1) Collect every bone (by name) referenced across the scene's meshes -> inverse-bind.
+            std::unordered_map<std::string, glm::mat4> boneInverseBind;
+            for (unsigned mi = 0; mi < scene->mNumMeshes; ++mi) {
+                const aiMesh* mesh = scene->mMeshes[mi];
+                for (unsigned bi = 0; bi < mesh->mNumBones; ++bi) {
+                    const aiBone* bone = mesh->mBones[bi];
+                    boneInverseBind[bone->mName.C_Str()] = AiToGlm(bone->mOffsetMatrix);
+                }
+            }
+            // 2) Walk the node tree (pre-order => parent emitted before child = topological order).
+            //    A node whose name matches a bone becomes a Skeleton bone; parent = nearest ancestor bone.
+            if (!boneInverseBind.empty()) {
+                Skeleton skel;
+                std::function<void(const aiNode*, int)> walk = [&](const aiNode* node, int parentBoneIdx) {
+                    int myIdx = parentBoneIdx;
+                    auto it = boneInverseBind.find(node->mName.C_Str());
+                    if (it != boneInverseBind.end()) {
+                        Bone bone;
+                        bone.name        = node->mName.C_Str();
+                        bone.parent      = parentBoneIdx;
+                        bone.localBind   = AiToGlm(node->mTransformation);
+                        bone.inverseBind = it->second;
+                        myIdx = static_cast<int>(skel.bones.size());
+                        skel.bones.push_back(std::move(bone));
+                    }
+                    for (unsigned c = 0; c < node->mNumChildren; ++c)
+                        walk(node->mChildren[c], myIdx);
+                };
+                walk(scene->mRootNode, -1);
+                if (!skel.bones.empty()) {
+                    result.skeleton    = std::move(skel);
+                    result.hasSkeleton = true;
+                    result.skeletonKey = result.assetKey + "#skeleton";
+                    SM_TRACE("Skeleton extracted: '%s' (%zu bones)", result.skeletonKey.c_str(), result.skeleton.bones.size());
+                }
+            }
+        }
 
         result.success = result.vertices.size() > 0;
 

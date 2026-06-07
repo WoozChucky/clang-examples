@@ -14,6 +14,7 @@
 #include "FileWatch.h"
 #include "GameLibrary.h"
 #include "Systems.h"
+#include "Skeleton.h"
 #include "GLFW/glfw3.h"
 
 class GameThread {
@@ -53,6 +54,9 @@ private:
         uint32_t Height{0};
         uint32_t* Texture{nullptr}; // optional RGBA8 pixels (w*h entries)
         bool MeshUploaded{false};   // set once the mesh command is on the ring; gates retry re-upload
+        Skeleton    skeleton{};
+        bool        hasSkeleton{false};
+        std::string skeletonKey;
     };
 
     void DrainInputToSingleton(GameState& state);
