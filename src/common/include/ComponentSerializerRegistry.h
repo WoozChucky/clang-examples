@@ -108,3 +108,25 @@ ECS_API ComponentSerializerRegistry& SerializerRegistry();
 // "EntityId") through the registry, warning on an unknown component key.
 ECS_API void SaveEntityComponents(const ECS& world, EntityId e, nlohmann::json& jEntity);
 ECS_API void LoadEntityComponents(ECS& world, EntityId e, const nlohmann::json& jEntity);
+
+// One preserved component instance captured across a Game.dll reload. Either `bytes` (POD/byte
+// path) or `json` (serializer path) is populated per `useBytes`. Stored in the shared CRT heap so
+// it survives FreeLibrary of the module that produced it.
+struct PreservedComponent {
+    std::string            name;
+    EntityId               entity = 0;
+    bool                   useBytes = false;
+    nlohmann::json         json;
+    std::vector<std::byte> bytes;
+};
+
+// Capture every REGISTERED non-builtin component on every active entity into a DLL-neutral blob.
+// Byte path preferred when available (trivially-copyable), else json. A registered non-builtin with
+// neither strategy is SM_WARN'd and skipped (it will be cleared). Call while the defining DLL is
+// still mapped.
+ECS_API std::vector<PreservedComponent> PreserveNonBuiltinComponents(const ECS& world);
+
+// Re-create the captured components on their original entities. Looks each component up by name in
+// the (freshly re-registered) registry; a name no longer registered is SM_WARN'd and skipped. Call
+// after the new DLL has re-registered its component types.
+ECS_API void RestoreNonBuiltinComponents(ECS& world, const std::vector<PreservedComponent>& blob);
