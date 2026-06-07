@@ -229,6 +229,18 @@ static void T12_asset_key_roundtrip()
     SetAssetRegistry(nullptr); // don't leak the stub to other tests
 }
 
+static void T13_skeleton_roundtrip()
+{
+    SkeletonComponent in; in.SkeletonId = 0x00ABCDEF12345678ull;
+    const nlohmann::json j = in;
+    EXPECT(j.at("SkeletonId").get<uint64_t>() == in.SkeletonId);
+    const auto out = j.get<SkeletonComponent>();
+    EXPECT(out.SkeletonId == in.SkeletonId);
+
+    SkeletonComponent def;
+    EXPECT(def.SkeletonId == 0ull);
+}
+
 static void T12_name_roundtrip()
 {
     NameComponent in;
@@ -385,6 +397,7 @@ int main()
     T10_collider_roundtrip();
     T11_collider_backward_compatible_defaults();
     T12_asset_key_roundtrip();
+    T13_skeleton_roundtrip();
     T12_name_roundtrip();
     Test_Navigation();
     T_navcfg_multiclass_roundtrip();

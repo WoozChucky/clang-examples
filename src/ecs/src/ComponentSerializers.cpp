@@ -23,6 +23,7 @@ ComponentSerializerRegistry& SerializerRegistry() {
         r.Register<NavConstrainedComponent>("NavConstrainedComponent", true);
         r.Register<NavClassComponent>("NavClassComponent", true);
         r.Register<NameComponent>("NameComponent", true);
+        r.Register<SkeletonComponent>("SkeletonComponent", true);
         return r;
     }();
     return reg;

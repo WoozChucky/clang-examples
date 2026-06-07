@@ -105,6 +105,13 @@ inline void from_json(const nlohmann::json& j, NameComponent& t) {
     j.at("Name").get_to(t.Name);
 }
 
+inline void to_json(nlohmann::json& j, const SkeletonComponent& t) {
+    j = nlohmann::json{ {"SkeletonId", t.SkeletonId} };
+}
+inline void from_json(const nlohmann::json& j, SkeletonComponent& t) {
+    j.at("SkeletonId").get_to(t.SkeletonId);
+}
+
 inline void to_json(nlohmann::json& j, const StateScopeComponent& t) {
     j = nlohmann::json{{"StateMask", t.StateMask}};
 }

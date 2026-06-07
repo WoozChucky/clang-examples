@@ -377,6 +377,10 @@ private:
             if (auto* nc = componentData.Get<NavClassComponent>()) {
                 world.AddComponent(entity, *nc);
             }
+        } else if (componentData.Type == std::type_index(typeid(SkeletonComponent))) {
+            if (auto* s = componentData.Get<SkeletonComponent>()) {
+                world.AddComponent(entity, *s);
+            }
         }
         // Add more component types as needed
     }
@@ -421,6 +425,8 @@ private:
             world.RemoveComponent<NavConstrainedComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(NavClassComponent))) {
             world.RemoveComponent<NavClassComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(SkeletonComponent))) {
+            world.RemoveComponent<SkeletonComponent>(entity);
         }
         // Add more component types as needed
     }

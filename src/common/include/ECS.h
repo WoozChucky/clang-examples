@@ -200,6 +200,13 @@ struct NameComponent {
     std::string Name;
 };
 
+// Binds an entity to a Skeleton asset (in SkeletonStore) by stable hash handle (0 = none). Engine
+// builtin: the model-load path attaches it for rigged glTFs; DebugRenderPass draws the bind pose.
+// The handle is a stable AssetKeyHash, so persisting it raw round-trips across runs.
+struct SkeletonComponent {
+    uint64_t SkeletonId = 0;
+};
+
 // Scopes an entity to one or more game states (bit i = game state index i; 0 = always-on).
 // The UI renderer + menu interaction only act on entities whose scope allows the current state.
 struct StateScopeComponent {
@@ -399,7 +406,8 @@ struct NavClassComponent { uint8_t ClassId = 0; };
     X(NavTargetComponent) \
     X(NavConstrainedComponent) \
     X(NavClassComponent) \
-    X(NameComponent)
+    X(NameComponent) \
+    X(SkeletonComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)
