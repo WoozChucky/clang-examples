@@ -182,6 +182,9 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
                 }
                 selectedEntity = INVALID_ENTITY;
             }
+            else if (ImGui::IsKeyPressed(ImGuiKey_F2)) {
+                m_FocusRename = true;
+            }
         }
 
         ImGui::Separator();
@@ -189,6 +192,44 @@ void EcsInspectorPanel::Draw(const EditorContext& ctx)
         // === COMPONENT EDITOR FOR SELECTED ENTITY ===
         if (selectedEntity != INVALID_ENTITY && ctx.WorldSnapshot->IsValidEntity(selectedEntity)) {
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Editing Entity %llu", selectedEntity);
+            ImGui::Separator();
+
+            // --- Dev name (always-on rename field; drives the optional builtin NameComponent) ---
+            // Re-sync the buffer from the snapshot when the selection changes, so we don't clobber
+            // live typing on the same entity. Empty buffer => unnamed.
+            if (m_RenameBufFor != selectedEntity) {
+                const NameComponent* nc = ctx.WorldSnapshot->GetComponent<NameComponent>(selectedEntity);
+                snprintf(m_RenameBuf, sizeof(m_RenameBuf), "%s", (nc && !nc->Name.empty()) ? nc->Name.c_str() : "");
+                m_RenameBufFor = selectedEntity;
+            }
+            if (m_FocusRename) {
+                ImGui::SetKeyboardFocusHere();
+                m_FocusRename = false;
+            }
+            const bool committed =
+                ImGui::InputText("Name", m_RenameBuf, sizeof(m_RenameBuf), ImGuiInputTextFlags_EnterReturnsTrue)
+                | (ImGui::IsItemDeactivatedAfterEdit() ? 1 : 0);
+            if (committed) {
+                // Trim leading/trailing whitespace.
+                std::string name(m_RenameBuf);
+                const size_t b = name.find_first_not_of(" \t\r\n");
+                const size_t e = name.find_last_not_of(" \t\r\n");
+                name = (b == std::string::npos) ? std::string() : name.substr(b, e - b + 1);
+
+                const bool has = ctx.WorldSnapshot->GetComponent<NameComponent>(selectedEntity) != nullptr;
+                if (!name.empty()) {
+                    // load() is AddComponent (upsert): adds-or-sets in one command.
+                    const std::string json = nlohmann::json{{"Name", name}}.dump();
+                    if (!ctx.App->ECSCommandRing.Push(
+                            ECSCommand::ModifyComponentJson(selectedEntity, "NameComponent", json)))
+                        SM_WARN("ECS command queue full! Rename (ModifyComponentJson) dropped.");
+                } else if (has) {
+                    if (!ctx.App->ECSCommandRing.Push(
+                            ECSCommand::RemoveComponentByName(selectedEntity, "NameComponent")))
+                        SM_WARN("ECS command queue full! Rename (RemoveComponentByName) dropped.");
+                }
+                // empty + !has => no-op.
+            }
             ImGui::Separator();
 
             // Migrated component editors render via the registry (display-order prefix).
