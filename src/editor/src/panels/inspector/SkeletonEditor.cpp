@@ -23,10 +23,13 @@ void SkeletonEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
     if (!m_St.Begin(ctx, e)) return;
 
     // Skeleton picker over SkeletonStore (singleton; keyed by "<modelKey>#skeleton").
-    const auto assets = SkeletonStore::Instance().GetAssetList(); // vector<pair<uint64_t,string>>
+    // Preview label is a single cheap lookup; the full list is built ONLY while the dropdown is
+    // open (BeginCombo == true), not every frame the editor is visible.
     std::string current = SkeletonStore::Instance().KeyForHandle(m_St.edit.SkeletonId);
     if (current.empty()) current = "(none)";
     if (ImGui::BeginCombo("Skeleton", current.c_str())) {
+        const auto assets = SkeletonStore::Instance().GetAssetList(); // vector<pair<uint64_t,string>>
+        if (assets.empty()) ImGui::TextDisabled("No skeletons loaded");
         for (const auto& [handle, key] : assets) {
             const bool isSelected = (handle == m_St.edit.SkeletonId);
             const char* label = key.empty() ? "(none)" : key.c_str();
@@ -35,7 +38,6 @@ void SkeletonEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
         }
         ImGui::EndCombo();
     }
-    if (assets.empty()) ImGui::TextDisabled("No skeletons loaded");
 
     ImGui::Spacing();
     if (m_St.modified)
