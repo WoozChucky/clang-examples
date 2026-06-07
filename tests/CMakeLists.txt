@@ -767,3 +767,28 @@ set_target_properties(test_assetkey PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_skeleton
+    test_skeleton.cpp
+)
+
+target_link_libraries(test_skeleton PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+)
+
+target_include_directories(test_skeleton PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+target_compile_definitions(test_skeleton PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_skeleton PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
