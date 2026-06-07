@@ -6,7 +6,7 @@
 
 **Architecture:** Four tasks: (1) extract the glm vec3/vec4 JSON helpers into an ECS-free `GlmJson.h`; (2) add the `EditorUI::ComboMapped` bridge primitive; (3) atomically move `MenuButtonComponent` + `Actions.h` into `Game.dll`, register with the hook, delete `MenuButtonEditor`, remove typed branches; (4) full regression. Follows the established `PlayerComponent` migration pattern.
 
-**Tech Stack:** C++23, MSVC (`msvc-win64-vs2026-enterprise`), CMake, nlohmann/json, glm, Dear ImGui (editor only). Builds on the editor-hook (`RegisterEditorHook`/`EditorUI`), reload-survival (`GameRegisterComponents` + byte path), and registry-driven duplicate (`copyTo`) features already on `main`.
+**Tech Stack:** C++23, MSVC (`msvc-win64-vs2026-community`), CMake, nlohmann/json, glm, Dear ImGui (editor only). Builds on the editor-hook (`RegisterEditorHook`/`EditorUI`), reload-survival (`GameRegisterComponents` + byte path), and registry-driven duplicate (`copyTo`) features already on `main`.
 
 **Scope:** Implements `docs/superpowers/specs/2026-06-07-menubutton-component-to-gamedll-design.md`. Touches `ECS.h` (X-macro) ⇒ rebuild **ecs + Engine + editor + game** and **restart the editor**. No `GAME_API_VERSION` bump.
 
@@ -131,16 +131,16 @@ Leave the existing `#include <glm/vec3.hpp>` / `#include <glm/vec4.hpp>` / `#inc
 
 - [ ] **Step 3: Build + run — GREEN (behavior preserved)**
 ```
-cmake --build --preset msvc-win64-vs2026-enterprise --target ecs --target test_worldserial --target test_compserial
-./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_worldserial.exe
-./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_compserial.exe
+cmake --build --preset msvc-win64-vs2026-community --target ecs --target test_worldserial --target test_compserial
+./out/build/msvc-win64-vs2026-community/bin/Debug/test_worldserial.exe
+./out/build/msvc-win64-vs2026-community/bin/Debug/test_compserial.exe
 ```
 Expected: both print their pass lines (glm vec3/vec4 round-trips in `test_worldserial` still pass — proves the extraction preserved behavior).
 
 - [ ] **Step 4: Commit**
 ```
-git -C C:/dev/personal/clang-examples add src/common/include/GlmJson.h src/common/include/ComponentSerialization.h
-git -C C:/dev/personal/clang-examples commit --author="Nuno Silva <nuno.levezinho@live.com.pt>" -m "refactor(common): extract glm vec3/vec4 JSON helpers into ECS-free GlmJson.h"
+git -C C:/dev/clang-examples add src/common/include/GlmJson.h src/common/include/ComponentSerialization.h
+git -C C:/dev/clang-examples commit --author="Nuno Silva <nuno.levezinho@live.com.pt>" -m "refactor(common): extract glm vec3/vec4 JSON helpers into ECS-free GlmJson.h"
 ```
 Verify exactly those two files.
 
@@ -186,14 +186,14 @@ The `EditorUIInstance()` initializer lists the `UI_*` function pointers IN STRUC
 
 - [ ] **Step 4: Build — GREEN**
 ```
-cmake --build --preset msvc-win64-vs2026-enterprise --target editor
+cmake --build --preset msvc-win64-vs2026-community --target editor
 ```
 Expected: editor builds clean. (Member order in the struct MUST match the initializer order — if MSVC errors on the aggregate init, confirm `ComboMapped` is last in both.)
 
 - [ ] **Step 5: Commit**
 ```
-git -C C:/dev/personal/clang-examples add src/common/include/EditorUI.h src/editor/src/panels/inspector/EditorUIImpl.cpp
-git -C C:/dev/personal/clang-examples commit --author="Nuno Silva <nuno.levezinho@live.com.pt>" -m "feat(editor): EditorUI ComboMapped primitive (value-mapped combo for enum-like ids)"
+git -C C:/dev/clang-examples add src/common/include/EditorUI.h src/editor/src/panels/inspector/EditorUIImpl.cpp
+git -C C:/dev/clang-examples commit --author="Nuno Silva <nuno.levezinho@live.com.pt>" -m "feat(editor): EditorUI ComboMapped primitive (value-mapped combo for enum-like ids)"
 ```
 Verify exactly those two files.
 
@@ -253,7 +253,7 @@ inline void from_json(const nlohmann::json& j, MenuButtonComponent& t) {
 
 - [ ] **Step 2: Move `Actions.h` into the game**
 ```
-git -C C:/dev/personal/clang-examples mv src/common/include/Actions.h src/game/src/Actions.h
+git -C C:/dev/clang-examples mv src/common/include/Actions.h src/game/src/Actions.h
 ```
 (`git mv` preserves history. The file content is unchanged — its only references are `game.cpp` and the about-to-be-deleted `MenuButtonEditor.cpp`.)
 
@@ -343,7 +343,7 @@ In `GameRegisterComponents()`, add after the existing `PlayerComponent` registra
 
 - [ ] **Step 8: Delete the dedicated editor**
 ```
-git -C C:/dev/personal/clang-examples rm src/editor/src/panels/inspector/MenuButtonEditor.cpp src/editor/src/panels/inspector/MenuButtonEditor.h
+git -C C:/dev/clang-examples rm src/editor/src/panels/inspector/MenuButtonEditor.cpp src/editor/src/panels/inspector/MenuButtonEditor.h
 ```
 In `src/editor/CMakeLists.txt`, delete the line `    src/panels/inspector/MenuButtonEditor.cpp`.
 In `src/editor/src/panels/EcsInspectorPanel.cpp`, delete the include `#include "inspector/MenuButtonEditor.h"` AND the registration line `    m_Editors.push_back(std::make_unique<MenuButtonEditor>());`.
@@ -371,22 +371,22 @@ AND remove its call `T09_menubutton_roundtrip();` from `main()`.
 
 - [ ] **Step 10: Reconfigure + full build (green)**
 ```
-cmake --preset msvc-win64-vs2026-enterprise
-cmake --build --preset msvc-win64-vs2026-enterprise
+cmake --preset msvc-win64-vs2026-community
+cmake --build --preset msvc-win64-vs2026-community
 ```
 Expected: all targets build clean. Any lingering `MenuButtonComponent` reference outside `src/game`, or a stale `Actions.h` include path, fails the build — fix it.
 
 - [ ] **Step 11: Verify the type + Actions.h fully moved**
 ```
-git -C C:/dev/personal/clang-examples grep -n "MenuButtonComponent" -- src/ecs src/engine src/editor src/common
-git -C C:/dev/personal/clang-examples grep -n "Actions.h" -- src/common src/engine src/editor
+git -C C:/dev/clang-examples grep -n "MenuButtonComponent" -- src/ecs src/engine src/editor src/common
+git -C C:/dev/clang-examples grep -n "Actions.h" -- src/common src/engine src/editor
 ```
 Expected: the first returns NOTHING; the second returns NOTHING (no `src/common/include/Actions.h` remains; no engine/editor include of it). If anything remains, fix before committing.
 
 - [ ] **Step 12: Commit**
 ```
-git -C C:/dev/personal/clang-examples add -A
-git -C C:/dev/personal/clang-examples commit --author="Nuno Silva <nuno.levezinho@live.com.pt>" -m "feat(game): migrate MenuButtonComponent + Actions.h to Game.dll (ComboMapped action hook); remove typed branches + MenuButtonEditor"
+git -C C:/dev/clang-examples add -A
+git -C C:/dev/clang-examples commit --author="Nuno Silva <nuno.levezinho@live.com.pt>" -m "feat(game): migrate MenuButtonComponent + Actions.h to Game.dll (ComboMapped action hook); remove typed branches + MenuButtonEditor"
 ```
 Verify the commit contains: new `src/game/src/MenuButtonComponent.h`; renamed `Actions.h` (delete in common, add in game); modified `ECS.h`, `ComponentSerialization.h`, `ComponentSerializers.cpp`, `ECSCommands.h`, `game.cpp`, `editor/CMakeLists.txt`, `EcsInspectorPanel.cpp`, `test_worldserial.cpp`; deleted `MenuButtonEditor.{cpp,h}`. Nothing unrelated.
 
@@ -398,17 +398,17 @@ Verify the commit contains: new `src/game/src/MenuButtonComponent.h`; renamed `A
 
 - [ ] **Step 1: Full clean build**
 ```
-cmake --build --preset msvc-win64-vs2026-enterprise
+cmake --build --preset msvc-win64-vs2026-community
 ```
 Expected: all targets, no errors/`LNK`.
 
 - [ ] **Step 2: Suites**
 ```
-./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_compserial.exe
-./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_reloadpreserve.exe
-./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_ecs.exe
-./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_worldserial.exe
-./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_playermove.exe
+./out/build/msvc-win64-vs2026-community/bin/Debug/test_compserial.exe
+./out/build/msvc-win64-vs2026-community/bin/Debug/test_reloadpreserve.exe
+./out/build/msvc-win64-vs2026-community/bin/Debug/test_ecs.exe
+./out/build/msvc-win64-vs2026-community/bin/Debug/test_worldserial.exe
+./out/build/msvc-win64-vs2026-community/bin/Debug/test_playermove.exe
 ```
 Expected: each prints its pass line. (`test_compserial` emits the expected `NopeNotReal` warn; `test_reloadpreserve` the expected `BadComp` warn.)
 
