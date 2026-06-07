@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <utility>
 #include <mutex>
 #include "Engine.h"      // ENGINE_API
 #include "Skeleton.h"
@@ -21,6 +22,8 @@ public:
     // Pointer valid for the process lifetime (entries are never erased/mutated). Null if unknown.
     const Skeleton* Get(uint64_t handle) const;
     std::string KeyForHandle(uint64_t handle) const;
+    // (handle, key) for every loaded skeleton — for the inspector picker.
+    std::vector<std::pair<uint64_t, std::string>> GetAssetList() const;
 
 private:
     SkeletonStore() = default;

@@ -26,3 +26,11 @@ std::string SkeletonStore::KeyForHandle(uint64_t handle) const {
     auto it = m_ByHandle.find(handle);
     return it == m_ByHandle.end() ? std::string() : it->second.key;
 }
+
+std::vector<std::pair<uint64_t, std::string>> SkeletonStore::GetAssetList() const {
+    std::scoped_lock lk(m_Mutex);
+    std::vector<std::pair<uint64_t, std::string>> out;
+    out.reserve(m_ByHandle.size());
+    for (const auto& [h, e] : m_ByHandle) out.emplace_back(h, e.key);
+    return out;
+}

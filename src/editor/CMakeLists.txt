@@ -29,6 +29,7 @@ add_executable(editor
     src/panels/inspector/TransformEditor.cpp
     src/panels/inspector/LightningEditor.cpp
     src/panels/inspector/MeshEditor.cpp
+    src/panels/inspector/SkeletonEditor.cpp
     src/panels/inspector/MaterialEditor.cpp
     src/panels/inspector/TextEditor.cpp
     src/panels/inspector/SunMarkerEditor.cpp
