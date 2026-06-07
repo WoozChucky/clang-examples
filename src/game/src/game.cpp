@@ -13,6 +13,7 @@
 #include "StateScope.h"  // ScopeAllows
 #include "StateNameRegistry.h"  // register game state bit-index -> label for the editor
 #include "Actions.h"     // ActionCategory / Actions::
+#include "MenuButtonComponent.h"  // game-owned component (moved out of ECS.h)
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 #include "WireCodec.h"  // protobuf wire-format encode/decode (plumbing demo)
 #include "SessionFlow.h"  // pure client session FSM driven by ClientSessionSystem
@@ -930,6 +931,18 @@ void GameRegisterComponents() {
     SerializerRegistry().Register<PlayerComponent>("PlayerComponent");
     SerializerRegistry().RegisterEditorHook("PlayerComponent",
         [](const EditorUI& ui, nlohmann::json& j) { return ui.DragFloat(j, "MoveSpeed", 0.1f); });
+
+    SerializerRegistry().Register<MenuButtonComponent>("MenuButtonComponent");
+    SerializerRegistry().RegisterEditorHook("MenuButtonComponent", [](const EditorUI& ui, nlohmann::json& j) {
+        static const char* names[] = { "None", "Play", "Quit", "Back" };
+        static const int    ids[]  = { (int)Actions::None, (int)Actions::Play, (int)Actions::Quit, (int)Actions::Back };
+        bool changed = false;
+        changed |= ui.ComboMapped(j, "ActionId", names, ids, 4);
+        changed |= ui.ColorEdit4(j, "Normal");
+        changed |= ui.ColorEdit4(j, "Hover");
+        changed |= ui.ColorEdit4(j, "Press");
+        return changed;
+    });
 }
 
 extern "C" EXPORT_FN void GameInstallLogSink(LogSinkFn fn) { sm_set_log_sink(fn); }

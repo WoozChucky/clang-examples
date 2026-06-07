@@ -347,10 +347,6 @@ private:
             if (auto* scope = componentData.Get<StateScopeComponent>()) {
                 world.AddComponent(entity, *scope);
             }
-        } else if (componentData.Type == std::type_index(typeid(MenuButtonComponent))) {
-            if (auto* btn = componentData.Get<MenuButtonComponent>()) {
-                world.AddComponent(entity, *btn);
-            }
         } else if (componentData.Type == std::type_index(typeid(ColliderComponent))) {
             if (auto* btn = componentData.Get<ColliderComponent>()) {
                 world.AddComponent(entity, *btn);
@@ -409,8 +405,6 @@ private:
             world.RemoveComponent<UIRectComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(StateScopeComponent))) {
             world.RemoveComponent<StateScopeComponent>(entity);
-        } else if (typeIndex == std::type_index(typeid(MenuButtonComponent))) {
-            world.RemoveComponent<MenuButtonComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(ColliderComponent))) {
             world.RemoveComponent<ColliderComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(NavMeshSourceComponent))) {

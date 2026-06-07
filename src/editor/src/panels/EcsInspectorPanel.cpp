@@ -19,7 +19,6 @@
 #include "inspector/SunMarkerEditor.h"
 #include "inspector/UIRectEditor.h"
 #include "inspector/StateScopeEditor.h"
-#include "inspector/MenuButtonEditor.h"
 #include "inspector/ColliderEditor.h"
 #include "inspector/NavMeshSourceEditor.h"
 #include "inspector/NavObstacleEditor.h"
@@ -38,7 +37,6 @@ EcsInspectorPanel::EcsInspectorPanel() {
     m_Editors.push_back(std::make_unique<SunMarkerEditor>());
     m_Editors.push_back(std::make_unique<UIRectEditor>());
     m_Editors.push_back(std::make_unique<StateScopeEditor>());
-    m_Editors.push_back(std::make_unique<MenuButtonEditor>());
     m_Editors.push_back(std::make_unique<ColliderEditor>());
     m_Editors.push_back(std::make_unique<NavMeshSourceEditor>());
     m_Editors.push_back(std::make_unique<NavObstacleEditor>());

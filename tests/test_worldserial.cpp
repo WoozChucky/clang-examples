@@ -159,21 +159,6 @@ static void T08_statescope_roundtrip()
     EXPECT(out.StateMask == in.StateMask);
 }
 
-static void T09_menubutton_roundtrip()
-{
-    MenuButtonComponent in;
-    in.ActionId = 0x00010002u; // Nav/Quit
-    in.Normal = glm::vec4(0.1f, 0.2f, 0.3f, 1.0f);
-    in.Hover  = glm::vec4(0.4f, 0.5f, 0.6f, 1.0f);
-    in.Press  = glm::vec4(0.7f, 0.8f, 0.9f, 1.0f);
-    const nlohmann::json j = in;
-    const auto out = j.get<MenuButtonComponent>();
-    EXPECT(out.ActionId == in.ActionId);
-    EXPECT(veq(glm::vec3(out.Normal), glm::vec3(in.Normal)));
-    EXPECT(veq(glm::vec3(out.Hover),  glm::vec3(in.Hover)));
-    EXPECT(veq(glm::vec3(out.Press),  glm::vec3(in.Press)));
-}
-
 static void T10_collider_roundtrip()
 {
     ColliderComponent in;
@@ -352,7 +337,6 @@ int main()
     T05_computefog_day_vs_night();
     T07_uirect_roundtrip();
     T08_statescope_roundtrip();
-    T09_menubutton_roundtrip();
     T10_collider_roundtrip();
     T11_collider_backward_compatible_defaults();
     Test_Navigation();
