@@ -3,6 +3,7 @@
 #include "ApplicationContext.h"
 #include "ECSCommands.h"
 #include "ComponentSerializerRegistry.h"
+#include "EditorUIImpl.h"
 #include "lib.h"
 #include <imgui.h>
 
@@ -59,7 +60,11 @@ void GenericComponentEditor::Draw(const EditorContext& ctx, EntityId entity, con
     }
 
     if (ImGui::CollapsingHeader(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (DrawJsonValue(name.c_str(), m_Edit)) m_Modified = true;
+        if (entry->editorDraw) {
+            if (entry->editorDraw(EditorUIInstance(), m_Edit)) m_Modified = true;
+        } else {
+            if (DrawJsonValue(name.c_str(), m_Edit)) m_Modified = true;
+        }
         if (m_Modified) {
             if (!ctx.App->ECSCommandRing.Push(ECSCommand::ModifyComponentJson(entity, name, m_Edit.dump())))
                 SM_WARN("ECS command queue full! ModifyComponentJson dropped.");

@@ -139,14 +139,6 @@ static void T05_computefog_day_vs_night()
     EXPECT(night.Density > day.Density); // night is foggier with default values
 }
 
-static void T06_player_roundtrip()
-{
-    PlayerComponent in; in.MoveSpeed = 13.5f; // non-default
-    const nlohmann::json j = in;
-    const auto out = j.get<PlayerComponent>();
-    EXPECT(near(out.MoveSpeed, in.MoveSpeed));
-}
-
 static void T07_uirect_roundtrip()
 {
     UIRectComponent in;
@@ -358,7 +350,6 @@ int main()
     T03_environment_roundtrip();
     T04_environment_absent_is_backward_compatible();
     T05_computefog_day_vs_night();
-    T06_player_roundtrip();
     T07_uirect_roundtrip();
     T08_statescope_roundtrip();
     T09_menubutton_roundtrip();

@@ -127,13 +127,6 @@ inline void from_json(const nlohmann::json& j, NavClassComponent& t) {
     if (j.contains("ClassId")) t.ClassId = static_cast<uint8_t>(j.at("ClassId").get<int>());
 }
 
-inline void to_json(nlohmann::json& j, const PlayerComponent& t) {
-    j = nlohmann::json{{"MoveSpeed", t.MoveSpeed}};
-}
-inline void from_json(const nlohmann::json& j, PlayerComponent& t) {
-    j.at("MoveSpeed").get_to(t.MoveSpeed);
-}
-
 inline void to_json(nlohmann::json& j, const UIRectComponent& t) {
     j = nlohmann::json{
         {"Size", {{"X", t.Size.x}, {"Y", t.Size.y}}},

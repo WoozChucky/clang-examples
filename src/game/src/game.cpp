@@ -1,5 +1,8 @@
 #include "Game.h"
 #include "Systems.h"
+#include "ComponentSerializerRegistry.h"  // SerializerRegistry() — for registering game-owned components
+#include "PlayerComponent.h"  // game-owned component (moved out of ECS.h)
+#include "EditorUI.h"         // EditorUI bridge for the inspector hook
 #include "PlayerMovement.h"
 #include "CameraFollow.h"
 #include "Collision.h"
@@ -921,6 +924,12 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<AuthServerSystem>());               // PreRender: dual-server flow — auth (login/world)
     s->Register(std::make_unique<WorldServerSystem>());              // PreRender: dual-server flow — world (session/char/enter)
     s->Register(std::make_unique<ClientSessionSystem>());            // PreRender: dual-server flow — client (drives the FSM)
+}
+
+void GameRegisterComponents() {
+    SerializerRegistry().Register<PlayerComponent>("PlayerComponent");
+    SerializerRegistry().RegisterEditorHook("PlayerComponent",
+        [](const EditorUI& ui, nlohmann::json& j) { return ui.DragFloat(j, "MoveSpeed", 0.1f); });
 }
 
 extern "C" EXPORT_FN void GameInstallLogSink(LogSinkFn fn) { sm_set_log_sink(fn); }

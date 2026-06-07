@@ -83,6 +83,8 @@ bool GameLibrary::LoadOrReload(const std::string& sourceDllPath, GameState* stat
     auto pExit   = reinterpret_cast<GameExitFunc>(GetProcAddress(newModule, "GameExit"));
     auto pRegisterSystems = reinterpret_cast<GameRegisterSystemsFunc>(
         GetProcAddress(newModule, "GameRegisterSystems"));
+    auto pRegisterComponents = reinterpret_cast<GameRegisterComponentsFunc>(
+        GetProcAddress(newModule, "GameRegisterComponents"));
 
     if (m_Module) {
         if (m_pGameExit) m_pGameExit(state);
@@ -101,6 +103,7 @@ bool GameLibrary::LoadOrReload(const std::string& sourceDllPath, GameState* stat
     m_pGameExit       = pExit;
     m_pGameGetVersion = pVersion;
     m_pGameRegisterSystems = pRegisterSystems;
+    m_pGameRegisterComponents = pRegisterComponents;
 
     SM_TRACE("GameLibrary: loaded '%s' (API v%u)", copyPath.c_str(), v);
 
@@ -114,6 +117,11 @@ bool GameLibrary::LoadOrReload(const std::string& sourceDllPath, GameState* stat
     if (m_Scheduler && m_pGameRegisterSystems) {
         m_pGameRegisterSystems(m_Scheduler);
         SM_TRACE("GameLibrary: registered %zu system(s)", m_Scheduler->Count());
+    }
+
+    if (m_pGameRegisterComponents) {
+        m_pGameRegisterComponents();
+        SM_TRACE("GameLibrary: registered game component types");
     }
     return true;
 }
@@ -131,4 +139,5 @@ void GameLibrary::Unload(GameState* state) {
     m_pGameExit       = nullptr;
     m_pGameGetVersion = nullptr;
     m_pGameRegisterSystems = nullptr;
+    m_pGameRegisterComponents = nullptr;
 }

@@ -32,7 +32,6 @@ add_executable(editor
     src/panels/inspector/MaterialEditor.cpp
     src/panels/inspector/TextEditor.cpp
     src/panels/inspector/SunMarkerEditor.cpp
-    src/panels/inspector/PlayerEditor.cpp
     src/panels/inspector/UIRectEditor.cpp
     src/panels/inspector/StateScopeEditor.cpp
     src/panels/inspector/MenuButtonEditor.cpp
@@ -44,6 +43,7 @@ add_executable(editor
     src/panels/inspector/NavConstrainedEditor.cpp
     src/panels/inspector/NavClassEditor.cpp
     src/panels/inspector/GenericComponentEditor.cpp
+    src/panels/inspector/EditorUIImpl.cpp
 
     # Viewport interaction + editor camera
     src/viewport/SceneViewport.cpp

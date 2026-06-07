@@ -43,6 +43,21 @@ bool ServerApplication::Init(const Config& cfg) {
     m_GameState.Role     = AppRole::Server;
     m_GameState.TargetTPS = m_Config.targetTps;
 
+    m_GameState.World.SetSingleton(InputStateComponent{});
+
+    NavServicesImpl::Init(m_NavServices);
+    NetServicesImpl::Init(m_NetServices);
+    NetSubsystem::Instance().Init();
+
+    m_GameLib.SetScheduler(&m_Scheduler);
+    if (!m_GameLib.LoadOrReload("Game.dll", &m_GameState)) {
+        SM_ERROR("ServerApplication: initial Game.dll load failed; server will idle without game logic");
+    }
+
+    // Load the world AFTER LoadOrReload so GameRegisterComponents has registered
+    // game-owned component serializers first — otherwise LoadEntityComponents
+    // drops unregistered game components. LoadOrReload must also stay after the
+    // service inits above (game system ctors may need them).
     if (WorldManager::LoadWorldSnapshot(m_Config.worldPath, &m_GameState.World)) {
         m_GameState.WorldLoaded = true;
         SM_TRACE("ServerApplication: world loaded from '%s'", m_Config.worldPath.c_str());
@@ -54,16 +69,6 @@ bool ServerApplication::Init(const Config& cfg) {
         SM_WARN("ServerApplication: world '%s' not loaded (missing/invalid)", m_Config.worldPath.c_str());
     }
 
-    m_GameState.World.SetSingleton(InputStateComponent{});
-
-    NavServicesImpl::Init(m_NavServices);
-    NetServicesImpl::Init(m_NetServices);
-    NetSubsystem::Instance().Init();
-
-    m_GameLib.SetScheduler(&m_Scheduler);
-    if (!m_GameLib.LoadOrReload("Game.dll", &m_GameState)) {
-        SM_ERROR("ServerApplication: initial Game.dll load failed; server will idle without game logic");
-    }
     InstallFilewatch();
 
     m_Initialized = true;

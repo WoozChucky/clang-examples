@@ -214,11 +214,6 @@ struct MenuStateComponent {
     EntityId ArmedButton = 0;
 };
 
-// Marks the player-controlled entity. Moved by PlayerMovementSystem (game) from input.
-struct PlayerComponent {
-    float MoveSpeed = 5.0f; // world units / second
-};
-
 // Singleton: the current application state as an opaque bit index. The game owns the
 // state vocabulary (see the game's GameStates.h); 0 = unset/initial, seeded by the game
 // at startup. The engine compares this against StateScopeComponent.StateMask bits.
@@ -391,7 +386,6 @@ struct NavClassComponent { uint8_t ClassId = 0; };
     X(SkyComponent) \
     X(AppControlComponent) \
     X(ViewportComponent) \
-    X(PlayerComponent) \
     X(CameraZoomComponent) \
     X(GameStateComponent) \
     X(ActionQueueComponent) \
