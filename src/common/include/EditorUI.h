@@ -20,4 +20,9 @@ struct EditorUI {
     void (*Separator) ();
     void (*SameLine)  ();
     bool (*Button)    (const char* label);
+    // Edits an integer json value chosen from a fixed (label,value) set. Reads obj[key], selects the
+    // index whose values[i] == obj[key] (default 0 if none match), shows a combo, and on change writes
+    // values[selected] back. For enum-like ids whose stored value is NOT a 0..N-1 index (e.g. action ids).
+    bool (*ComboMapped)(nlohmann::json& obj, const char* key,
+                        const char* const* labels, const int* values, int count);
 };

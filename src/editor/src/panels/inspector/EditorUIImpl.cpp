@@ -70,6 +70,16 @@ bool ColorN(nlohmann::json& o, const char* k) {
 bool UI_ColorEdit3(nlohmann::json& o, const char* k){ return ColorN<3>(o,k); }
 bool UI_ColorEdit4(nlohmann::json& o, const char* k){ return ColorN<4>(o,k); }
 
+bool UI_ComboMapped(nlohmann::json& o, const char* k,
+                    const char* const* labels, const int* values, int count) {
+    if (!o.contains(k) || !o[k].is_number_integer()) return false;
+    const int cur = o[k].get<int>();
+    int idx = 0;
+    for (int i = 0; i < count; ++i) if (values[i] == cur) { idx = i; break; }
+    if (ImGui::Combo(k, &idx, labels, count)) { o[k] = values[idx]; return true; }
+    return false;
+}
+
 void UI_Text(const char* t){ ImGui::TextUnformatted(t); }
 void UI_Separator(){ ImGui::Separator(); }
 void UI_SameLine(){ ImGui::SameLine(); }
@@ -81,7 +91,7 @@ const EditorUI& EditorUIInstance() {
     static const EditorUI ui{
         &UI_DragFloat, &UI_DragFloat2, &UI_DragFloat3, &UI_DragFloat4,
         &UI_InputInt, &UI_Checkbox, &UI_Combo, &UI_ColorEdit3, &UI_ColorEdit4,
-        &UI_Text, &UI_Separator, &UI_SameLine, &UI_Button
+        &UI_Text, &UI_Separator, &UI_SameLine, &UI_Button, &UI_ComboMapped
     };
     return ui;
 }
