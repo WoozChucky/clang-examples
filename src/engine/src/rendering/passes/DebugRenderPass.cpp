@@ -12,6 +12,8 @@
 #include "Frustum.h"     // TransformAABB
 #include "navigation/NavMeshSystem.h"
 #include "navigation/NavMesh.h"
+#include "Skeleton.h"
+#include "animation/SkeletonStore.h"
 #include "lib.h"
 
 namespace {
@@ -98,7 +100,7 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
         return;
 
     const DebugDrawSettings& s = GetDebugDrawSettings();
-    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid && !s.ShowColliders && !s.ShowNavMesh && !s.ShowObstacles && !s.ShowNavPaths)
+    if (!s.ShowLightGizmos && !s.ShowCameraFrustum && !s.ShowSelectedAABB && !s.ShowGrid && !s.ShowColliders && !s.ShowNavMesh && !s.ShowObstacles && !s.ShowNavPaths && !s.ShowSkeleton)
         return;
 
     m_Verts.clear();
@@ -206,6 +208,24 @@ void DebugRenderPass::Render(nvrhi::ICommandList* commandList,
                 DebugAppendLine(m_Verts, edges[i], edges[i + 1], col);
             }
         }
+    }
+
+    if (s.ShowSkeleton) {
+        const glm::vec4 col(0.2f, 0.9f, 1.0f, 1.0f); // cyan
+        world->Each<TransformComponent, SkeletonComponent>(
+            [&](EntityId /*e*/, const TransformComponent& tc, const SkeletonComponent& skc) {
+                const Skeleton* sk = SkeletonStore::Instance().Get(skc.SkeletonId);
+                if (!sk || sk->bones.empty()) return;
+                const glm::mat4 world_ = ModelMatrix(tc);
+                const std::vector<glm::mat4> globals = ComputeBindPoseGlobals(*sk);
+                std::vector<glm::vec3> joints(globals.size());
+                for (size_t b = 0; b < globals.size(); ++b)
+                    joints[b] = glm::vec3(world_ * globals[b] * glm::vec4(0,0,0,1));
+                for (size_t b = 0; b < sk->bones.size(); ++b) {
+                    const int p = sk->bones[b].parent;
+                    if (p >= 0) DebugAppendLine(m_Verts, joints[p], joints[b], col);
+                }
+            });
     }
 
     if (s.ShowObstacles) {
