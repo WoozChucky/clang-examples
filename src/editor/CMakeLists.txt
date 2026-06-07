@@ -32,7 +32,6 @@ add_executable(editor
     src/panels/inspector/MaterialEditor.cpp
     src/panels/inspector/TextEditor.cpp
     src/panels/inspector/SunMarkerEditor.cpp
-    src/panels/inspector/PlayerEditor.cpp
     src/panels/inspector/UIRectEditor.cpp
     src/panels/inspector/StateScopeEditor.cpp
     src/panels/inspector/MenuButtonEditor.cpp

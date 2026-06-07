@@ -1,6 +1,8 @@
 #include "Game.h"
 #include "Systems.h"
 #include "ComponentSerializerRegistry.h"  // SerializerRegistry() — for registering game-owned components
+#include "PlayerComponent.h"  // game-owned component (moved out of ECS.h)
+#include "EditorUI.h"         // EditorUI bridge for the inspector hook
 #include "PlayerMovement.h"
 #include "CameraFollow.h"
 #include "Collision.h"
@@ -925,11 +927,9 @@ void GameRegisterSystems(SystemScheduler* s) {
 }
 
 void GameRegisterComponents() {
-    // Register each game-owned (non-builtin) component here so it (de)serializes to world.json
-    // (if it has to_json/from_json) and survives Game.dll hot-reload. Example:
-    //   SerializerRegistry().Register<MyGameComponent>("MyGameComponent");
-    // POD components need no to_json — the registry installs a byte (memcpy) reload path
-    // automatically. Re-runs on every reload; Register upserts, replacing stale fn-ptrs.
+    SerializerRegistry().Register<PlayerComponent>("PlayerComponent");
+    SerializerRegistry().RegisterEditorHook("PlayerComponent",
+        [](const EditorUI& ui, nlohmann::json& j) { return ui.DragFloat(j, "MoveSpeed", 0.1f); });
 }
 
 extern "C" EXPORT_FN void GameInstallLogSink(LogSinkFn fn) { sm_set_log_sink(fn); }

@@ -13,7 +13,6 @@ ComponentSerializerRegistry& SerializerRegistry() {
         r.Register<LightningComponent>("LightningComponent", true);
         r.Register<TextComponent>("TextComponent", true);
         r.Register<SunMarker>("SunMarker", true);
-        r.Register<PlayerComponent>("PlayerComponent", true);
         r.Register<UIRectComponent>("UIRectComponent", true);
         r.Register<StateScopeComponent>("StateScopeComponent", true);
         r.Register<MenuButtonComponent>("MenuButtonComponent", true);
