@@ -21,7 +21,7 @@
 // Bump every time GameState layout changes or any export signature changes.
 // Editor compares against the compiled-in value at load time; mismatch rejects
 // the reload and keeps the previous Game.dll active.
-#define GAME_API_VERSION 21u
+#define GAME_API_VERSION 22u
 
 // GameStateId lives in the game-owned GameStates.h (next to this header). The engine
 // stores the current state as an opaque uint32_t (GameStateComponent.Current).
@@ -53,6 +53,7 @@ using GameUpdateFunc = void(*)(GameState* state);
 using GameResizeFunc = void(*)(uint32_t width, uint32_t height);
 using GameExitFunc = void(*)(GameState* state);
 using GameRegisterSystemsFunc = void(*)(SystemScheduler*);
+using GameRegisterComponentsFunc = void(*)();
 
 extern "C"
 {
@@ -65,4 +66,8 @@ extern "C"
     EXPORT_FN void GameExit(GameState* state);
 
     EXPORT_FN void GameRegisterSystems(SystemScheduler* scheduler);
+
+    // Re-register game-owned ECS component types (serializers + reload-preservation strategies).
+    // Called by the host after every (re)load, before reload-preserved components are restored.
+    EXPORT_FN void GameRegisterComponents();
 }

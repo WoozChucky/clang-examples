@@ -57,6 +57,7 @@ private:
     GameExitFunc        m_pGameExit       = nullptr;
     GameGetVersionFunc  m_pGameGetVersion = nullptr;
     GameRegisterSystemsFunc m_pGameRegisterSystems = nullptr;
+    GameRegisterComponentsFunc m_pGameRegisterComponents = nullptr;
     SystemScheduler*        m_Scheduler            = nullptr;  // not owned
     uint64_t            m_ReloadCounter   = 0;
 };

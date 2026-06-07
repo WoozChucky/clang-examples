@@ -1,5 +1,6 @@
 #include "Game.h"
 #include "Systems.h"
+#include "ComponentSerializerRegistry.h"  // SerializerRegistry() — for registering game-owned components
 #include "PlayerMovement.h"
 #include "CameraFollow.h"
 #include "Collision.h"
@@ -921,6 +922,14 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<AuthServerSystem>());               // PreRender: dual-server flow — auth (login/world)
     s->Register(std::make_unique<WorldServerSystem>());              // PreRender: dual-server flow — world (session/char/enter)
     s->Register(std::make_unique<ClientSessionSystem>());            // PreRender: dual-server flow — client (drives the FSM)
+}
+
+void GameRegisterComponents() {
+    // Register each game-owned (non-builtin) component here so it (de)serializes to world.json
+    // (if it has to_json/from_json) and survives Game.dll hot-reload. Example:
+    //   SerializerRegistry().Register<MyGameComponent>("MyGameComponent");
+    // POD components need no to_json — the registry installs a byte (memcpy) reload path
+    // automatically. Re-runs on every reload; Register upserts, replacing stale fn-ptrs.
 }
 
 extern "C" EXPORT_FN void GameInstallLogSink(LogSinkFn fn) { sm_set_log_sink(fn); }
