@@ -6,7 +6,7 @@
 
 **Architecture:** Add an ImGui-free `EditorUI` widget bridge (common header) that operates on a component's `nlohmann::json` working copy by key. Add an optional `editorDraw` fn-ptr to the serializer registry entry, set via `RegisterEditorHook(name, fn)`. The editor implements `EditorUI` over ImGui and, in `GenericComponentEditor::Draw`, calls the hook when present (else the generic tree); commit stays `ModifyComponentJson`.
 
-**Tech Stack:** C++23, MSVC (`msvc-win64-vs2026-community`), CMake, Dear ImGui (editor only), nlohmann/json. Builds on Piece 4 (serializer registry) + Piece 5 (generic editor).
+**Tech Stack:** C++23, MSVC (`msvc-win64-vs2026-enterprise`), CMake, Dear ImGui (editor only), nlohmann/json. Builds on Piece 4 (serializer registry) + Piece 5 (generic editor).
 
 **Scope:** Implements `docs/superpowers/specs/2026-06-07-component-editor-hook-design.md`. No raw ImGui in `Game.dll`, no macro gating, no `GAME_API_VERSION` bump. Touches `ComponentSerializerRegistry.h` (ecs.dll/common header) → rebuild ecs + Engine + editor + game.
 
@@ -79,7 +79,7 @@ Register `T07_register_editor_hook();` in `main()`.
 
 Run:
 ```
-cmake --build --preset msvc-win64-vs2026-community --target test_compserial
+cmake --build --preset msvc-win64-vs2026-enterprise --target test_compserial
 ```
 Expected: errors — `EditorUI.h` not found / `editorDraw` not a member / `RegisterEditorHook` not a member.
 
@@ -144,15 +144,15 @@ void ComponentSerializerRegistry::RegisterEditorHook(const std::string& name,
 
 - [ ] **Step 6: Build + run — GREEN**
 ```
-cmake --build --preset msvc-win64-vs2026-community --target ecs --target test_compserial
-./out/build/msvc-win64-vs2026-community/bin/Debug/test_compserial.exe
+cmake --build --preset msvc-win64-vs2026-enterprise --target ecs --target test_compserial
+./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_compserial.exe
 ```
 Expected: `All component-serializer tests passed.` Watch for: the aggregate-init in `Register<T>` must still compile (editorDraw defaulted) — if MSVC complains about the brace count, confirm `editorDraw` is the LAST member with a default initializer.
 
 - [ ] **Step 7: Commit**
 ```
-git -C /c/dev/clang-examples add src/common/include/EditorUI.h src/common/include/ComponentSerializerRegistry.h src/ecs/src/ComponentSerializers.cpp tests/test_compserial.cpp
-git -C /c/dev/clang-examples commit --author="Nuno Silva <nuno.levezinho@live.com.pt>" -m "feat(editor): EditorUI bridge type + registry editorDraw hook + RegisterEditorHook"
+git -C /c/dev/personal/clang-examples add src/common/include/EditorUI.h src/common/include/ComponentSerializerRegistry.h src/ecs/src/ComponentSerializers.cpp tests/test_compserial.cpp
+git -C /c/dev/personal/clang-examples commit --author="Nuno Silva <nuno.levezinho@live.com.pt>" -m "feat(editor): EditorUI bridge type + registry editorDraw hook + RegisterEditorHook"
 ```
 Verify exactly those four files.
 
@@ -295,15 +295,15 @@ Add includes: `#include "EditorUIImpl.h"`. In `Draw`, replace the draw step insi
 
 - [ ] **Step 5: Full build (green)**
 ```
-cmake --preset msvc-win64-vs2026-community
-cmake --build --preset msvc-win64-vs2026-community
+cmake --preset msvc-win64-vs2026-enterprise
+cmake --build --preset msvc-win64-vs2026-enterprise
 ```
 Expected: all targets incl `editor` build clean. (Reconfigure for the new source.)
 
 - [ ] **Step 6: Commit**
 ```
-git -C /c/dev/clang-examples add src/editor/src/panels/inspector/EditorUIImpl.h src/editor/src/panels/inspector/EditorUIImpl.cpp src/editor/src/panels/inspector/GenericComponentEditor.cpp src/editor/CMakeLists.txt
-git -C /c/dev/clang-examples commit --author="Nuno Silva <nuno.levezinho@live.com.pt>" -m "feat(editor): ImGui EditorUI impl + inspector calls component editorDraw hook (else generic)"
+git -C /c/dev/personal/clang-examples add src/editor/src/panels/inspector/EditorUIImpl.h src/editor/src/panels/inspector/EditorUIImpl.cpp src/editor/src/panels/inspector/GenericComponentEditor.cpp src/editor/CMakeLists.txt
+git -C /c/dev/personal/clang-examples commit --author="Nuno Silva <nuno.levezinho@live.com.pt>" -m "feat(editor): ImGui EditorUI impl + inspector calls component editorDraw hook (else generic)"
 ```
 Verify exactly those four files.
 
@@ -313,13 +313,13 @@ Verify exactly those four files.
 
 **Files:** none (verification; commit fixups only if needed).
 
-- [ ] **Step 1: Full clean build** — `cmake --build --preset msvc-win64-vs2026-community`. Expect all targets, no errors/`LNK`.
+- [ ] **Step 1: Full clean build** — `cmake --build --preset msvc-win64-vs2026-enterprise`. Expect all targets, no errors/`LNK`.
 
 - [ ] **Step 2: Suites**
 ```
-./out/build/msvc-win64-vs2026-community/bin/Debug/test_compserial.exe
-./out/build/msvc-win64-vs2026-community/bin/Debug/test_ecs.exe
-./out/build/msvc-win64-vs2026-community/bin/Debug/test_worldserial.exe
+./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_compserial.exe
+./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_ecs.exe
+./out/build/msvc-win64-vs2026-enterprise/bin/Debug/test_worldserial.exe
 ```
 Expected: each prints its pass line.
 
