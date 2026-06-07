@@ -1,0 +1,8 @@
+# Treat binary asset formats as binary so autocrlf never normalizes them
+# (the repo is developed across machines with differing core.autocrlf).
+*.bin  binary
+*.glb  binary
+*.png  binary
+*.jpg  binary
+*.dds  binary
+*.blend binary
