@@ -43,6 +43,9 @@ struct ComponentSerializerEntry {
     // persistence. Auto-installed for trivially-copyable T. Null => no byte path for this type.
     void (*reloadExtract)(const ECS&, EntityId, std::vector<std::byte>&) = nullptr; // memcpy T out
     void (*reloadIngest)(ECS&, EntityId, const std::vector<std::byte>&)  = nullptr; // memcpy T in + AddComponent
+    // Deep-copy this component from one entity to another within the SAME world (entity duplicate).
+    // Installed for every registered type (all components are copy-constructible). No-op if src lacks it.
+    void (*copyTo)(ECS&, EntityId src, EntityId dst) = nullptr;
 };
 
 class ComponentSerializerRegistry {
@@ -77,6 +80,9 @@ public:
                 w.AddComponent<T>(en, std::move(t));
             };
         }
+        e.copyTo = [](ECS& w, EntityId src, EntityId dst) {
+            if (const T* p = w.GetComponent<T>(src)) w.AddComponent<T>(dst, *p);
+        };
 
         for (auto& existing : m_Entries) {
             if (existing.name == name) { existing = e; return; }

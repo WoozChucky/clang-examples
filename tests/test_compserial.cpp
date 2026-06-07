@@ -162,6 +162,27 @@ static void T08_preservation_strategy_selection()
     EXPECT(SerializerRegistry().Find("TransformComponent")->save != nullptr);
 }
 
+static void T09_copyto_duplicates_component()
+{
+    SerializerRegistry().Register<PersistProbe>("PersistProbe");
+    const auto* e = SerializerRegistry().Find("PersistProbe");
+    EXPECT(e && e->copyTo != nullptr);
+
+    ECS w;
+    const EntityId a = w.CreateEntity();
+    const EntityId b = w.CreateEntity();
+    w.AddComponent<PersistProbe>(a, PersistProbe{ 5, 2.0f });
+    e->copyTo(w, a, b);
+    const PersistProbe* gb = w.GetComponent<PersistProbe>(b);
+    EXPECT(gb && gb->A == 5 && std::fabs(gb->B - 2.0f) < 1e-6f);
+
+    // copyTo where src lacks the component is a no-op.
+    const EntityId c = w.CreateEntity();
+    const EntityId d = w.CreateEntity();
+    e->copyTo(w, c, d);
+    EXPECT(!w.HasComponent<PersistProbe>(d));
+}
+
 int main()
 {
     T01_builtins_registered();
@@ -172,6 +193,7 @@ int main()
     T06_state_name_registry();
     T07_register_editor_hook();
     T08_preservation_strategy_selection();
+    T09_copyto_duplicates_component();
     if (g_Failures == 0) { std::printf("All component-serializer tests passed.\n"); return 0; }
     std::printf("%d component-serializer test(s) FAILED.\n", g_Failures);
     return 1;

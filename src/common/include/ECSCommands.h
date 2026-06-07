@@ -293,27 +293,13 @@ public:
     }
 
 private:
-    // Copy the editor-facing per-entity components from src to dst. Deliberately excludes
-    // singletons (cameras/viewport/input/atmosphere/game-state/action-queue) and hierarchy
-    // (Parent/Child). Keep in sync when a new authorable per-entity component is added.
+    // Copy the editor-facing per-entity components from src to dst via the serializer registry.
+    // The registry holds exactly the persisted per-entity types — singletons (cameras/viewport/
+    // input/atmosphere/game-state/action-queue/navmesh-config) and hierarchy (Parent/Child) are
+    // not registered, so they are naturally excluded. Game-defined components are copied too.
     static void DuplicateEntityComponents(ECS& world, EntityId src, EntityId dst) {
-        if (auto* c = world.GetComponent<TransformComponent>(src))  world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<LightningComponent>(src))  world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<MeshComponent>(src))       world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<MaterialComponent>(src))   world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<TextComponent>(src))       world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<PlayerComponent>(src))     world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<UIRectComponent>(src))     world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<StateScopeComponent>(src)) world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<MenuButtonComponent>(src))  world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<ColliderComponent>(src))        world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<NavMeshSourceComponent>(src))   world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<NavObstacleComponent>(src))     world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<NavAgentComponent>(src))        world.AddComponent(dst, *c);
-        if (auto* c = world.GetComponent<NavTargetComponent>(src))       world.AddComponent(dst, *c);
-        if (world.HasComponent<NavConstrainedComponent>(src))            world.AddComponent(dst, NavConstrainedComponent{});
-        if (auto* c = world.GetComponent<NavClassComponent>(src))        world.AddComponent(dst, *c);
-        if (world.HasComponent<SunMarker>(src))                     world.AddComponent(dst, SunMarker{});
+        for (const auto& entry : SerializerRegistry().Entries())
+            if (entry.copyTo) entry.copyTo(world, src, dst);
     }
 
     // Apply a component command (add or modify)
