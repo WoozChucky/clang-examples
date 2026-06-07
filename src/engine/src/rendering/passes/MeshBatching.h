@@ -4,8 +4,8 @@
 
 // One visible mesh entity tagged with its batch key. POD; arena-friendly.
 struct BatchEntry {
-    uint32_t meshId;
-    uint32_t materialId;
+    uint64_t meshId;
+    uint64_t materialId;
     uint64_t entity;   // EntityId
 };
 

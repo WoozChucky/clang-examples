@@ -288,7 +288,7 @@ bool NavMeshSystem::TryLoadFromDisk(const std::string& worldPath)
 
 // ---- Mesh CPU-data cache (Spec 5) ----
 
-void NavMeshSystem::StoreMeshCpuData(uint32_t meshId,
+void NavMeshSystem::StoreMeshCpuData(uint64_t meshId,
                                      std::vector<MeshVertex>&& vertices,
                                      std::vector<uint32_t>&& indices)
 {
@@ -297,7 +297,7 @@ void NavMeshSystem::StoreMeshCpuData(uint32_t meshId,
     m_MeshCpuData[meshId] = CachedMesh{ std::move(vertices), std::move(indices) };
 }
 
-bool NavMeshSystem::GetMeshCpuData(uint32_t meshId,
+bool NavMeshSystem::GetMeshCpuData(uint64_t meshId,
                                    std::span<const MeshVertex>& outVerts,
                                    std::span<const uint32_t>& outIndices) const
 {

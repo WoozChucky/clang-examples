@@ -30,9 +30,9 @@ public:
         bool valid = false;
     };
 
-    static constexpr uint32_t MissingMaterial = { 0 }; // Reserved default mesh handle
+    static constexpr uint64_t MissingMaterial = { 0 }; // Reserved default mesh handle
 
-    MaterialResources GetMaterialResources(uint32_t materialId) const;
+    MaterialResources GetMaterialResources(uint64_t materialId) const;
 
     // Query material count (for UI/editor purposes)
     uint32_t GetMaterialCount() const;

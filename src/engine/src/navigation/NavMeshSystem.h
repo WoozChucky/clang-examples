@@ -75,7 +75,7 @@ public:
     // arrives from RenderThread. Mirrors MeshSystem's append-only behavior —
     // entries are never removed (MeshSystem has no RemoveMesh today). Takes
     // ownership of the buffers via move. GameThread only.
-    void StoreMeshCpuData(uint32_t meshId,
+    void StoreMeshCpuData(uint64_t meshId,
                           std::vector<MeshVertex>&& vertices,
                           std::vector<uint32_t>&& indices);
 
@@ -83,7 +83,7 @@ public:
     // cache miss (caller falls back to its existing SM_WARN + skip path).
     // Spans valid until the next cache mutation; readers are single-threaded
     // GameThread per the NavMeshSystem contract.
-    bool GetMeshCpuData(uint32_t meshId,
+    bool GetMeshCpuData(uint64_t meshId,
                         std::span<const MeshVertex>& outVerts,
                         std::span<const uint32_t>& outIndices) const;
 
@@ -103,7 +103,7 @@ private:
         std::vector<MeshVertex> Vertices;
         std::vector<uint32_t>   Indices;
     };
-    std::unordered_map<uint32_t, CachedMesh> m_MeshCpuData;
+    std::unordered_map<uint64_t, CachedMesh> m_MeshCpuData;
 
     std::atomic<uint32_t> m_NavVersion{0};
 

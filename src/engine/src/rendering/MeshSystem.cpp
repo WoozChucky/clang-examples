@@ -71,7 +71,7 @@ MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
     if (!m_Device || !vertices || vertexCount == 0 || !indices || indexCount == 0)
     {
         SM_ERROR("MeshSystem::AddMesh: Invalid parameters");
-        return MeshHandle{ UINT32_MAX };
+        return MeshHandle{ UINT64_MAX };
     }
 
     MeshEntry entry{};
@@ -113,7 +113,7 @@ MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
     {
         SM_ERROR("MeshSystem::AddMesh: Failed to create vertex buffer");
         cl->close();
-        return MeshHandle{ UINT32_MAX };
+        return MeshHandle{ UINT64_MAX };
     }
 
     cl->beginTrackingBufferState(entry.vertexBuffer, nvrhi::ResourceStates::CopyDest);
@@ -132,7 +132,7 @@ MeshHandle MeshSystem::AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
     {
         SM_ERROR("MeshSystem::AddMesh: Failed to create index buffer");
         cl->close();
-        return MeshHandle{ UINT32_MAX };
+        return MeshHandle{ UINT64_MAX };
     }
 
     cl->beginTrackingBufferState(entry.indexBuffer, nvrhi::ResourceStates::CopyDest);
@@ -174,7 +174,7 @@ void MeshSystem::AssociateMeshMaterial(MeshHandle meshHandle, MaterialHandle mat
 
 }
 
-MeshSystem::MeshResources MeshSystem::GetMeshResources(uint32_t meshId) const
+MeshSystem::MeshResources MeshSystem::GetMeshResources(uint64_t meshId) const
 {
     MeshResources resources{};
 
@@ -198,7 +198,7 @@ MeshSystem::MeshResources MeshSystem::GetMeshResources(uint32_t meshId) const
     return resources;
 }
 
-MeshSystem::MeshCpuData MeshSystem::GetMeshCpuData(uint32_t meshId) const
+MeshSystem::MeshCpuData MeshSystem::GetMeshCpuData(uint64_t meshId) const
 {
     MeshCpuData out{};
     if (meshId >= m_Meshes.size()) return out;
@@ -215,12 +215,12 @@ uint32_t MeshSystem::GetMeshCount() const
     return static_cast<uint32_t>(m_Meshes.size());
 }
 
-bool MeshSystem::IsValidMeshId(const uint32_t meshId) const
+bool MeshSystem::IsValidMeshId(const uint64_t meshId) const
 {
     return meshId < m_Meshes.size();
 }
 
-MeshSystem::BoundingBox MeshSystem::GetMeshBounds(const uint32_t meshId) const
+MeshSystem::BoundingBox MeshSystem::GetMeshBounds(const uint64_t meshId) const
 {
     BoundingBox bounds{};
 

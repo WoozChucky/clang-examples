@@ -24,7 +24,7 @@ MaterialHandle MaterialSystem::AddMaterial(const uint32_t* textureRgba8, uint32_
     if (!m_Device)
     {
         SM_ERROR("MaterialSystem::AddMaterial: System not initialized");
-        return MaterialHandle{ UINT32_MAX };
+        return MaterialHandle{ UINT64_MAX };
     }
 
     MaterialEntry entry{};
@@ -72,7 +72,7 @@ MaterialHandle MaterialSystem::AddMaterial(const uint32_t* textureRgba8, uint32_
     {
         SM_ERROR("MaterialSystem::AddMaterial: Failed to create texture");
         cl->close();
-        return MaterialHandle{ UINT32_MAX };
+        return MaterialHandle{ UINT64_MAX };
     }
 
     cl->beginTrackingTextureState(entry.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
@@ -94,7 +94,7 @@ MaterialHandle MaterialSystem::AddMaterial(const uint32_t* textureRgba8, uint32_
     return MaterialHandle{ materialId };
 }
 
-MaterialSystem::MaterialResources MaterialSystem::GetMaterialResources(uint32_t materialId) const
+MaterialSystem::MaterialResources MaterialSystem::GetMaterialResources(uint64_t materialId) const
 {
     MaterialResources resources{};
 

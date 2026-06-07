@@ -37,9 +37,9 @@ public:
         bool valid = false;
     };
 
-    static constexpr uint32_t MissingMesh = { 0 }; // Reserved default mesh handle
+    static constexpr uint64_t MissingMesh = { 0 }; // Reserved default mesh handle
 
-    MeshResources GetMeshResources(uint32_t meshId) const;
+    MeshResources GetMeshResources(uint64_t meshId) const;
 
     // CPU-side vertex/index view for nav build, mesh decimation, picking, etc.
     // Span is valid until the MeshSystem is mutated (AddMesh / Shutdown / RecreateGpuResources).
@@ -48,11 +48,11 @@ public:
         std::span<const uint32_t>   indices;
         bool                        valid = false;
     };
-    MeshCpuData GetMeshCpuData(uint32_t meshId) const;
+    MeshCpuData GetMeshCpuData(uint64_t meshId) const;
 
     // Query mesh count and validity (for UI/editor purposes)
     uint32_t GetMeshCount() const;
-    bool IsValidMeshId(uint32_t meshId) const;
+    bool IsValidMeshId(uint64_t meshId) const;
 
     // Get bounding box for mesh visualization
     struct BoundingBox {
@@ -60,7 +60,7 @@ public:
         glm::vec3 max{0.0f};
         bool valid = false;
     };
-    BoundingBox GetMeshBounds(uint32_t meshId) const;
+    BoundingBox GetMeshBounds(uint64_t meshId) const;
 
     // Cleanup all resources
     void Shutdown();

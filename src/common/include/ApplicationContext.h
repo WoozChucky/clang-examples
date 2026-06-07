@@ -111,9 +111,9 @@ struct RendererCommand {
     };
 };
 
-struct ModelHandle { uint32_t Index; };
-struct MeshHandle { uint32_t Index; };
-struct MaterialHandle { uint32_t Index; };
+struct ModelHandle { uint64_t Index; };
+struct MeshHandle { uint64_t Index; };
+struct MaterialHandle { uint64_t Index; };
 
 enum class RendererResponseType : uint8_t {
     Invalid = 0,

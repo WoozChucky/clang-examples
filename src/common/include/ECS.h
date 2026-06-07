@@ -57,18 +57,18 @@ struct TransformComponent {
 };
 
 struct MeshComponent {
-    uint32_t MeshId = 0;
+    uint64_t MeshId = 0;
     bool Visible = false;
 };
 
 struct SubMesh {
     uint32_t IndexStart = 0;
     uint32_t IndexCount = 0;
-    uint32_t MaterialIndex = 0;
+    uint64_t MaterialIndex = 0;
 };
 
 struct MaterialComponent {
-    uint32_t MaterialId = 0;
+    uint64_t MaterialId = 0;
     glm::vec4 BaseColor{1.0f};
     // Bit flags controlling material behavior
     // bit 0 (1): UseTexture — if set, renderer should sample a texture

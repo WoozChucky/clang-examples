@@ -199,7 +199,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             }
 
             const auto* materialComp = world->GetComponent<MaterialComponent>(e);
-            uint32_t materialId = materialComp ? materialComp->MaterialId : MaterialSystem::MissingMaterial;
+            uint64_t materialId = materialComp ? materialComp->MaterialId : MaterialSystem::MissingMaterial;
 
             entries[entryCount++] = BatchEntry{ meshComp.MeshId, materialId, e };
         });
