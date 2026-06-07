@@ -85,6 +85,13 @@ inline void from_json(const nlohmann::json& j, UIRectComponent& t) {
     j.at("Color").get_to(t.Color);
 }
 
+inline void to_json(nlohmann::json& j, const NameComponent& t) {
+    j = nlohmann::json{ {"Name", t.Name} };
+}
+inline void from_json(const nlohmann::json& j, NameComponent& t) {
+    j.at("Name").get_to(t.Name);
+}
+
 inline void to_json(nlohmann::json& j, const StateScopeComponent& t) {
     j = nlohmann::json{{"StateMask", t.StateMask}};
 }

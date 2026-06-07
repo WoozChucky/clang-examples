@@ -192,6 +192,14 @@ struct UIRectComponent {
     glm::vec4 Color{0.15f, 0.15f, 0.18f, 1.0f};
 };
 
+// Optional dev-authored display name for an entity. Editor/tooling concern (shown in the ECS
+// inspector list); persisted in world.json. Absent on most entities — the inspector falls back to
+// "Entity <id>". First std::string-bearing builtin; cheap under COW snapshots (only the rename
+// tick clones the array).
+struct NameComponent {
+    std::string Name;
+};
+
 // Scopes an entity to one or more game states (bit i = game state index i; 0 = always-on).
 // The UI renderer + menu interaction only act on entities whose scope allows the current state.
 struct StateScopeComponent {
@@ -390,7 +398,8 @@ struct NavClassComponent { uint8_t ClassId = 0; };
     X(NavAgentComponent) \
     X(NavTargetComponent) \
     X(NavConstrainedComponent) \
-    X(NavClassComponent)
+    X(NavClassComponent) \
+    X(NameComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

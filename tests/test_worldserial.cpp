@@ -198,6 +198,20 @@ static void T11_collider_backward_compatible_defaults()
     EXPECT(out.Mask == 0xffffffffu);
 }
 
+static void T12_name_roundtrip()
+{
+    NameComponent in;
+    in.Name = "Hero";
+    const nlohmann::json j = in;
+    const auto out = j.get<NameComponent>();
+    EXPECT(out.Name == in.Name);
+
+    // Default-constructed name is empty (unnamed entities carry no component, but the
+    // default value must be empty so an accidental empty NameComponent serializes cleanly).
+    NameComponent def;
+    EXPECT(def.Name.empty());
+}
+
 static void T_navcfg_multiclass_roundtrip() {
     NavMeshConfigComponent in;
     in.ClassCount = 2;
@@ -339,6 +353,7 @@ int main()
     T08_statescope_roundtrip();
     T10_collider_roundtrip();
     T11_collider_backward_compatible_defaults();
+    T12_name_roundtrip();
     Test_Navigation();
     T_navcfg_multiclass_roundtrip();
     T_navcfg_no_classes_defaults_to_one();

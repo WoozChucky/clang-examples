@@ -22,6 +22,7 @@ ComponentSerializerRegistry& SerializerRegistry() {
         r.Register<NavTargetComponent>("NavTargetComponent", true);
         r.Register<NavConstrainedComponent>("NavConstrainedComponent", true);
         r.Register<NavClassComponent>("NavClassComponent", true);
+        r.Register<NameComponent>("NameComponent", true);
         return r;
     }();
     return reg;
