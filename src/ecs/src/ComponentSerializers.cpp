@@ -52,32 +52,34 @@ void LoadEntityComponents(ECS& world, EntityId e, const nlohmann::json& jEntity)
 
 std::vector<PreservedComponent> PreserveNonBuiltinComponents(const ECS& world) {
     std::vector<PreservedComponent> out;
+    auto capture = [&](const ComponentSerializerEntry& entry, EntityId e) {
+        if (!entry.has(world, e)) return;
+        if (entry.reloadExtract) {
+            PreservedComponent pc;
+            pc.name = entry.name; pc.entity = e; pc.useBytes = true;
+            entry.reloadExtract(world, e, pc.bytes);
+            out.push_back(std::move(pc));
+        } else if (entry.save) {
+            PreservedComponent pc;
+            pc.name = entry.name; pc.entity = e; pc.useBytes = false;
+            entry.save(world, e, pc.json);
+            out.push_back(std::move(pc));
+        } else {
+            SM_WARN("PreserveNonBuiltinComponents: '%s' not preservable "
+                    "(non-trivially-copyable, no serializer) — dropped on reload", entry.name.c_str());
+        }
+    };
     for (const auto& entry : SerializerRegistry().Entries()) {
         if (entry.builtin) continue;
-        for (const EntityId e : world.GetActiveEntities()) {
-            if (!entry.has(world, e)) continue;
-            if (entry.reloadExtract) {
-                PreservedComponent pc;
-                pc.name = entry.name; pc.entity = e; pc.useBytes = true;
-                entry.reloadExtract(world, e, pc.bytes);
-                out.push_back(std::move(pc));
-            } else if (entry.save) {
-                PreservedComponent pc;
-                pc.name = entry.name; pc.entity = e; pc.useBytes = false;
-                entry.save(world, e, pc.json);
-                out.push_back(std::move(pc));
-            } else {
-                SM_WARN("PreserveNonBuiltinComponents: '%s' not preservable "
-                        "(non-trivially-copyable, no serializer) — dropped on reload", entry.name.c_str());
-            }
-        }
+        for (const EntityId e : world.GetActiveEntities()) capture(entry, e);
+        capture(entry, world.SingletonEntity());   // singleton entity is invisible to GetActiveEntities()
     }
     return out;
 }
 
 void RestoreNonBuiltinComponents(ECS& world, const std::vector<PreservedComponent>& blob) {
     for (const auto& pc : blob) {
-        if (!world.IsValidEntity(pc.entity)) {
+        if (pc.entity != world.SingletonEntity() && !world.IsValidEntity(pc.entity)) {
             SM_WARN("RestoreNonBuiltinComponents: entity %llu no longer valid — '%s' dropped",
                     static_cast<unsigned long long>(pc.entity), pc.name.c_str());
             continue;

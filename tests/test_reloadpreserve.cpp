@@ -23,6 +23,8 @@ inline void to_json(nlohmann::json& j, const CplxComp& p)   { j = nlohmann::json
 inline void from_json(const nlohmann::json& j, CplxComp& p) { p.S = j.at("S").get<std::string>(); p.N = j.at("N").get<int>(); }
 // Unpreservable: heap member, no to_json → neither path.
 struct BadComp { std::string S; };
+// POD singleton game component (byte path), exercised via SetSingleton/GetSingleton.
+struct SingletonPod { int V = 0; };
 
 static void T01_byte_and_json_roundtrip_survive_clear()
 {
@@ -76,11 +78,33 @@ static void T03_builtins_untouched_by_preserve()
     for (const auto& pc : blob) EXPECT(pc.name != "TransformComponent"); // builtin excluded
 }
 
+static void T04_singleton_component_survives()
+{
+    SerializerRegistry().Register<SingletonPod>("SingletonPod");
+
+    ECS w;
+    w.SetSingleton<SingletonPod>(SingletonPod{ 123 });
+    EXPECT(w.GetSingleton<SingletonPod>() != nullptr);
+
+    auto blob = PreserveNonBuiltinComponents(w);
+    bool found = false;
+    for (const auto& pc : blob) if (pc.name == "SingletonPod") found = true;
+    EXPECT(found); // singleton entity was captured
+
+    w.RemoveNonBuiltinComponentArrays();
+    EXPECT(w.GetSingleton<SingletonPod>() == nullptr); // cleared
+
+    RestoreNonBuiltinComponents(w, blob);
+    const SingletonPod* s = w.GetSingleton<SingletonPod>();
+    EXPECT(s != nullptr && s->V == 123); // restored onto the singleton entity
+}
+
 int main()
 {
     T01_byte_and_json_roundtrip_survive_clear();
     T02_unpreservable_is_skipped();
     T03_builtins_untouched_by_preserve();
+    T04_singleton_component_survives();
     if (g_Failures == 0) { std::printf("All reload-preservation tests passed.\n"); return 0; }
     std::printf("%d reload-preservation test(s) FAILED.\n", g_Failures);
     return 1;
