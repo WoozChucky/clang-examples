@@ -35,7 +35,8 @@ void MeshEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
         if (ImGui::BeginCombo("Mesh", current.c_str())) {
             for (const auto& [handle, key] : assets) {
                 const bool isSelected = (handle == m_St.edit.MeshId);
-                if (ImGui::Selectable(key.c_str(), isSelected)) { m_St.edit.MeshId = handle; m_St.modified = true; }
+                const char* label = key.empty() ? "(default)" : key.c_str();
+                if (ImGui::Selectable(label, isSelected)) { m_St.edit.MeshId = handle; m_St.modified = true; }
                 if (isSelected) ImGui::SetItemDefaultFocus();
             }
             ImGui::EndCombo();
