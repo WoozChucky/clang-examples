@@ -247,8 +247,8 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
         {
             char warn[128];
             snprintf(warn, sizeof(warn),
-                     "GBufferFillPass: frame arena exhausted, dropped %u instances (mesh %u)",
-                     instanceCount, head.meshId);
+                     "GBufferFillPass: frame arena exhausted, dropped %u instances (mesh %llu)",
+                     instanceCount, (unsigned long long)head.meshId);
             SM_WARN(warn);
             continue;
         }
