@@ -65,6 +65,9 @@ add_library(Engine SHARED
     src/navigation/NavMeshSystem.cpp
     src/navigation/NavServicesImpl.cpp
 
+    # Animation
+    src/animation/SkeletonStore.cpp
+
     # Networking (netlib integration)
     src/network/NetSubsystem.cpp
     src/network/NetServicesImpl.cpp
