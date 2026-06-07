@@ -235,7 +235,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
         auto meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(head.meshId);
         if (!meshResources.valid)
         {
-            SM_WARN("GBufferFillPass: Invalid mesh ID %u", head.meshId);
+            SM_WARN("GBufferFillPass: Invalid mesh ID %llu", (unsigned long long)head.meshId);
             meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(MeshSystem::MissingMesh);
         }
 
@@ -298,7 +298,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                 auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(subMesh.MaterialIndex);
                 if (!materialResources.valid)
                 {
-                    SM_WARN("GBufferFillPass: Invalid material ID %u", head.materialId);
+                    SM_WARN("GBufferFillPass: Invalid material ID %llu", (unsigned long long)head.materialId);
                     materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
                 }
 
@@ -329,7 +329,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(head.materialId);
             if (!materialResources.valid)
             {
-                SM_WARN("GBufferFillPass: Invalid material ID %u", head.materialId);
+                SM_WARN("GBufferFillPass: Invalid material ID %llu", (unsigned long long)head.materialId);
                 materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
             }
 

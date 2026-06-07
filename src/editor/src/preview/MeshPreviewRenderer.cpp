@@ -295,7 +295,7 @@ void MeshPreviewRenderer::CreatePipeline()
 
 nvrhi::ITexture* MeshPreviewRenderer::RenderMeshPreview(
     MeshSystem* meshSystem,
-    uint32_t meshId,
+    uint64_t meshId,
     float cameraDistance,
     float cameraYaw,
     float cameraPitch)

@@ -459,8 +459,8 @@ void GameThread::RunLoop() {
                                 m.Visible = true;
                             });
 
-                            SM_TRACE("GameThread: MeshUpload complete for entity %llu, meshId=%u",
-                                     response.TicketId, response.Mesh.Handle.Index);
+                            SM_TRACE("GameThread: MeshUpload complete for entity %llu, meshId=%llu",
+                                     (unsigned long long)response.TicketId, (unsigned long long)response.Mesh.Handle.Index);
                             break;
                         }
                         case RendererResponseType::MaterialUpload: {
@@ -472,8 +472,8 @@ void GameThread::RunLoop() {
                                 m.Flags     |= 1u;
                             });
 
-                            SM_TRACE("GameThread: MaterialUpload complete for entity %llu, materialId=%u",
-                                     (unsigned long long)response.TicketId, response.Material.Handle.Index);
+                            SM_TRACE("GameThread: MaterialUpload complete for entity %llu, materialId=%llu",
+                                     (unsigned long long)response.TicketId, (unsigned long long)response.Material.Handle.Index);
                             break;
                         }
                         default: {

@@ -100,7 +100,7 @@ MaterialSystem::MaterialResources MaterialSystem::GetMaterialResources(uint64_t 
 
     if (materialId >= m_Materials.size())
     {
-        SM_WARN("MaterialSystem::GetMaterialResources: Invalid material ID %u", materialId);
+        SM_WARN("MaterialSystem::GetMaterialResources: Invalid material ID %llu", (unsigned long long)materialId);
         return resources;
     }
 

@@ -117,7 +117,7 @@ void RenderThread::RunLoop()
                     RendererResponse response{};
                     response.Type = RendererResponseType::MeshUpload;
                     response.TicketId = cmd.TicketId;
-                    response.Mesh.Valid = meshHandle.Index != UINT32_MAX;
+                    response.Mesh.Valid = meshHandle.Index != UINT64_MAX;
                     response.Mesh.Handle = meshHandle;
                     if (!m_AppContext->RGCommandRing.Push(response)) {
                         SM_ERROR("RenderThread: Failed to push MeshUpload response to ring");
@@ -144,7 +144,7 @@ void RenderThread::RunLoop()
                     RendererResponse response{};
                     response.Type = RendererResponseType::MaterialUpload;
                     response.TicketId = cmd.TicketId;
-                    response.Material.Valid = materialHandle.Index != UINT32_MAX;
+                    response.Material.Valid = materialHandle.Index != UINT64_MAX;
                     response.Material.Handle = materialHandle;
                     if (!m_AppContext->RGCommandRing.Push(response)) {
                         SM_ERROR("RenderThread: Failed to push MaterialUpload response to ring");

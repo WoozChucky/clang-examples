@@ -20,7 +20,7 @@ public:
 
     // Upload material/texture data and return a handle
     // If texture data is null, uses default white texture
-    // Returns MaterialHandle with Index = UINT32_MAX on failure
+    // Returns MaterialHandle with Index = UINT64_MAX on failure
     MaterialHandle AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight);
 
     // Query GPU resources by material ID

@@ -87,10 +87,10 @@ void MaterialManagerPanel::Draw(const EditorContext& ctx)
                         pixels.data(), width, height
                     );
 
-                    if (handle.Index != UINT32_MAX) {
+                    if (handle.Index != UINT64_MAX) {
                         snprintf(statusMessage, sizeof(statusMessage),
-                                "Success! Loaded material %u (%ux%u pixels)",
-                                handle.Index, width, height);
+                                "Success! Loaded material %llu (%ux%u pixels)",
+                                (unsigned long long)handle.Index, width, height);
                         statusColor = ImVec4(0.4f, 1.0f, 0.4f, 1.0f); // Green
                     } else {
                         snprintf(statusMessage, sizeof(statusMessage),

@@ -206,10 +206,10 @@ void MeshManagerPanel::Draw(const EditorContext& ctx)
                         ctx.MeshSys->AssociateMeshMaterial(meshHandle, materialHandle, mat.MaterialIndex);
                     }
 
-                    if (meshHandle.Index != UINT32_MAX) {
+                    if (meshHandle.Index != UINT64_MAX) {
                         snprintf(statusMessage, sizeof(statusMessage),
-                                "Success! Loaded mesh %u (%zu vertices, %zu indices)",
-                                meshHandle.Index, vertices.size(), indices.size());
+                                "Success! Loaded mesh %llu (%zu vertices, %zu indices)",
+                                (unsigned long long)meshHandle.Index, vertices.size(), indices.size());
                         statusColor = ImVec4(0.4f, 1.0f, 0.4f, 1.0f); // Green
                     } else {
                         snprintf(statusMessage, sizeof(statusMessage),

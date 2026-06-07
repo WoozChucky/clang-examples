@@ -23,7 +23,7 @@ public:
     // Returns the rendered texture handle (can be cast to ImTextureID for ImGui::Image)
     nvrhi::ITexture* RenderMeshPreview(
         MeshSystem* meshSystem,
-        uint32_t meshId,
+        uint64_t meshId,
         float cameraDistance,
         float cameraYaw,
         float cameraPitch);

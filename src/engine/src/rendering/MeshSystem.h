@@ -20,7 +20,7 @@ public:
     void Initialize(nvrhi::IDevice* device);
 
     // Upload mesh data and return a handle
-    // Returns MeshHandle with Index = UINT32_MAX on failure
+    // Returns MeshHandle with Index = UINT64_MAX on failure
     MeshHandle AddMesh(const MeshVertex* vertices, uint32_t vertexCount,
                        const uint32_t* indices, uint32_t indexCount,
                        SubMesh* subMeshes = nullptr, uint32_t subMeshCount = 0);

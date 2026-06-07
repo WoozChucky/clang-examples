@@ -157,7 +157,7 @@ void MeshSystem::AssociateMeshMaterial(MeshHandle meshHandle, MaterialHandle mat
 
     if (meshHandle.Index >= m_Meshes.size())
     {
-        SM_WARN("MeshSystem::AssociateMeshMaterial: Invalid mesh ID %u", meshHandle.Index);
+        SM_WARN("MeshSystem::AssociateMeshMaterial: Invalid mesh ID %llu", (unsigned long long)meshHandle.Index);
         return;
     }
 
@@ -166,8 +166,8 @@ void MeshSystem::AssociateMeshMaterial(MeshHandle meshHandle, MaterialHandle mat
     for (auto &subMesh: entry.subMeshes) {
         if (subMesh.MaterialIndex == materialIndex) {
             subMesh.MaterialIndex = materialHandle.Index;
-            SM_TRACE("MeshSystem::AssociateMeshMaterial: Associated material %u with mesh %u sub-mesh %u",
-                     materialHandle.Index, meshHandle.Index, materialIndex);
+            SM_TRACE("MeshSystem::AssociateMeshMaterial: Associated material %llu with mesh %llu sub-mesh %u",
+                     (unsigned long long)materialHandle.Index, (unsigned long long)meshHandle.Index, materialIndex);
             return;
         }
     }
@@ -180,7 +180,7 @@ MeshSystem::MeshResources MeshSystem::GetMeshResources(uint64_t meshId) const
 
     if (meshId >= m_Meshes.size())
     {
-        SM_WARN("MeshSystem::GetMeshResources: Invalid mesh ID %u", meshId);
+        SM_WARN("MeshSystem::GetMeshResources: Invalid mesh ID %llu", (unsigned long long)meshId);
         return resources;
     }
 
@@ -226,7 +226,7 @@ MeshSystem::BoundingBox MeshSystem::GetMeshBounds(const uint64_t meshId) const
 
     if (meshId >= m_Meshes.size())
     {
-        SM_WARN("MeshSystem::GetMeshBounds: Invalid mesh ID %u", meshId);
+        SM_WARN("MeshSystem::GetMeshBounds: Invalid mesh ID %llu", (unsigned long long)meshId);
         return bounds;
     }
 
