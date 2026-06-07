@@ -978,42 +978,6 @@ void GameUpdate(GameState* state) {
     if (g_GameState->StateId == GameStateId::Uninitialized) {
         SM_TRACE("[GAMEDLL] Initializing game...");
 
-        // One-time protobuf wire-format self-check: exercise EncodeInto (serialize
-        // [u16 opcode][protobuf] in place) + PeekOpcode + Decode round-trip. NOT wired
-        // into the live net systems here — this is plumbing validation only. Logs
-        // (not SM_ASSERT): the game target has no platform_debug_break to link SM_ASSERT.
-        {
-            wire::Ping ping;
-            ping.set_seq(7);
-            ping.set_client_time_ms(999);
-
-            uint8_t buf[64];
-            const uint32_t n = wirecodec::EncodeInto(buf, sizeof(buf), ping);
-            const bool okOp = n >= 2 && wirecodec::PeekOpcode(buf, n) ==
-                              static_cast<uint16_t>(wire::OPCODE_PING);
-            wire::Ping back;
-            const bool okBody = n >= 2 && wirecodec::Decode(buf + 2, n - 2, back);
-            if (okOp && okBody && back.seq() == 7u && back.client_time_ms() == 999ull)
-                SM_TRACE("[GAMEDLL] protobuf EncodeInto/PeekOpcode/Decode round-trip OK (seq=%u, %u bytes)",
-                         back.seq(), n);
-            else
-                SM_ERROR("[GAMEDLL] protobuf wire round-trip FAILED");
-
-            // New flow messages round-trip (incl. a repeated field).
-            wire::WorldListResp wl;
-            auto* w = wl.add_worlds();
-            w->set_id(1); w->set_name("Local World"); w->set_host("127.0.0.1"); w->set_port(27101);
-            uint8_t wbuf[128];
-            const uint32_t wn = wirecodec::EncodeInto(wbuf, sizeof(wbuf), wl);
-            wire::WorldListResp wlBack;
-            const bool wlOk = wn >= 2
-                && wirecodec::PeekOpcode(wbuf, wn) == static_cast<uint16_t>(wire::OPCODE_WORLD_LIST_RESP)
-                && wirecodec::Decode(wbuf + 2, wn - 2, wlBack)
-                && wlBack.worlds_size() == 1 && wlBack.worlds(0).port() == 27101;
-            if (wlOk) SM_TRACE("[GAMEDLL] flow-proto round-trip OK (WorldListResp)");
-            else      SM_ERROR("[GAMEDLL] flow-proto round-trip FAILED");
-        }
-
         // Game-owned singletons.
         g_GameState->World.SetSingleton(WorldCameraComponent{});
         g_GameState->World.SetSingleton(AppControlComponent{});
