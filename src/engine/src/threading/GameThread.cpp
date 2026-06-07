@@ -27,6 +27,7 @@
 #include "Timing.h"
 #include "assimp/scene.h"
 #include "WorldManager.h"
+#include "ComponentSerializerRegistry.h"
 #include "navigation/NavMeshSystem.h"
 #include "navigation/NavServicesImpl.h"
 #include "network/NetServicesImpl.h"
@@ -221,9 +222,11 @@ void GameThread::RunLoop() {
 				}
 			}
 
-			// Drop game-defined arrays from the master, then replace the published snapshot
-			// (which shares those array objects) with a built-in-only one. Both releases
-			// destroy the ComponentArray<GameType> objects HERE on the GameThread, DLL mapped.
+			// Capture game-defined component data (byte/json) into a host-owned blob WHILE the old
+			// DLL is still mapped (the extract fn-ptrs are old-DLL code). Then drop the arrays and
+			// publish a built-in-only snapshot. Both releases destroy the ComponentArray<GameType>
+			// objects HERE on the GameThread, DLL mapped.
+			auto preserved = PreserveNonBuiltinComponents(gameState.World);
 			gameState.World.RemoveNonBuiltinComponentArrays();
 			m_AppContext->LatestWorldSnapshot.store(gameState.World.CreateSnapshot(),
 			                                        std::memory_order_release);
@@ -232,6 +235,13 @@ void GameThread::RunLoop() {
 				SM_TRACE("GameThread: Game.dll reloaded successfully");
 			}
 			// On failure, GameLibrary already logged and kept the previous module.
+
+			// Restore the captured components onto their original entities. LoadOrReload has already
+			// called GameRegisterComponents on the new module, so the registry now holds fresh
+			// (new-DLL) ingest/load fn-ptrs. Republish so the RenderThread sees the restored world.
+			RestoreNonBuiltinComponents(gameState.World, preserved);
+			m_AppContext->LatestWorldSnapshot.store(gameState.World.CreateSnapshot(),
+			                                        std::memory_order_release);
 
 			m_AppContext->ReloadInProgress.store(false, std::memory_order_release); // resume RenderThread
 		}
