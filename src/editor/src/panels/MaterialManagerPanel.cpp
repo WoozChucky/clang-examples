@@ -30,22 +30,22 @@ void MaterialManagerPanel::Draw(const EditorContext& ctx)
         // Display list of loaded materials with selection
         if (materialCount > 0) {
             ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Available Materials:");
-            for (uint32_t i = 0; i < materialCount; ++i) {
-                char label[64];
-                snprintf(label, sizeof(label), "Material %u", i);
-                const bool isSelected = (selectedMaterialId == static_cast<int>(i));
+            for (const auto& [handle, key] : ctx.MatSys->GetAssetList()) {
+                const bool isSelected = (hasSelection && handle == selectedMaterialId);
+                const char* label = key.empty() ? "(default)" : key.c_str();
                 if (ImGui::Selectable(label, isSelected)) {
-                    selectedMaterialId = static_cast<int>(i);
+                    selectedMaterialId = handle;
+                    hasSelection = true;
                 }
             }
             ImGui::Separator();
 
             // Show preview of selected material
-            if (selectedMaterialId >= 0 && selectedMaterialId < static_cast<int>(materialCount)) {
+            if (hasSelection) {
                 ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Material Preview:");
                 ImGui::Spacing();
 
-                auto materialResources = ctx.MatSys->GetMaterialResources(static_cast<uint32_t>(selectedMaterialId));
+                auto materialResources = ctx.MatSys->GetMaterialResources(selectedMaterialId);
                 if (materialResources.valid && materialResources.texture) {
                     // Cast nvrhi texture to ImTextureID for ImGui::Image()
                     ImTextureID texId = (ImTextureID)(nvrhi::ITexture*)materialResources.texture.Get();
@@ -54,7 +54,7 @@ void MaterialManagerPanel::Draw(const EditorContext& ctx)
                     constexpr float previewSize = 256.0f;
                     ImGui::Image(texId, ImVec2(previewSize, previewSize));
 
-                    ImGui::Text("Material ID: %d", selectedMaterialId);
+                    ImGui::Text("Material ID: %llu", (unsigned long long)selectedMaterialId);
                 } else {
                     ImGui::TextDisabled("(No texture available for this material)");
                 }

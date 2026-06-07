@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <imgui.h>
 
 struct EditorContext;
@@ -21,8 +22,10 @@ private:
 
     // Persistent UI selection/status state (formerly function-local statics in
     // ImGuiRenderer::Render's Mesh Manager block).
-    int    selectedMeshId = -1;
-    int    lastViewedMesh = -1;
+    uint64_t selectedMeshId = 0;  // asset HANDLE; see hasSelection
+    bool     hasSelection = false;
+    uint64_t lastViewedMesh = 0;  // handle of mesh whose preview camera was last reset
+    bool     hasViewedMesh = false;
     char   statusMessage[512] = "";
     ImVec4 statusColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 };

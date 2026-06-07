@@ -36,23 +36,23 @@ void MeshManagerPanel::Draw(const EditorContext& ctx)
         // Display list of loaded meshes with selection
         if (meshCount > 0) {
             ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Available Meshes:");
-            for (uint32_t i = 0; i < meshCount; ++i) {
-                char label[64];
-                snprintf(label, sizeof(label), "Mesh %u", i);
-                const bool isSelected = (selectedMeshId == static_cast<int>(i));
+            for (const auto& [handle, key] : ctx.MeshSys->GetAssetList()) {
+                const bool isSelected = (hasSelection && handle == selectedMeshId);
+                const char* label = key.empty() ? "(default)" : key.c_str();
                 if (ImGui::Selectable(label, isSelected)) {
-                    selectedMeshId = static_cast<int>(i);
+                    selectedMeshId = handle;
+                    hasSelection = true;
                 }
             }
             ImGui::Separator();
 
             // Show preview of selected mesh
-            if (selectedMeshId >= 0 && selectedMeshId < static_cast<int>(meshCount)) {
+            if (hasSelection) {
                 ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Mesh Preview:");
                 ImGui::Spacing();
 
-                auto meshBounds = ctx.MeshSys->GetMeshBounds(static_cast<uint32_t>(selectedMeshId));
-                auto meshResources = ctx.MeshSys->GetMeshResources(static_cast<uint32_t>(selectedMeshId));
+                auto meshBounds = ctx.MeshSys->GetMeshBounds(selectedMeshId);
+                auto meshResources = ctx.MeshSys->GetMeshResources(selectedMeshId);
 
                 if (meshBounds.valid && meshResources.valid && ctx.Preview) {
                     // 3D mesh preview with camera controls
@@ -64,8 +64,9 @@ void MeshManagerPanel::Draw(const EditorContext& ctx)
                     const float defaultDistance = maxExtent * 2.0f;
 
                     // Reset camera to default on first view of this mesh
-                    if (lastViewedMesh != selectedMeshId)
+                    if (!hasViewedMesh || lastViewedMesh != selectedMeshId)
                     {
+                        hasViewedMesh = true;
                         lastViewedMesh = selectedMeshId;
                         m_Preview.cameraDistance = defaultDistance;
                         m_Preview.cameraYaw = 0.0f;
@@ -75,7 +76,7 @@ void MeshManagerPanel::Draw(const EditorContext& ctx)
                     // Render mesh to offscreen texture
                     nvrhi::ITexture* previewTexture = ctx.Preview->RenderMeshPreview(
                         ctx.MeshSys,
-                        static_cast<uint32_t>(selectedMeshId),
+                        selectedMeshId,
                         m_Preview.cameraDistance,
                         m_Preview.cameraYaw,
                         m_Preview.cameraPitch
@@ -156,7 +157,7 @@ void MeshManagerPanel::Draw(const EditorContext& ctx)
                     ImGui::Spacing();
 
                     // Display mesh statistics below visualization
-                    ImGui::Text("Mesh ID: %d", selectedMeshId);
+                    ImGui::Text("Mesh ID: %llu", (unsigned long long)selectedMeshId);
                     ImGui::Text("Vertices: %u", meshResources.vertexCount);
                     ImGui::Text("Indices: %u", meshResources.indexCount);
                     ImGui::Text("Triangles: %u", meshResources.indexCount / 3);
