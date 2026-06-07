@@ -1,5 +1,6 @@
 #include "MaterialSystem.h"
 #include "lib.h"
+#include "AssetKey.h"
 
 void MaterialSystem::Initialize(nvrhi::IDevice* device, const nvrhi::TextureHandle &missingMaterial, const nvrhi::SamplerHandle &defaultSampler)
 {
@@ -7,19 +8,22 @@ void MaterialSystem::Initialize(nvrhi::IDevice* device, const nvrhi::TextureHand
     m_MissingMaterial = missingMaterial;
     m_DefaultSampler = defaultSampler;
     m_Materials.clear();
+    m_SlotByHandle.clear();
 
     // Create default fallback material at index 0 (magenta checkerboard texture, default sampler)
     // This ensures objects without materials can still render
     MaterialEntry defaultMaterial{};
+    defaultMaterial.key = "";
     defaultMaterial.texture = m_MissingMaterial;
     defaultMaterial.sampler = m_DefaultSampler;
     defaultMaterial.usesMissingTexture = true;
+    m_SlotByHandle[kMissingAssetHandle] = 0;
     m_Materials.push_back(defaultMaterial);
 
     SM_TRACE("MaterialSystem::Initialize: Created default material 0 with white texture");
 }
 
-MaterialHandle MaterialSystem::AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight)
+MaterialHandle MaterialSystem::AddMaterial(std::string key, const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight)
 {
     if (!m_Device)
     {
@@ -27,7 +31,11 @@ MaterialHandle MaterialSystem::AddMaterial(const uint32_t* textureRgba8, uint32_
         return MaterialHandle{ UINT64_MAX };
     }
 
+    const uint64_t handle = AssetKeyHash(key);
+    if (auto it = m_SlotByHandle.find(handle); it != m_SlotByHandle.end()) return MaterialHandle{ handle };
+
     MaterialEntry entry{};
+    entry.key = std::move(key);
     entry.sampler = m_DefaultSampler;
 
     // If no texture data provided, use default white texture
@@ -35,10 +43,11 @@ MaterialHandle MaterialSystem::AddMaterial(const uint32_t* textureRgba8, uint32_
     {
         entry.texture = m_MissingMaterial;
         entry.usesMissingTexture = true;
-        const uint32_t materialId = static_cast<uint32_t>(m_Materials.size());
-        m_Materials.push_back(entry);
-        SM_TRACE("MaterialSystem::AddMaterial: Created material %u with default white texture", materialId);
-        return MaterialHandle{ materialId };
+        const uint32_t slot = static_cast<uint32_t>(m_Materials.size());
+        m_Materials.push_back(std::move(entry));
+        m_SlotByHandle[handle] = slot;
+        SM_TRACE("MaterialSystem::AddMaterial: '%s' -> handle %llu (slot %u)", m_Materials[slot].key.c_str(), (unsigned long long)handle, slot);
+        return MaterialHandle{ handle };
     }
 
     // Retain CPU-side copy for hot-swap replay.
@@ -85,31 +94,40 @@ MaterialHandle MaterialSystem::AddMaterial(const uint32_t* textureRgba8, uint32_
     m_Device->executeCommandList(cl);
 
     // Store material entry and return handle
-    const uint32_t materialId = static_cast<uint32_t>(m_Materials.size());
-    m_Materials.push_back(entry);
+    const uint32_t slot = static_cast<uint32_t>(m_Materials.size());
+    m_Materials.push_back(std::move(entry));
+    m_SlotByHandle[handle] = slot;
+    SM_TRACE("MaterialSystem::AddMaterial: '%s' -> handle %llu (slot %u)", m_Materials[slot].key.c_str(), (unsigned long long)handle, slot);
+    return MaterialHandle{ handle };
+}
 
-    SM_TRACE("MaterialSystem::AddMaterial: Created material %u with texture %ux%u",
-             materialId, texWidth, texHeight);
-
-    return MaterialHandle{ materialId };
+int32_t MaterialSystem::SlotForHandle(uint64_t handle) const {
+    auto it = m_SlotByHandle.find(handle);
+    return it == m_SlotByHandle.end() ? -1 : static_cast<int32_t>(it->second);
 }
 
 MaterialSystem::MaterialResources MaterialSystem::GetMaterialResources(uint64_t materialId) const
 {
     MaterialResources resources{};
-
-    if (materialId >= m_Materials.size())
-    {
-        SM_WARN("MaterialSystem::GetMaterialResources: Invalid material ID %llu", (unsigned long long)materialId);
-        return resources;
-    }
-
-    const MaterialEntry& entry = m_Materials[materialId];
+    const int32_t slot = SlotForHandle(materialId);
+    if (slot < 0) { SM_WARN("MaterialSystem::GetMaterialResources: unknown material handle %llu", (unsigned long long)materialId); return resources; }
+    const MaterialEntry& entry = m_Materials[slot];
     resources.texture = entry.texture;
     resources.sampler = entry.sampler;
     resources.valid = true;
-
     return resources;
+}
+
+std::string MaterialSystem::KeyForHandle(uint64_t handle) const {
+    const int32_t slot = SlotForHandle(handle);
+    return slot < 0 ? std::string() : m_Materials[slot].key;
+}
+
+std::vector<std::pair<uint64_t, std::string>> MaterialSystem::GetAssetList() const {
+    std::vector<std::pair<uint64_t, std::string>> out;
+    out.reserve(m_SlotByHandle.size());
+    for (const auto& [h, slot] : m_SlotByHandle) out.emplace_back(h, m_Materials[slot].key);
+    return out;
 }
 
 uint32_t MaterialSystem::GetMaterialCount() const
@@ -125,6 +143,7 @@ void MaterialSystem::Shutdown()
         entry.sampler = nullptr;
     }
     m_Materials.clear();
+    m_SlotByHandle.clear();
     m_MissingMaterial = nullptr;
     m_DefaultSampler = nullptr;
     m_Device = nullptr;

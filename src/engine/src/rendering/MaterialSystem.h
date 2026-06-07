@@ -3,6 +3,9 @@
 #include <nvrhi/nvrhi.h>
 #include <vector>
 #include <cstdint>
+#include <unordered_map>
+#include <string>
+#include <utility>
 
 #include "Engine.h"
 #include "ApplicationContext.h"
@@ -21,7 +24,11 @@ public:
     // Upload material/texture data and return a handle
     // If texture data is null, uses default white texture
     // Returns MaterialHandle with Index = UINT64_MAX on failure
-    MaterialHandle AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight);
+    MaterialHandle AddMaterial(std::string key, const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight);
+
+    // Stable logical key (texture path / synthesized model material key) <-> runtime handle.
+    std::string KeyForHandle(uint64_t handle) const;
+    std::vector<std::pair<uint64_t, std::string>> GetAssetList() const; // (handle, key) per loaded material
 
     // Query GPU resources by material ID
     struct MaterialResources {
@@ -52,6 +59,7 @@ public:
 
 private:
     struct MaterialEntry {
+        std::string key;
         nvrhi::TextureHandle texture;
         nvrhi::SamplerHandle sampler;
 
@@ -67,4 +75,7 @@ private:
     nvrhi::TextureHandle m_MissingMaterial;
     nvrhi::SamplerHandle m_DefaultSampler;
     std::vector<MaterialEntry> m_Materials;
+    std::unordered_map<uint64_t, uint32_t> m_SlotByHandle; // stable handle (hash) -> vector slot
+
+    int32_t SlotForHandle(uint64_t handle) const;
 };

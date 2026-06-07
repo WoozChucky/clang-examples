@@ -419,6 +419,8 @@ void GameThread::RunLoop() {
                     materialCmd.MaterialRequest.Width = res.Width;
                     materialCmd.MaterialRequest.Height = res.Height;
                     materialCmd.MaterialRequest.Texture = res.Texture;
+                    const std::string matKey = res.assetKey + "#mat0";
+                    std::snprintf(materialCmd.MaterialRequest.Key, sizeof(materialCmd.MaterialRequest.Key), "%s", matKey.c_str());
 
                     if (!m_AppContext->GRCommandRing.Push(materialCmd))
                     {

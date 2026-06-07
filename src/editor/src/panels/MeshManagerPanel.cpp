@@ -201,9 +201,11 @@ void MeshManagerPanel::Draw(const EditorContext& ctx)
                         hasSubMeshes ? static_cast<uint32_t>(subMeshes.size()) : 0
                     );
 
+                    const std::string modelKey = NormalizeAssetKey(filePath);
                     for (const auto& mat : materials) {
+                        const std::string matKey = modelKey + "#mat" + std::to_string(mat.MaterialIndex);
                         MaterialHandle materialHandle = ctx.MatSys->AddMaterial(
-                            mat.TextureData.data(), mat.Width, mat.Height
+                            matKey, mat.TextureData.data(), mat.Width, mat.Height
                         );
                         ctx.MeshSys->AssociateMeshMaterial(meshHandle, materialHandle, mat.MaterialIndex);
                     }

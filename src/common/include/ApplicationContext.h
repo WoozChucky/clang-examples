@@ -104,6 +104,7 @@ struct RendererCommand {
             uint32_t Width;
             uint32_t Height;
             uint32_t* Texture; // optional RGBA8 pixels (w*h entries)
+            char Key[256];     // logical asset key (texture path / synthesized model material key)
         } MaterialRequest;
 
         struct {

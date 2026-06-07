@@ -134,6 +134,7 @@ void RenderThread::RunLoop()
                     }
 
                     const auto materialHandle = m_Renderer->AddMaterial(
+                        std::string(cmd.MaterialRequest.Key),
                         cmd.MaterialRequest.Texture,
                         cmd.MaterialRequest.Width,
                         cmd.MaterialRequest.Height

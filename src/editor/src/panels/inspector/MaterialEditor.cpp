@@ -28,41 +28,23 @@ void MaterialEditor::Remove(const EditorContext& ctx, EntityId e) {
 void MaterialEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
     if (!m_St.Begin(ctx, e)) return;
 
-    // Material ID editor — dropdown over MaterialSystem entries.
+    // Material picker keyed by logical asset key.
     if (ctx.MatSys) {
-        const uint32_t materialCount = ctx.MatSys->GetMaterialCount();
-        if (materialCount > 0) {
-            std::vector<std::string> materialItems;
-            materialItems.reserve(materialCount);
-            for (uint32_t i = 0; i < materialCount; ++i) {
-                materialItems.push_back("Material " + std::to_string(i));
+        const auto assets = ctx.MatSys->GetAssetList();
+        std::string current = ctx.MatSys->KeyForHandle(m_St.edit.MaterialId);
+        if (current.empty()) current = "(default)";
+        if (ImGui::BeginCombo("Material", current.c_str())) {
+            for (const auto& [handle, key] : assets) {
+                const bool isSelected = (handle == m_St.edit.MaterialId);
+                const char* label = key.empty() ? "(default)" : key.c_str();
+                if (ImGui::Selectable(label, isSelected)) { m_St.edit.MaterialId = handle; m_St.modified = true; }
+                if (isSelected) ImGui::SetItemDefaultFocus();
             }
-
-            int currentMaterialIdx = static_cast<int>(m_St.edit.MaterialId);
-            if (currentMaterialIdx >= static_cast<int>(materialCount)) {
-                currentMaterialIdx = 0;
-            }
-
-            if (ImGui::BeginCombo("Material ID", materialItems[currentMaterialIdx].c_str())) {
-                for (uint32_t i = 0; i < materialCount; ++i) {
-                    const bool isSelected = (currentMaterialIdx == static_cast<int>(i));
-                    if (ImGui::Selectable(materialItems[i].c_str(), isSelected)) {
-                        m_St.edit.MaterialId = i;
-                        m_St.modified = true;
-                    }
-                    if (isSelected) {
-                        ImGui::SetItemDefaultFocus();
-                    }
-                }
-                ImGui::EndCombo();
-            }
-        } else {
-            ImGui::TextDisabled("No materials loaded");
+            ImGui::EndCombo();
         }
+        if (assets.empty()) ImGui::TextDisabled("No materials loaded");
     } else {
-        if (ImGui::InputScalar("Material ID", ImGuiDataType_U32, &m_St.edit.MaterialId)) {
-            m_St.modified = true;
-        }
+        if (ImGui::InputScalar("Material handle", ImGuiDataType_U64, &m_St.edit.MaterialId)) m_St.modified = true;
     }
     // Base color editor
     ImGui::Text("Base Color:");

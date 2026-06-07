@@ -11,6 +11,7 @@
 
 #include "MaterialSystem.h"
 #include "MaterialLoader.h"
+#include "AssetKey.h"
 
 void MaterialManagerPanel::Draw(const EditorContext& ctx)
 {
@@ -84,7 +85,7 @@ void MaterialManagerPanel::Draw(const EditorContext& ctx)
                 if (MaterialLoader::LoadMaterialFromFile(filePath, pixels, width, height, error)) {
                     // Successfully loaded, upload to GPU via MaterialSystem
                     MaterialHandle handle = ctx.MatSys->AddMaterial(
-                        pixels.data(), width, height
+                        NormalizeAssetKey(filePath), pixels.data(), width, height
                     );
 
                     if (handle.Index != UINT64_MAX) {

@@ -453,8 +453,8 @@ MeshHandle Renderer::AddMesh(std::string key, const MeshVertex* vertices, uint32
     return m_MeshSystem.AddMesh(std::move(key), vertices, vertexCount, indices, indexCount, subMeshes, subMeshCount);
 }
 
-MaterialHandle Renderer::AddMaterial(const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight) {
-    return m_MaterialSystem.AddMaterial(textureRgba8, texWidth, texHeight);
+MaterialHandle Renderer::AddMaterial(std::string key, const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight) {
+    return m_MaterialSystem.AddMaterial(std::move(key), textureRgba8, texWidth, texHeight);
 }
 
 void Renderer::CreateDefaultMaterialResources(nvrhi::TextureHandle& outMissing,
