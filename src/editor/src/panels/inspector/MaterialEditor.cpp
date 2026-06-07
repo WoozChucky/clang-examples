@@ -30,10 +30,13 @@ void MaterialEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
 
     // Material picker keyed by logical asset key.
     if (ctx.MatSys) {
-        const auto assets = ctx.MatSys->GetAssetList();
+        // Preview label is a single cheap lookup; the full list is built ONLY while the dropdown
+        // is open (BeginCombo == true), not every frame the editor is visible.
         std::string current = ctx.MatSys->KeyForHandle(m_St.edit.MaterialId);
         if (current.empty()) current = "(default)";
         if (ImGui::BeginCombo("Material", current.c_str())) {
+            const auto assets = ctx.MatSys->GetAssetList();
+            if (assets.empty()) ImGui::TextDisabled("No materials loaded");
             for (const auto& [handle, key] : assets) {
                 const bool isSelected = (handle == m_St.edit.MaterialId);
                 const char* label = key.empty() ? "(default)" : key.c_str();
@@ -42,7 +45,6 @@ void MaterialEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
             }
             ImGui::EndCombo();
         }
-        if (assets.empty()) ImGui::TextDisabled("No materials loaded");
     } else {
         if (ImGui::InputScalar("Material handle", ImGuiDataType_U64, &m_St.edit.MaterialId)) m_St.modified = true;
     }

@@ -29,10 +29,13 @@ void MeshEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
 
     // Mesh picker keyed by logical asset path
     if (ctx.MeshSys) {
-        const auto assets = ctx.MeshSys->GetAssetList(); // vector<pair<uint64_t,string>>
+        // Preview label is a single cheap lookup; the full list is built ONLY while the dropdown
+        // is open (BeginCombo == true), not every frame the editor is visible.
         std::string current = ctx.MeshSys->KeyForHandle(m_St.edit.MeshId);
         if (current.empty()) current = "(none)";
         if (ImGui::BeginCombo("Mesh", current.c_str())) {
+            const auto assets = ctx.MeshSys->GetAssetList(); // vector<pair<uint64_t,string>>
+            if (assets.empty()) ImGui::TextDisabled("No meshes loaded");
             for (const auto& [handle, key] : assets) {
                 const bool isSelected = (handle == m_St.edit.MeshId);
                 const char* label = key.empty() ? "(default)" : key.c_str();
@@ -41,7 +44,6 @@ void MeshEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
             }
             ImGui::EndCombo();
         }
-        if (assets.empty()) ImGui::TextDisabled("No meshes loaded");
     } else {
         if (ImGui::InputScalar("Mesh handle", ImGuiDataType_U64, &m_St.edit.MeshId)) m_St.modified = true;
     }
