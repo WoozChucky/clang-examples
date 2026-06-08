@@ -214,3 +214,8 @@ reuses the frame across render frames (deferred interpolation).
 - SP4 (blending/state machine) layers on top: multiple `AnimationComponent`-like inputs + weighted
   pose blends feeding the same `ComputeSkinningPalette`; render-side interpolation is the separate
   deferred smoothness item.
+- **Richer humanoid glTF (CesiumMan / Fox) deferred to SP4** (decision 2026-06-08): SP3 validates
+  single-clip playback on RiggedSimple (2 bones, 1 clip — minimal correctness). SP4 (blending) hard-
+  requires a multi-clip rig (e.g. Fox: Survey/Walk/Run), so **SP4 owns acquiring the humanoid asset**
+  + any scale issues it surfaces (bone counts, multi-mesh rigs, texture handling). The pipeline
+  already handles arbitrary rigged glTF, so it's mostly asset acquisition + smoke.
