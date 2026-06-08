@@ -5,11 +5,13 @@
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 #include <chrono>
 #include <regex>
 #include <unordered_map>
 #include <cmath>
+#include <nlohmann/json.hpp>
 
 #ifdef _WIN32
 #include <timeapi.h>  // For timeBeginPeriod/timeEndPeriod
@@ -30,6 +32,8 @@
 #include "PaletteFrame.h"
 #include "animation/SkeletonStore.h"
 #include "animation/AnimationStore.h"
+#include "AnimatorController.h"
+#include "animation/AnimatorControllerStore.h"
 #include "RenderStats.h"
 #include "InputDrain.h"
 #include "MaterialLoader.h"
@@ -387,6 +391,21 @@ void GameThread::RunLoop() {
 
                     for (auto& clip : res.clips) {
                         AnimationStore::Instance().Add(res.assetKey + "#anim/" + clip.name, clip);
+                    }
+
+                    // Resolve the controller's bare clip names against this model's clips, then register it.
+                    if (res.hasController) {
+                        AnimatorController ctrl = res.controller;
+                        ctrl.stateClipIds.resize(ctrl.states.size(), 0);
+                        for (size_t s = 0; s < ctrl.states.size(); ++s) {
+                            if (ctrl.states[s].clipKey.empty()) continue;
+                            const std::string clipKey = res.assetKey + "#anim/" + ctrl.states[s].clipKey;
+                            ctrl.stateClipIds[s] = AssetKeyHash(clipKey);
+                            if (!AnimationStore::Instance().Get(ctrl.stateClipIds[s]))
+                                SM_WARN("Animator '%s' state '%s': clip '%s' not found in AnimationStore",
+                                        res.assetKey.c_str(), ctrl.states[s].name.c_str(), clipKey.c_str());
+                        }
+                        AnimatorControllerStore::Instance().Add(res.assetKey + "#animctrl", std::move(ctrl));
                     }
 
                     if (!res.MeshUploaded)
@@ -1048,6 +1067,24 @@ void GameThread::WorkerThreadFunc()
                                  result.assetKey.c_str(), result.clips.back().name.c_str(),
                                  result.clips.back().duration, result.clips.back().channels.size());
                     }
+                }
+            }
+        }
+
+        // Sibling animator controller (optional): "<model>.animctrl.json".
+        {
+            std::filesystem::path ctrlPath = std::filesystem::path(job.objPath).replace_extension(".animctrl.json");
+            if (std::filesystem::exists(ctrlPath)) {
+                try {
+                    std::ifstream f(ctrlPath);
+                    nlohmann::json j; f >> j;
+                    result.controller = j.get<AnimatorController>();
+                    result.hasController = true;
+                    SM_TRACE("Animator controller loaded: '%s' (%zu states, %zu transitions)",
+                             ctrlPath.string().c_str(), result.controller.states.size(),
+                             result.controller.transitions.size());
+                } catch (const std::exception& ex) {
+                    SM_WARN("Failed to parse animator controller '%s': %s", ctrlPath.string().c_str(), ex.what());
                 }
             }
         }

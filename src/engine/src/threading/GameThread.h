@@ -17,6 +17,7 @@
 #include "Skeleton.h"
 #include "Skinning.h"
 #include "AnimationClip.h"
+#include "AnimatorController.h"
 #include "GLFW/glfw3.h"
 
 class GameThread {
@@ -62,6 +63,8 @@ private:
         std::string skeletonKey;
         std::vector<SkinnedVertex> skinning; // per-vertex bone idx+weights, aligned to `vertices`; empty if static
         std::vector<AnimationClip> clips; // animation clips extracted from the scene (skeleton-bone-indexed)
+        bool                hasController = false;
+        AnimatorController  controller;        // clipKey = bare names; stateClipIds resolved at drain time
     };
 
     void DrainInputToSingleton(GameState& state);
