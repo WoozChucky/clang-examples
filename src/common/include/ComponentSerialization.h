@@ -113,18 +113,30 @@ inline void from_json(const nlohmann::json& j, SkeletonComponent& t) {
 }
 
 inline void to_json(nlohmann::json& j, const AnimationComponent& t) {
-    j = nlohmann::json{ {"ClipId", t.ClipId}, {"Time", t.Time}, {"Speed", t.Speed}, {"Looping", t.Looping}, {"Playing", t.Playing},
-                        {"ClipB", t.ClipB}, {"TimeB", t.TimeB}, {"BlendWeight", t.BlendWeight} };
+    j = nlohmann::json{ {"ClipId", t.ClipId}, {"Time", t.Time}, {"Speed", t.Speed},
+                        {"Looping", t.Looping}, {"Playing", t.Playing} };
 }
 inline void from_json(const nlohmann::json& j, AnimationComponent& t) {
-    j.at("ClipId").get_to(t.ClipId);
-    j.at("Time").get_to(t.Time);
-    j.at("Speed").get_to(t.Speed);
-    j.at("Looping").get_to(t.Looping);
-    j.at("Playing").get_to(t.Playing);
-    t.ClipB       = j.value("ClipB", uint64_t{0});
-    t.TimeB       = j.value("TimeB", 0.0f);
-    t.BlendWeight = j.value("BlendWeight", 0.0f);
+    t.ClipId  = j.value("ClipId",  (uint64_t)0);
+    t.Time    = j.value("Time",    0.0f);
+    t.Speed   = j.value("Speed",   1.0f);
+    t.Looping = j.value("Looping", true);
+    t.Playing = j.value("Playing", false);
+    // ClipB/TimeB/BlendWeight intentionally dropped (SP4 demo scaffold); old saves' keys ignored.
+}
+
+inline void to_json(nlohmann::json& j, const AnimatorComponent& t) {
+    nlohmann::json params = nlohmann::json::array();
+    for (const auto& [h, v] : t.Params) params.push_back({ {"h", h}, {"v", v} });
+    j = nlohmann::json{ {"ControllerId", t.ControllerId}, {"Params", params} };
+}
+inline void from_json(const nlohmann::json& j, AnimatorComponent& t) {
+    t.ControllerId = j.value("ControllerId", (uint64_t)0);
+    t.Params.clear();
+    if (j.contains("Params"))
+        for (const auto& e : j.at("Params"))
+            t.Params.emplace_back(e.value("h", (uint64_t)0), e.value("v", 0.0f));
+    // runtime cursor fields default-construct (transient).
 }
 
 inline void to_json(nlohmann::json& j, const StateScopeComponent& t) {

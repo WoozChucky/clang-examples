@@ -23,6 +23,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "input.h"
+#include "AnimationClip.h"   // BonePose (for AnimatorComponent snapshot pose)
 
 // Cross-DLL export annotation. Defined as dllexport in ecs.dll's TU,
 // dllimport everywhere else. Allow override (defining ECS_API empty
@@ -215,9 +216,24 @@ struct AnimationComponent {
     float    Speed   = 1.0f;
     bool     Looping = true;
     bool     Playing = false;
-    uint64_t ClipB       = 0;     // second clip for blending; 0 = no blend (pure ClipId)
-    float    TimeB       = 0.0f;  // B cursor
-    float    BlendWeight = 0.0f;  // 0 = A, 1 = B
+};
+
+// Data-driven animation state machine instance. Generic: the engine evaluator interprets the
+// referenced AnimatorController (a data graph) using the per-instance parameter values the game
+// writes each tick. Runtime-cursor fields are transient (recomputed; not serialized).
+struct AnimatorComponent {
+    uint64_t ControllerId = 0;                            // AnimatorControllerStore handle; 0 = none
+    std::vector<std::pair<uint64_t, float>> Params;       // {FNV-1a hash of param name, value} (bool/trigger as 0/1)
+
+    // --- runtime cursor (transient) ---
+    int   CurrentState      = -1;                         // index into controller.states; -1 = uninitialized
+    int   FromState         = -1;                         // -1 = not transitioning
+    float TransitionElapsed = 0.0f;
+    float TransitionDur     = 0.0f;
+    bool  TransitionCyclic  = false;                      // both endpoints cyclic -> dual-cursor phase-sync
+    float Phase             = 0.0f;                       // [0,1) locomotion phase (cyclic cursors)
+    float StateTime         = 0.0f;                       // seconds into CurrentState clip (non-cyclic)
+    std::vector<BonePose> SnapshotPose;                   // frozen "from" pose for snapshot blends
 };
 
 // Scopes an entity to one or more game states (bit i = game state index i; 0 = always-on).
@@ -421,7 +437,8 @@ struct NavClassComponent { uint8_t ClassId = 0; };
     X(NavClassComponent) \
     X(NameComponent) \
     X(SkeletonComponent) \
-    X(AnimationComponent)
+    X(AnimationComponent) \
+    X(AnimatorComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)

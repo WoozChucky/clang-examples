@@ -385,6 +385,10 @@ private:
             if (auto* a = componentData.Get<AnimationComponent>()) {
                 world.AddComponent(entity, *a);
             }
+        } else if (componentData.Type == std::type_index(typeid(AnimatorComponent))) {
+            if (auto* a = componentData.Get<AnimatorComponent>()) {
+                world.AddComponent(entity, *a);
+            }
         }
         // Add more component types as needed
     }
@@ -433,6 +437,8 @@ private:
             world.RemoveComponent<SkeletonComponent>(entity);
         } else if (typeIndex == std::type_index(typeid(AnimationComponent))) {
             world.RemoveComponent<AnimationComponent>(entity);
+        } else if (typeIndex == std::type_index(typeid(AnimatorComponent))) {
+            world.RemoveComponent<AnimatorComponent>(entity);
         }
         // Add more component types as needed
     }

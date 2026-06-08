@@ -715,9 +715,8 @@ void GameThread::PublishPaletteFrame(GameState& state, float dt) {
         std::vector<glm::mat4> globals;
         const AnimationComponent* anim = state.World.GetComponent<AnimationComponent>(e);
         const AnimationClip* clipA = (anim && anim->ClipId) ? AnimationStore::Instance().Get(anim->ClipId) : nullptr;
-        const AnimationClip* clipB = (anim && anim->ClipB)  ? AnimationStore::Instance().Get(anim->ClipB)  : nullptr;
         if (anim && clipA) {
-            float tA = anim->Time, tB = anim->TimeB, w = anim->BlendWeight;
+            float tA = anim->Time;
             state.World.Modify<AnimationComponent>(e, [&](AnimationComponent& a) {
                 auto advance = [&](float& time, const AnimationClip* c) {
                     if (a.Playing && c && c->duration > 0.0f) {
@@ -726,17 +725,11 @@ void GameThread::PublishPaletteFrame(GameState& state, float dt) {
                         else if (time >= c->duration) { time = c->duration; }
                     }
                 };
-                advance(a.Time,  clipA);
-                advance(a.TimeB, clipB);
+                advance(a.Time, clipA);
                 if (!a.Looping && a.Playing && clipA->duration > 0.0f && a.Time >= clipA->duration) a.Playing = false;
-                tA = a.Time; tB = a.TimeB; w = glm::clamp(a.BlendWeight, 0.0f, 1.0f);
+                tA = a.Time;
             });
-            if (clipB) {
-                globals = PoseToGlobals(*sk, BlendPoses(SampleClipPose(*sk, *clipA, tA),
-                                                        SampleClipPose(*sk, *clipB, tB), w));
-            } else {
-                globals = SampleAnimation(*sk, *clipA, tA);
-            }
+            globals = SampleAnimation(*sk, *clipA, tA);
         } else {
             if (anim && anim->ClipId && !clipA)
                 SM_WARN("AnimationComponent on entity %llu: clip A handle %llu not in AnimationStore", (unsigned long long)e, (unsigned long long)anim->ClipId);
