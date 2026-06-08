@@ -9,6 +9,7 @@
 #include <chrono>
 #include <regex>
 #include <unordered_map>
+#include <cmath>
 
 #ifdef _WIN32
 #include <timeapi.h>  // For timeBeginPeriod/timeEndPeriod
@@ -25,7 +26,9 @@
 #include "AssetKey.h"
 #include "Skeleton.h"
 #include "Skinning.h"
+#include "PaletteFrame.h"
 #include "animation/SkeletonStore.h"
+#include "RenderStats.h"
 #include "InputDrain.h"
 #include "MaterialLoader.h"
 #include "Timing.h"
@@ -566,6 +569,7 @@ void GameThread::RunLoop() {
 				ui.View = glm::mat4(1.0f);
 			});
 
+			PublishPaletteFrame(gameState);
 			PublishSnapshot(gameState, frameStats); // publish to SnapshotRing (S -> R)
 		}
 
@@ -694,6 +698,26 @@ void GameThread::PublishSnapshot(GameState& state, const FrameTimeStats& frameSt
 
 	// Single-writer seqlock publish
     m_AppContext->LatestSnapshot.store(snap);
+}
+
+void GameThread::PublishPaletteFrame(GameState& state) {
+    auto frame = std::make_shared<PaletteFrame>();
+    const bool wiggle = GetDebugDrawSettings().SkinTest;
+    const float t = static_cast<float>(TimeNowSec());
+    state.World.Each<SkeletonComponent>([&](EntityId e, const SkeletonComponent& sc) {
+        const Skeleton* sk = SkeletonStore::Instance().Get(sc.SkeletonId);
+        if (!sk || sk->bones.empty()) return;
+        std::vector<glm::mat4> globals = ComputeBindPoseGlobals(*sk);
+        if (wiggle && !globals.empty()) {
+            const size_t b = globals.size() - 1; // perturb the last (leaf) bone
+            globals[b] = globals[b] * glm::rotate(glm::mat4(1.0f), std::sin(t) * 0.8f, glm::vec3(0,0,1));
+        }
+        const std::vector<glm::mat4> palette = ComputeSkinningPalette(*sk, globals);
+        const uint32_t offset = static_cast<uint32_t>(frame->matrices.size());
+        frame->matrices.insert(frame->matrices.end(), palette.begin(), palette.end());
+        frame->ranges.push_back(PaletteFrame::Range{ e, offset, static_cast<uint32_t>(palette.size()) });
+    });
+    m_AppContext->LatestPaletteFrame.store(std::move(frame), std::memory_order_release);
 }
 
 void GameThread::DrainInputToSingleton(GameState& state) {

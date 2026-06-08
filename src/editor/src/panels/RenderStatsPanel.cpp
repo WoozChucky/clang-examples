@@ -41,6 +41,7 @@ bool DrawRenderStatsPanel(bool* open)
     changed |= ImGui::Checkbox("Obstacles",      &dd.ShowObstacles);
     changed |= ImGui::Checkbox("Nav Paths",      &dd.ShowNavPaths);
     changed |= ImGui::Checkbox("Skeleton",       &dd.ShowSkeleton);
+    changed |= ImGui::Checkbox("Skin Test (wiggle)", &dd.SkinTest);
 
     ImGui::Separator();
     ImGui::TextDisabled("Shadows");

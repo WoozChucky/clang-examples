@@ -12,6 +12,7 @@
 
 #include "ECS.h"
 #include "ECSCommands.h"
+#include "PaletteFrame.h"
 #include "lib.h"
 #include "ServerControl.h"   // kDedicatedServerDefaultPort
 
@@ -237,4 +238,7 @@ struct ApplicationContext {
     //             std::atomic_store(&LatestWorldSnapshot, worldSnapshot);
     // RenderThread: auto worldSnapshot = std::atomic_load(&LatestWorldSnapshot);
     std::atomic<std::shared_ptr<const ECS>> LatestWorldSnapshot;
+
+    // Game -> Render per-tick bone palettes (atomic shared_ptr, parallel to LatestWorldSnapshot).
+    std::atomic<std::shared_ptr<const PaletteFrame>> LatestPaletteFrame;
 };
