@@ -62,13 +62,22 @@ struct VSOut { float4 PosH:SV_POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD
 VSOut main_vs(VSIn vin){
     InstanceData inst = gInstances[vin.InstanceID];
     uint off = inst.PaletteOffset;
-    float4x4 skin =
-        vin.BoneWeights.x * gBones[off + vin.BoneIndices.x] +
-        vin.BoneWeights.y * gBones[off + vin.BoneIndices.y] +
-        vin.BoneWeights.z * gBones[off + vin.BoneIndices.z] +
-        vin.BoneWeights.w * gBones[off + vin.BoneIndices.w];
-    float4 skinned = mul(skin, float4(vin.Position,1.0));
-    float3 skinnedN = mul((float3x3)skin, vin.Normal);
+    // Sentinel (0xFFFFFFFF) = this entity has no palette range (skinned mesh, no SkeletonComponent):
+    // skip skinning (identity) so it renders at bind pose instead of indexing another entity's palette.
+    float4 skinned;
+    float3 skinnedN;
+    if (off == 0xFFFFFFFFu) {
+        skinned  = float4(vin.Position, 1.0);
+        skinnedN = vin.Normal;
+    } else {
+        float4x4 skin =
+            vin.BoneWeights.x * gBones[off + vin.BoneIndices.x] +
+            vin.BoneWeights.y * gBones[off + vin.BoneIndices.y] +
+            vin.BoneWeights.z * gBones[off + vin.BoneIndices.z] +
+            vin.BoneWeights.w * gBones[off + vin.BoneIndices.w];
+        skinned  = mul(skin, float4(vin.Position,1.0));
+        skinnedN = mul((float3x3)skin, vin.Normal);
+    }
     float4 wp = mul(inst.Model, skinned);
     VSOut o; o.PosH = mul(uVP, wp);
     o.Normal = mul((float3x3)inst.NormalMatrix, skinnedN);
@@ -366,7 +375,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             inst.BaseColor = baseColor;
             inst.Flags = flags;
             auto poIt = paletteOffsetByEntity.find(entity);
-            inst.PaletteOffset = (poIt != paletteOffsetByEntity.end()) ? poIt->second : 0u;
+            inst.PaletteOffset = (poIt != paletteOffsetByEntity.end()) ? poIt->second : 0xFFFFFFFFu; // sentinel: no palette -> VS skips skinning
 
             instances[instanceOut++] = inst;
         }
