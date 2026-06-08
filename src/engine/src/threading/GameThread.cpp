@@ -966,6 +966,9 @@ void GameThread::WorkerThreadFunc()
                         bone.parent      = parentBoneIdx;
                         bone.localBind   = (parentBoneIdx < 0) ? (parentGlobal * nodeLocal) : nodeLocal;
                         bone.inverseBind = it->second;
+                        // The non-bone ancestor chain above the FIRST root bone (e.g. Z_UP * Armature)
+                        // is the authored->engine correction; captured here, prepended to palettes.
+                        if (parentBoneIdx < 0) skel.rootTransform = parentGlobal;
                         myIdx = static_cast<int>(skel.bones.size());
                         boneNameToIndex[bone.name] = myIdx;
                         skel.bones.push_back(std::move(bone));
@@ -976,6 +979,11 @@ void GameThread::WorkerThreadFunc()
                 };
                 walk(scene->mRootNode, -1, glm::mat4(1.0f));
                 if (!skel.bones.empty()) {
+                    // skel.rootTransform was captured during the walk = the non-bone ancestor chain
+                    // above the root bone (e.g. "Z_UP" * "Armature"), the authored->engine (Y-up)
+                    // correction. It's prepended to every palette (ComputeSkinningPalette); the bind
+                    // palette otherwise cancels to identity (mesh in raw, possibly Z-up, vertex space).
+                    // Identity for Y-up-authored models (Fox/RiggedSimple) -> no-op.
                     result.skeleton    = std::move(skel);
                     result.hasSkeleton = true;
                     result.skeletonKey = result.assetKey + "#skeleton";

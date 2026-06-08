@@ -16,6 +16,9 @@ struct Bone {
 
 struct Skeleton {
     std::vector<Bone> bones;
+    // Authored-content -> engine (Y-up) correction (the glTF scene-root / "Z_UP" node transform).
+    // Prepended to skinning palettes (ComputeSkinningPalette). Identity for Y-up-authored models.
+    glm::mat4 rootTransform{1.0f};
 };
 
 // Bind-pose global (model-space) transform per bone: global[b] = parent<0 ? localBind : global[parent]*localBind.

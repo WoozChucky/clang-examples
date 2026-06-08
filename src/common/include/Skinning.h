@@ -41,7 +41,8 @@ inline SkinnedVertex MakeSkinnedVertex(std::vector<std::pair<uint32_t,float>> in
 inline std::vector<glm::mat4> ComputeSkinningPalette(const Skeleton& sk, const std::vector<glm::mat4>& globals) {
     const size_t n = sk.bones.size();
     std::vector<glm::mat4> palette(n);
+    // sk.rootTransform prepends the authored->engine (Y-up) correction; identity for Y-up models.
     for (size_t b = 0; b < n && b < globals.size(); ++b)
-        palette[b] = globals[b] * sk.bones[b].inverseBind;
+        palette[b] = sk.rootTransform * globals[b] * sk.bones[b].inverseBind;
     return palette;
 }
