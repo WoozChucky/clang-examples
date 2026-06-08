@@ -34,7 +34,8 @@ enum class AnimParamType { Float, Bool, Trigger };
 enum class AnimCondOp    { Greater, Less, GreaterEqual, LessEqual, Equal }; // Bool/Trigger: "is set" (value != 0)
 
 struct AnimParam      { std::string name; AnimParamType type; };
-struct AnimState      { std::string name; std::string clipKey; bool cyclic = false; }; // clipKey = BARE clip name (e.g. "Walk"); loader resolves it against the owning model's assetKey -> "<assetKey>#anim/<clipKey>"
+struct AnimState      { std::string name; std::string clipKey; bool cyclic = false; bool loop = true; }; // clipKey = BARE clip name (e.g. "Walk"); loader resolves it against the owning model's assetKey -> "<assetKey>#anim/<clipKey>"
+// `cyclic` = phase-sync/gait-match (dual-cursor crossfade between two cyclic states); `loop` = clip-time wrap for NON-cyclic states (default true; cyclic states always loop via Phase). Set loop:false for one-shots (e.g. Hit) so they hold the last frame.
 struct AnimCondition  { std::string paramName; AnimCondOp op; float value; };
 struct AnimTransition { std::string from;          // "*" = anyState
                         std::string to;

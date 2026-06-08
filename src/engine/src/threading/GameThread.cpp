@@ -730,6 +730,7 @@ void GameThread::PublishSnapshot(GameState& state, const FrameTimeStats& frameSt
 // bone globals. Mutates the runtime cursor in `a`. `sk` is the entity's skeleton.
 static std::vector<glm::mat4> EvaluateAnimator(const Skeleton& sk, const AnimatorController& c,
                                                AnimatorComponent& a, float dt) {
+    // TODO(perf): condition param-name hashes are static per controller -- resolve once at load (alongside stateClipIds) instead of hashing strings every tick; pool the per-tick pose buffers if animated-entity counts grow.
     auto paramLookup = [&](const std::string& name) -> float {
         const uint64_t h = AssetKeyHash(name);
         for (const auto& [ph, v] : a.Params) if (ph == h) return v;
@@ -753,13 +754,21 @@ static std::vector<glm::mat4> EvaluateAnimator(const Skeleton& sk, const Animato
     // Advance cursors.
     const AnimationClip* curClip = clipFor(a.CurrentState);
     const float cycleDur = (curClip && curClip->duration > 0.0f) ? curClip->duration : 1.0f;
+    // Phase advances at the current state's clip rate; at a cyclic->cyclic switch the rate hands off to the to-clip's duration. The blend interpolates pose (not phase) so this rate step is imperceptible for similar-gait clips (walk/run).
     a.Phase = WrapPhase01(a.Phase + dt / cycleDur);
     a.StateTime += dt;
-    if (curClip && !c.states[a.CurrentState].cyclic && a.StateTime > curClip->duration)
-        a.StateTime = curClip->duration; // non-cyclic clamps (oneshots hold last frame)
+    if (curClip && curClip->duration > 0.0f && !c.states[a.CurrentState].cyclic) {
+        if (c.states[a.CurrentState].loop) {
+            a.StateTime = std::fmod(a.StateTime, curClip->duration);   // looping non-cyclic state (e.g. Idle)
+            if (a.StateTime < 0.0f) a.StateTime += curClip->duration;
+        } else if (a.StateTime > curClip->duration) {
+            a.StateTime = curClip->duration;                            // one-shot holds last frame (e.g. Hit)
+        }
+    }
     if (a.FromState >= 0) a.TransitionElapsed += dt;
 
     // Transition selection (only when not already transitioning).
+    // No transition is re-selected mid-crossfade (gate: not already transitioning). Fast input or an anyState trigger is therefore deferred until the active crossfade completes. Interrupt support (re-snapshot the live blended pose) is a future improvement.
     if (a.FromState < 0) {
         const int ti = SelectTransition(c, a.CurrentState, paramLookup);
         if (ti >= 0) {

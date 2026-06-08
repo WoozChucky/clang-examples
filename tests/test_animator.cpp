@@ -99,8 +99,23 @@ static void T_json_roundtrip() {
     EXPECT(r.params.size() >= 2 && r.params[1].type == AnimParamType::Trigger);
 }
 
+static void T_state_loop_default_and_json() {
+    // Default-constructed state loops.
+    AnimState def{};
+    EXPECT(def.loop == true);
+    // A state authored WITHOUT a loop key parses to loop==true (default).
+    AnimState idle = nlohmann::json::parse(R"({"name":"Idle","clipKey":"Survey"})").get<AnimState>();
+    EXPECT(idle.loop == true);
+    // An explicit loop:false (one-shot, e.g. Hit) round-trips to loop==false.
+    AnimState hit = nlohmann::json::parse(R"({"name":"Hit","clipKey":"Hit","cyclic":false,"loop":false})").get<AnimState>();
+    EXPECT(hit.loop == false && hit.cyclic == false);
+    nlohmann::json jhit = hit;
+    EXPECT(jhit.get<AnimState>().loop == false);
+}
+
 int main() {
     T_eval_condition();
+    T_state_loop_default_and_json();
     T_select_outgoing_first_match();
     T_select_anystate_first();
     T_select_uninitialized_state();

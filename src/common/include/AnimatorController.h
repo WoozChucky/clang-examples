@@ -18,7 +18,12 @@ enum class AnimParamType { Float, Bool, Trigger };
 enum class AnimCondOp { Greater, Less, GreaterEqual, LessEqual, Equal };
 
 struct AnimParam     { std::string name; AnimParamType type = AnimParamType::Float; };
-struct AnimState     { std::string name; std::string clipKey; bool cyclic = false; }; // clipKey = BARE clip name
+// clipKey = BARE clip name. `cyclic`: when both endpoints of a transition are cyclic -> dual-cursor
+// phase-synced crossfade (gait-matching for locomotion); else snapshot crossfade. `loop`: clip-time
+// wrap for NON-cyclic states (cyclic states always loop via Phase) -- true wraps StateTime so a
+// non-cyclic state keeps playing (e.g. Idle), false clamps so a one-shot holds its last frame (e.g.
+// Hit). Default true.
+struct AnimState     { std::string name; std::string clipKey; bool cyclic = false; bool loop = true; };
 struct AnimCondition { std::string paramName; AnimCondOp op = AnimCondOp::Greater; float value = 0.0f; };
 struct AnimTransition {
     std::string from;                       // "*" = anyState
@@ -98,9 +103,10 @@ inline void to_json(nlohmann::json& j, const AnimParam& p) { j = {{"name", p.nam
 inline void from_json(const nlohmann::json& j, AnimParam& p) {
     j.at("name").get_to(p.name); p.type = j.value("type", AnimParamType::Float);
 }
-inline void to_json(nlohmann::json& j, const AnimState& s) { j = {{"name", s.name}, {"clipKey", s.clipKey}, {"cyclic", s.cyclic}}; }
+inline void to_json(nlohmann::json& j, const AnimState& s) { j = {{"name", s.name}, {"clipKey", s.clipKey}, {"cyclic", s.cyclic}, {"loop", s.loop}}; }
 inline void from_json(const nlohmann::json& j, AnimState& s) {
     j.at("name").get_to(s.name); s.clipKey = j.value("clipKey", std::string()); s.cyclic = j.value("cyclic", false);
+    s.loop = j.value("loop", true);
 }
 inline void to_json(nlohmann::json& j, const AnimCondition& c) { j = {{"paramName", c.paramName}, {"op", c.op}, {"value", c.value}}; }
 inline void from_json(const nlohmann::json& j, AnimCondition& c) {
