@@ -177,7 +177,9 @@ void SsaoRenderPass::Render(nvrhi::ICommandList* commandList,
             nvrhi::BindingSetItem::Texture_SRV(2, gP),
             nvrhi::BindingSetItem::Sampler(3, m_PointClamp),
             nvrhi::BindingSetItem::Texture_UAV(4, raw) };
-        nvrhi::ComputeState st; st.pipeline = m_AoPipeline; st.bindings = { m_Device->createBindingSet(d, m_AoLayout) };
+        // keep the binding-set handle alive through setComputeState (st.bindings holds only a raw ptr)
+        nvrhi::BindingSetHandle bs = m_Device->createBindingSet(d, m_AoLayout);
+        nvrhi::ComputeState st; st.pipeline = m_AoPipeline; st.bindings = { bs };
         commandList->setComputeState(st); // commits the pending texture-state barrier
         commandList->dispatch(gx, gy, 1);
     }
@@ -190,7 +192,9 @@ void SsaoRenderPass::Render(nvrhi::ICommandList* commandList,
             nvrhi::BindingSetItem::ConstantBuffer(0, m_CB),
             nvrhi::BindingSetItem::Texture_SRV(1, raw),
             nvrhi::BindingSetItem::Texture_UAV(2, blur) };
-        nvrhi::ComputeState st; st.pipeline = m_BlurPipeline; st.bindings = { m_Device->createBindingSet(d, m_BlurLayout) };
+        // keep the binding-set handle alive through setComputeState (st.bindings holds only a raw ptr)
+        nvrhi::BindingSetHandle bs = m_Device->createBindingSet(d, m_BlurLayout);
+        nvrhi::ComputeState st; st.pipeline = m_BlurPipeline; st.bindings = { bs };
         commandList->setComputeState(st);
         commandList->dispatch(gx, gy, 1);
     }
