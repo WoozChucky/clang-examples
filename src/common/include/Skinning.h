@@ -46,3 +46,26 @@ inline std::vector<glm::mat4> ComputeSkinningPalette(const Skeleton& sk, const s
         palette[b] = sk.rootTransform * globals[b] * sk.bones[b].inverseBind;
     return palette;
 }
+
+// CPU reference for the per-vertex skin the compute shader performs (verified contract; the HLSL CS
+// mirrors this exactly). `palette` is the resolved skinning palette (global*inverseBind, already
+// rootTransform-prepended). An index >= palette.size() contributes the identity row (no crash; matches
+// the sentinel/empty cases). outPos/outNormal are the posed MESH-LOCAL position/normal (before Model).
+inline void SkinVertexCPU(const std::vector<glm::mat4>& palette,
+                          const glm::uvec4& boneIndices, const glm::vec4& boneWeights,
+                          const glm::vec3& pos, const glm::vec3& normal,
+                          glm::vec3& outPos, glm::vec3& outNormal) {
+    glm::mat4 skin(0.0f);
+    bool any = false;
+    for (int i = 0; i < 4; ++i) {
+        const uint32_t idx = boneIndices[i];
+        const float    w   = boneWeights[i];
+        if (w == 0.0f) continue;
+        const glm::mat4 m = (idx < palette.size()) ? palette[idx] : glm::mat4(1.0f);
+        skin += w * m;
+        any = true;
+    }
+    if (!any) skin = glm::mat4(1.0f);
+    outPos    = glm::vec3(skin * glm::vec4(pos, 1.0f));
+    outNormal = glm::mat3(skin) * normal;
+}

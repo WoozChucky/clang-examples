@@ -43,9 +43,25 @@ static void T_bind_pose_palette_identity() {
                 EXPECT(nearf(palette[b][c][r], (c==r) ? 1.0f : 0.0f)); // ~identity
 }
 
+static bool veq(const glm::vec3& a, const glm::vec3& b) { return nearf(a.x,b.x) && nearf(a.y,b.y) && nearf(a.z,b.z); }
+
+static void T_skin_vertex_cpu() {
+    std::vector<glm::mat4> palette = { glm::mat4(1.0f), glm::translate(glm::mat4(1.0f), glm::vec3(10,0,0)) };
+    glm::vec3 pos(1,2,3), nrm(0,1,0);
+    glm::vec3 p0, n0; SkinVertexCPU(palette, glm::uvec4(0,0,0,0), glm::vec4(1,0,0,0), pos, nrm, p0, n0);
+    EXPECT(veq(p0, pos) && veq(n0, nrm));                                    // full weight bone0 (identity) -> unchanged
+    glm::vec3 p1, n1; SkinVertexCPU(palette, glm::uvec4(1,0,0,0), glm::vec4(1,0,0,0), pos, nrm, p1, n1);
+    EXPECT(veq(p1, glm::vec3(11,2,3)) && veq(n1, nrm));                      // full weight bone1 (+10x) ; pure translate leaves normal
+    glm::vec3 pm, nm; SkinVertexCPU(palette, glm::uvec4(0,1,0,0), glm::vec4(0.5f,0.5f,0,0), pos, nrm, pm, nm);
+    EXPECT(veq(pm, glm::vec3(6,2,3)));                                       // 50/50 blend -> +5x
+    glm::vec3 pe, ne; SkinVertexCPU({}, glm::uvec4(0,0,0,0), glm::vec4(1,0,0,0), pos, nrm, pe, ne);
+    EXPECT(veq(pe, pos));                                                    // empty palette / oob index -> identity, no crash
+}
+
 int main() {
     T_make_skinned_vertex();
     T_bind_pose_palette_identity();
+    T_skin_vertex_cpu();
     if (g_Failures == 0) std::printf("All skinning tests passed.\n");
     return g_Failures ? 1 : 0;
 }
