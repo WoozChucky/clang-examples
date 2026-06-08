@@ -614,6 +614,7 @@ void Renderer::EnsureSsao(uint32_t width, uint32_t height)
     auto mk = [&](const char* name) {
         nvrhi::TextureDesc td; td.width = width; td.height = height; td.format = nvrhi::Format::R8_UNORM;
         td.dimension = nvrhi::TextureDimension::Texture2D; td.isRenderTarget = true; td.isShaderResource = true;
+        td.isUAV = true;                   // NEW: compute writes via RWTexture2D UAV (kept as RT+SRV for the current pixel SSAO pass)
         td.debugName = name; td.initialState = nvrhi::ResourceStates::ShaderResource; td.keepInitialState = true;
         td.clearValue = nvrhi::Color(1.f); td.useClearValue = true;
         return m_Device->createTexture(td);
