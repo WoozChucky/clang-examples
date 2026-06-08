@@ -123,7 +123,7 @@ Crossfade/sample/blend compose existing `SampleClipPose` / `BlendPoses` / `PoseT
 
 ## JSON authoring
 
-Controllers authored as `<model>.animctrl.json` next to the model; loaded into `AnimatorControllerStore` during the startup model directory scan (same place skeleton/clip keys are built). Example `Fox.animctrl.json`:
+Controllers authored as `<model>.animctrl.json` next to the model; loaded into `AnimatorControllerStore` during the startup model directory scan (same place skeleton/clip keys are built). **`assets/models/Fox.animctrl.json` is a SP5 plan deliverable** — hand-authored and checked in as the canonical demo/smoke controller (no editor authors it in SP5; the next-spec node editor will). Example (this is the file to ship):
 
 ```json
 {
