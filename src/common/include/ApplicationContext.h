@@ -64,6 +64,8 @@ struct SimulationSnapshot {
 
 };
 
+#include "Skinning.h"
+
 struct MeshVertex
 {
     float px, py, pz;   // POSITION
@@ -98,6 +100,7 @@ struct RendererCommand {
             SubMesh* SubMeshes;
             size_t SubMeshCount;
             char Key[256];   // logical asset key (virtual path); empty => default mesh
+            SkinnedVertex* BoneData;   // optional; null => static mesh (no skinning)
         } MeshRequest;
 
         struct {

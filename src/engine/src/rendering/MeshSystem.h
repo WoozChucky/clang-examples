@@ -10,6 +10,7 @@
 
 #include "Engine.h"
 #include "ApplicationContext.h"
+#include "Skinning.h"
 
 // MeshSystem manages GPU mesh resources (vertex buffers, index buffers)
 // and provides lookup by MeshHandle/MeshId
@@ -27,7 +28,8 @@ public:
     MeshHandle AddMesh(std::string key,
                        const MeshVertex* vertices, uint32_t vertexCount,
                        const uint32_t* indices, uint32_t indexCount,
-                       SubMesh* subMeshes = nullptr, uint32_t subMeshCount = 0);
+                       SubMesh* subMeshes = nullptr, uint32_t subMeshCount = 0,
+                       const SkinnedVertex* boneData = nullptr);
 
     void AssociateMeshMaterial(MeshHandle meshHandle, MaterialHandle materialHandle, uint32_t materialIndex);
 
@@ -44,6 +46,8 @@ public:
         uint32_t vertexCount = 0;
         uint32_t indexCount = 0;
         bool valid = false;
+        bool isSkinned = false;
+        nvrhi::IBuffer* boneBuffer = nullptr;
     };
 
     static constexpr uint64_t MissingMesh = { 0 }; // Reserved default mesh handle
@@ -97,6 +101,9 @@ private:
         // CPU-side copies retained for backend hot-swap replay.
         std::vector<MeshVertex> cpuVertices;
         std::vector<uint32_t>   cpuIndices;
+        bool isSkinned = false;
+        nvrhi::BufferHandle boneBuffer;            // {uvec4 idx, vec4 weight} per vertex; null if !isSkinned
+        std::vector<SkinnedVertex> cpuSkinning;    // hot-swap replay
     };
 
     nvrhi::IDevice* m_Device = nullptr;

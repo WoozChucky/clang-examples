@@ -68,7 +68,8 @@ void MeshSystem::Initialize(nvrhi::IDevice* device)
 MeshHandle MeshSystem::AddMesh(std::string key,
                                 const MeshVertex* vertices, uint32_t vertexCount,
                                 const uint32_t* indices, uint32_t indexCount,
-                                SubMesh* subMeshes, uint32_t subMeshCount)
+                                SubMesh* subMeshes, uint32_t subMeshCount,
+                                const SkinnedVertex* boneData)
 {
     if (!m_Device || !vertices || vertexCount == 0 || !indices || indexCount == 0)
     {
@@ -104,6 +105,11 @@ MeshHandle MeshSystem::AddMesh(std::string key,
     // Retain CPU-side copies for hot-swap replay.
     entry.cpuVertices.assign(vertices, vertices + vertexCount);
     entry.cpuIndices.assign(indices, indices + indexCount);
+
+    if (boneData) {
+        entry.isSkinned = true;
+        entry.cpuSkinning.assign(boneData, boneData + vertexCount);
+    }
 
     // Create command list for upload
     auto cl = m_Device->createCommandList(nvrhi::CommandListParameters().setQueueType(nvrhi::CommandQueue::Graphics));
@@ -146,6 +152,23 @@ MeshHandle MeshSystem::AddMesh(std::string key,
     cl->beginTrackingBufferState(entry.indexBuffer, nvrhi::ResourceStates::CopyDest);
     cl->writeBuffer(entry.indexBuffer, indices, ibDesc.byteSize);
     cl->setPermanentBufferState(entry.indexBuffer, nvrhi::ResourceStates::IndexBuffer);
+
+    if (entry.isSkinned) {
+        nvrhi::BufferDesc bbDesc;
+        bbDesc.debugName = "MeshSystem BoneVB " + std::to_string(m_Meshes.size());
+        bbDesc.byteSize = sizeof(SkinnedVertex) * vertexCount;
+        bbDesc.isVertexBuffer = true;
+        bbDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        entry.boneBuffer = m_Device->createBuffer(bbDesc);
+        if (!entry.boneBuffer) {
+            SM_ERROR("MeshSystem::AddMesh: Failed to create bone buffer");
+            cl->close();
+            return MeshHandle{ UINT64_MAX };
+        }
+        cl->beginTrackingBufferState(entry.boneBuffer, nvrhi::ResourceStates::CopyDest);
+        cl->writeBuffer(entry.boneBuffer, entry.cpuSkinning.data(), bbDesc.byteSize);
+        cl->setPermanentBufferState(entry.boneBuffer, nvrhi::ResourceStates::VertexBuffer);
+    }
 
     // Execute upload commands
     cl->close();
@@ -199,6 +222,8 @@ MeshSystem::MeshResources MeshSystem::GetMeshResources(uint64_t meshId) const
     resources.indexCount   = entry.indexCount;
     resources.subMeshes    = std::span<const SubMesh>(entry.subMeshes);
     resources.valid        = true;
+    resources.isSkinned  = entry.isSkinned;
+    resources.boneBuffer = entry.boneBuffer;
     return resources;
 }
 
@@ -334,6 +359,20 @@ bool MeshSystem::RecreateGpuResources()
         cl->beginTrackingBufferState(entry.indexBuffer, nvrhi::ResourceStates::CopyDest);
         cl->writeBuffer(entry.indexBuffer, entry.cpuIndices.data(), ibDesc.byteSize);
         cl->setPermanentBufferState(entry.indexBuffer, nvrhi::ResourceStates::IndexBuffer);
+
+        if (entry.isSkinned && !entry.cpuSkinning.empty()) {
+            nvrhi::BufferDesc bbDesc;
+            bbDesc.debugName = "MeshSystem BoneVB " + std::to_string(i);
+            bbDesc.byteSize = sizeof(SkinnedVertex) * entry.cpuSkinning.size();
+            bbDesc.isVertexBuffer = true;
+            bbDesc.initialState = nvrhi::ResourceStates::CopyDest;
+            entry.boneBuffer = m_Device->createBuffer(bbDesc);
+            if (entry.boneBuffer) {
+                cl->beginTrackingBufferState(entry.boneBuffer, nvrhi::ResourceStates::CopyDest);
+                cl->writeBuffer(entry.boneBuffer, entry.cpuSkinning.data(), bbDesc.byteSize);
+                cl->setPermanentBufferState(entry.boneBuffer, nvrhi::ResourceStates::VertexBuffer);
+            }
+        }
 
         cl->close();
         m_Device->executeCommandList(cl);

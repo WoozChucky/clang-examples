@@ -109,7 +109,8 @@ public:
 
     // Resource upload APIs
     MeshHandle AddMesh(std::string key, const MeshVertex* vertices, uint32_t vertexCount,
-                       const uint32_t* indices, uint32_t indexCount, SubMesh* subMeshes = nullptr, uint32_t subMeshCount = 0);
+                       const uint32_t* indices, uint32_t indexCount, SubMesh* subMeshes = nullptr, uint32_t subMeshCount = 0,
+                       const SkinnedVertex* boneData = nullptr);
     MaterialHandle AddMaterial(std::string key, const uint32_t* textureRgba8, uint32_t texWidth, uint32_t texHeight);
 
     // Access to resource systems
