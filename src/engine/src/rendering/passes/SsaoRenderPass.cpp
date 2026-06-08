@@ -78,18 +78,31 @@ RWTexture2D<float> uOut : register(u2);
 cbuffer SsaoCB : register(b0) {
     float4x4 uViewProj; float4x4 uView; float4 uKernel[16]; float4 uParams; float4 uRtSize;
 };
+#define TILE 8
+#define APRON_LO 1
+#define APRON_HI 2
+#define SPAN (TILE + APRON_LO + APRON_HI)   // 11
+groupshared float gTile[SPAN][SPAN];
 [numthreads(8,8,1)]
-void main_cs(uint3 tid : SV_DispatchThreadID) {
-    int2 px = int2(tid.xy);
+void main_cs(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID) {
     int W = (int)uRtSize.x, H = (int)uRtSize.y;
+    int2 groupBase = int2(gid.xy) * TILE;                  // top-left pixel of this group's tile
+    // Cooperatively load SPAN*SPAN texels (origin = groupBase - APRON_LO) into LDS, each fetched once.
+    for (int t = int(gtid.y) * TILE + int(gtid.x); t < SPAN*SPAN; t += TILE*TILE) {
+        int lx = t % SPAN, ly = t / SPAN;
+        int2 q = clamp(groupBase - APRON_LO + int2(lx, ly), int2(0,0), int2(W-1,H-1));
+        gTile[ly][lx] = uAo.Load(int3(q,0));
+    }
+    GroupMemoryBarrierWithGroupSync();
+    int2 px = int2(dtid.xy);
     if (px.x >= W || px.y >= H) return;
-    const int offs[4] = { -1, 0, 1, 2 };   // matches the PS's point-sampled {-1.5,-0.5,0.5,1.5} box
+    // This pixel's index inside the tile = gtid + APRON_LO. Box offsets {-1,0,1,2} (== T2 straight box).
+    const int offs[4] = { -1, 0, 1, 2 };
+    int lx = int(gtid.x) + APRON_LO, ly = int(gtid.y) + APRON_LO;
     float sum = 0;
     [unroll] for (int y = 0; y < 4; ++y)
-        [unroll] for (int x = 0; x < 4; ++x) {
-            int2 q = clamp(px + int2(offs[x], offs[y]), int2(0,0), int2(W-1,H-1));
-            sum += uAo.Load(int3(q,0));
-        }
+        [unroll] for (int x = 0; x < 4; ++x)
+            sum += gTile[ly + offs[y]][lx + offs[x]];
     uOut[px] = sum / 16.0;
 }
 )";
