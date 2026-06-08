@@ -28,11 +28,10 @@ private:
     nvrhi::IDevice* m_Device   = nullptr;
     Renderer*       m_Renderer = nullptr;
 
-    nvrhi::ShaderHandle m_AoVS, m_AoPS;
-    nvrhi::ShaderHandle m_BlurVS, m_BlurPS;
+    nvrhi::ShaderHandle m_AoCS, m_BlurCS;
 
-    nvrhi::GraphicsPipelineHandle m_AoPipeline, m_BlurPipeline;
-    nvrhi::BindingLayoutHandle    m_AoLayout, m_BlurLayout;
+    nvrhi::ComputePipelineHandle m_AoPipeline, m_BlurPipeline;
+    nvrhi::BindingLayoutHandle   m_AoLayout, m_BlurLayout;
 
     nvrhi::BufferHandle  m_CB;
     nvrhi::SamplerHandle m_PointClamp;

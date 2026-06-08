@@ -212,7 +212,6 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     ReleaseGBuffer();
     ReleaseSceneColor();
     m_SsaoRaw = nullptr; m_SsaoBlur = nullptr;
-    m_SsaoRawFb = nullptr; m_SsaoBlurFb = nullptr;
     m_SsaoW = m_SsaoH = 0;
 
     if (m_CommandList) {
@@ -425,8 +424,8 @@ void Renderer::Resize(const uint32_t width, const uint32_t height) {
 
     // Force the SSAO targets to rebuild at the new size (they are size-guarded by EnsureSsao).
     m_SsaoW = m_SsaoH = 0;
-    m_SsaoRawFb = nullptr;
-    m_SsaoBlurFb = nullptr;
+    m_SsaoRaw = nullptr;
+    m_SsaoBlur = nullptr;
 
     if (m_Backend) {
         m_Backend->ResizeSwapChain(width, height);
@@ -613,16 +612,14 @@ void Renderer::EnsureSsao(uint32_t width, uint32_t height)
     m_SsaoW = width; m_SsaoH = height;
     auto mk = [&](const char* name) {
         nvrhi::TextureDesc td; td.width = width; td.height = height; td.format = nvrhi::Format::R8_UNORM;
-        td.dimension = nvrhi::TextureDimension::Texture2D; td.isRenderTarget = true; td.isShaderResource = true;
-        td.isUAV = true;                   // NEW: compute writes via RWTexture2D UAV (kept as RT+SRV for the current pixel SSAO pass)
+        td.dimension = nvrhi::TextureDimension::Texture2D; td.isShaderResource = true;
+        td.isUAV = true;                   // compute-only: written via RWTexture2D UAV, read as SRV
         td.debugName = name; td.initialState = nvrhi::ResourceStates::ShaderResource; td.keepInitialState = true;
         td.clearValue = nvrhi::Color(1.f); td.useClearValue = true;
         return m_Device->createTexture(td);
     };
     m_SsaoRaw  = mk("SSAO.Raw");
     m_SsaoBlur = mk("SSAO.Blur");
-    m_SsaoRawFb  = m_Device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_SsaoRaw));
-    m_SsaoBlurFb = m_Device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_SsaoBlur));
 }
 
 void Renderer::ReleaseSceneColor()
@@ -699,7 +696,6 @@ void Renderer::TeardownForSwap()
     ReleaseGBuffer();
     ReleaseSceneColor();
     m_SsaoRaw = nullptr; m_SsaoBlur = nullptr;
-    m_SsaoRawFb = nullptr; m_SsaoBlurFb = nullptr;
     m_SsaoW = m_SsaoH = 0;
 
     // Flush the deferred-release queue now, while the device is still alive,

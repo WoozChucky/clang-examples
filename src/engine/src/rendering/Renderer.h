@@ -144,8 +144,6 @@ public:
 
     nvrhi::ITexture*     GetSsaoTexture() const { return m_SsaoBlur; }       // blurred AO (R8)
     nvrhi::ITexture*     GetSsaoRawTexture() const { return m_SsaoRaw; }
-    nvrhi::IFramebuffer* GetSsaoRawFramebuffer() const { return m_SsaoRawFb; }
-    nvrhi::IFramebuffer* GetSsaoBlurFramebuffer() const { return m_SsaoBlurFb; }
 
     // Offscreen scene-color SRV the world passes render into when FXAA is enabled;
     // the FXAA pass samples it and resolves into the final target. Null when FXAA
@@ -214,7 +212,6 @@ private:
     // SSAO pass; m_SsaoBlur is the box-blurred result the lighting pass will sample (next task).
     // Size-guarded rebuild via EnsureSsao; nulled on resize/teardown like the G-buffer.
     nvrhi::TextureHandle     m_SsaoRaw, m_SsaoBlur;
-    nvrhi::FramebufferHandle m_SsaoRawFb, m_SsaoBlurFb;
     uint32_t                 m_SsaoW = 0, m_SsaoH = 0;
     void EnsureSsao(uint32_t width, uint32_t height);
 
