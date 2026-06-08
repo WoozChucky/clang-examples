@@ -14,6 +14,7 @@
 #include "utilities/SettingsManager.h"
 #include "navigation/NavMeshSystem.h"
 #include "navigation/NavServicesImpl.h"
+#include "animation/AnimServicesImpl.h"
 #include "network/NetSubsystem.h"
 #include "network/NetServicesImpl.h"
 #include "ECSCommands.h"
@@ -47,6 +48,7 @@ bool ServerApplication::Init(const Config& cfg) {
 
     NavServicesImpl::Init(m_NavServices);
     NetServicesImpl::Init(m_NetServices);
+    AnimServicesImpl::Init(m_AnimServices);
     NetSubsystem::Instance().Init();
 
     m_GameLib.SetScheduler(&m_Scheduler);
@@ -110,7 +112,7 @@ void ServerApplication::Tick() {
         m_GameLib.Update(&m_GameState);
 
     SystemContext ctx{ m_GameState.World, m_GameState.DeltaTime, m_GameState.GameTime,
-                       &m_NavServices, &m_NetServices, m_GameState.Role, m_Config.port };
+                       &m_NavServices, &m_NetServices, &m_AnimServices, m_GameState.Role, m_Config.port };
     m_Scheduler.Run(ctx);
 
     NavMeshSystem::Instance().Tick(static_cast<float>(dt));

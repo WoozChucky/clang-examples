@@ -41,6 +41,7 @@ private:
 
     NavServices       m_NavServices{};
     NetServices       m_NetServices{};
+    AnimServices      m_AnimServices{};
 
     std::atomic<bool> m_StopRequested{false};
     std::atomic<bool> m_ReloadPending{false};

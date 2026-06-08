@@ -17,9 +17,6 @@
 #include "VelocityComponent.h"  // game-owned component: finite-differenced movement velocity
 #include "AssetKey.h"  // AssetKeyHash — animator param keys (must match the engine evaluator's hashing)
 #include "AbilityRoot.h"  // ShouldRootMovement — game-owned root policy (pure, unit-tested)
-#include "AnimatorController.h"               // AnimatorController + NormalizedStateTime (cursor math)
-#include "animation/AnimationStore.h"         // AnimationStore — resolve a state's clip duration
-#include "animation/AnimatorControllerStore.h" // AnimatorControllerStore — resolve the player's controller
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 #include "WireCodec.h"  // protobuf wire-format encode/decode (plumbing demo)
 #include "SessionFlow.h"  // pure client session FSM driven by ClientSessionSystem
@@ -444,16 +441,11 @@ public:
             const auto* a = ctx.world.GetComponent<AnimatorComponent>(e);
             if (!a) return;
             bool rooted = false;
-            if (const auto ctrl = AnimatorControllerStore::Instance().Get(a->ControllerId)) {
-                const int s = a->CurrentState;
-                if (s >= 0 && s < (int)ctrl->states.size()) {
-                    float dur = 0.0f;
-                    if (s < (int)ctrl->stateClipIds.size())
-                        if (const auto* clip = AnimationStore::Instance().Get(ctrl->stateClipIds[s]))
-                            dur = clip->duration;
-                    const float norm = NormalizedStateTime(ctrl->states[s], a->StateTime, a->Phase, dur);
-                    rooted = ShouldRootMovement(ctrl->states[s].name, norm);
-                }
+            if (ctx.Anim && ctx.Anim->QueryStateCursor && a->ControllerId) {
+                char name[64];
+                const float norm = ctx.Anim->QueryStateCursor(a->ControllerId, a->CurrentState,
+                                                               a->StateTime, a->Phase, name, (int)sizeof(name));
+                if (norm >= 0.0f) rooted = ShouldRootMovement(name, norm);
             }
             if (!ctx.world.HasComponent<MovementLockedComponent>(e))
                 ctx.world.AddComponent(e, MovementLockedComponent{});

@@ -44,6 +44,7 @@
 #include "ComponentSerializerRegistry.h"
 #include "navigation/NavMeshSystem.h"
 #include "navigation/NavServicesImpl.h"
+#include "animation/AnimServicesImpl.h"
 #include "network/NetServicesImpl.h"
 #include "network/NetSubsystem.h"
 
@@ -194,6 +195,11 @@ void GameThread::RunLoop() {
     // GameState-only boundary (Game.dll no longer links Engine.dll).
     NavServices navServices{};
     NavServicesImpl::Init(navServices);
+
+    // AnimServices function-pointer table — engine animator query surface for game systems
+    // (AbilityRootSystem) instead of AnimatorControllerStore/AnimationStore::Instance().
+    AnimServices animServices{};
+    AnimServicesImpl::Init(animServices);
 
     // NetServices function-pointer table — engine networking surface for game systems.
     NetServices netServices{};
@@ -558,7 +564,7 @@ void GameThread::RunLoop() {
             }
 
 			{
-                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices, &netServices, gameState.Role,
+                SystemContext sysCtx{ gameState.World, gameState.DeltaTime, gameState.GameTime, &navServices, &netServices, &animServices, gameState.Role,
                                       m_AppContext->NetServerPort.load(std::memory_order_relaxed) };
                 m_Scheduler.Run(sysCtx);
             }
