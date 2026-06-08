@@ -9,12 +9,15 @@
 #include "TransformMath.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
+#include <unordered_map>
+#include "PaletteFrame.h"
+#include "Skinning.h"
 
 // Deferred geometry shaders: write albedo / world-normal / world-position into the
 // G-buffer MRTs. Registers mirror the mesh-pass scheme (CB b0, texture t2, sampler s3,
 // instances t5) so the Vulkan flat-binding offsets line up.
 static const char* GBUF_VS_HLSL = R"(
-struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint3 _pad; };
+struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint PaletteOffset; uint2 _pad; };
 cbuffer PerFrame : register(b0) { float4x4 uVP; };
 StructuredBuffer<InstanceData> gInstances : register(t5);
 struct VSIn  { float3 Position:POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; uint InstanceID:SV_InstanceID; };
@@ -29,7 +32,7 @@ VSOut main_vs(VSIn vin){
 )";
 
 static const char* GBUF_PS_HLSL = R"(
-struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint3 _pad; };
+struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint PaletteOffset; uint2 _pad; };
 Texture2D uTexture : register(t2);
 SamplerState uSampler : register(s3);
 StructuredBuffer<InstanceData> gInstances : register(t5);
@@ -49,6 +52,30 @@ PSOut main_ps(PSIn i){
 }
 )";
 
+static const char* GBUF_SKINNED_VS_HLSL = R"(
+struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint PaletteOffset; uint2 _pad; };
+cbuffer PerFrame : register(b0) { float4x4 uVP; };
+StructuredBuffer<InstanceData> gInstances : register(t5);
+StructuredBuffer<float4x4>     gBones     : register(t6);
+struct VSIn  { float3 Position:POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; uint4 BoneIndices:BLENDINDICES; float4 BoneWeights:BLENDWEIGHT; uint InstanceID:SV_InstanceID; };
+struct VSOut { float4 PosH:SV_POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; float3 WorldPos:TEXCOORD1; uint InstanceID:TEXCOORD2; };
+VSOut main_vs(VSIn vin){
+    InstanceData inst = gInstances[vin.InstanceID];
+    uint off = inst.PaletteOffset;
+    float4x4 skin =
+        vin.BoneWeights.x * gBones[off + vin.BoneIndices.x] +
+        vin.BoneWeights.y * gBones[off + vin.BoneIndices.y] +
+        vin.BoneWeights.z * gBones[off + vin.BoneIndices.z] +
+        vin.BoneWeights.w * gBones[off + vin.BoneIndices.w];
+    float4 skinned = mul(skin, float4(vin.Position,1.0));
+    float3 skinnedN = mul((float3x3)skin, vin.Normal);
+    float4 wp = mul(inst.Model, skinned);
+    VSOut o; o.PosH = mul(uVP, wp);
+    o.Normal = mul((float3x3)inst.NormalMatrix, skinnedN);
+    o.UV = vin.UV; o.WorldPos = wp.xyz; o.InstanceID = vin.InstanceID; return o;
+}
+)";
+
 bool GBufferFillPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
 {
     m_Device = device;
@@ -62,6 +89,10 @@ bool GBufferFillPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     if (!m_VS || !m_PS)
         return false;
 
+    m_SkinnedVS = m_Renderer->CreateShader(nvrhi::ShaderType::Vertex, GBUF_SKINNED_VS_HLSL, 0, "main_vs", "vs_6_1");
+    if (!m_SkinnedVS)
+        return false;
+
     // Input layout: POSITION (RGB32F), NORMAL (RGB32F), TEXCOORD (RG32F) — identical to MeshRenderPass.
     nvrhi::VertexAttributeDesc attrs[3];
     attrs[0].setName("POSITION").setFormat(nvrhi::Format::RGB32_FLOAT)
@@ -71,6 +102,16 @@ bool GBufferFillPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     attrs[2].setName("TEXCOORD").setFormat(nvrhi::Format::RG32_FLOAT)
         .setOffset(offsetof(MeshVertex, u)).setBufferIndex(0).setElementStride(sizeof(MeshVertex));
     m_InputLayout = m_Device->createInputLayout(attrs, 3, m_VS);
+
+    // Skinned input layout: static attrs @buffer0 + BLENDINDICES/BLENDWEIGHT from the parallel
+    // bone buffer @buffer1 (SkinnedVertex stride).
+    nvrhi::VertexAttributeDesc sattrs[5];
+    sattrs[0] = attrs[0]; sattrs[1] = attrs[1]; sattrs[2] = attrs[2];
+    sattrs[3].setName("BLENDINDICES").setFormat(nvrhi::Format::RGBA32_UINT)
+        .setOffset(offsetof(SkinnedVertex, BoneIndices)).setBufferIndex(1).setElementStride(sizeof(SkinnedVertex));
+    sattrs[4].setName("BLENDWEIGHT").setFormat(nvrhi::Format::RGBA32_FLOAT)
+        .setOffset(offsetof(SkinnedVertex, BoneWeights)).setBufferIndex(1).setElementStride(sizeof(SkinnedVertex));
+    m_SkinnedInputLayout = m_Device->createInputLayout(sattrs, 5, m_SkinnedVS);
 
     // Binding layout: b0 (PerFrame), t2 (Texture), s3 (Sampler), t5 (Instances).
     nvrhi::BindingLayoutDesc layoutDesc;
@@ -90,6 +131,20 @@ bool GBufferFillPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     }
 
     m_BindingLayout = m_Device->createBindingLayout(layoutDesc);
+
+    // Skinned binding layout: same as static + t6 (bone palette StructuredBuffer).
+    nvrhi::BindingLayoutDesc slayoutDesc;
+    slayoutDesc.visibility = nvrhi::ShaderType::All;
+    slayoutDesc.bindings = {
+        nvrhi::BindingLayoutItem::ConstantBuffer(0),
+        nvrhi::BindingLayoutItem::Texture_SRV(2),
+        nvrhi::BindingLayoutItem::Sampler(3),
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5),
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6)
+    };
+    if (m_Device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        slayoutDesc.setBindingOffsets(offsets);
+    m_SkinnedBindingLayout = m_Device->createBindingLayout(slayoutDesc);
 
     // Per-frame constant buffer (just VP).
     m_FrameCB = m_Device->createBuffer(
@@ -150,6 +205,14 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
 
         pso.renderState.rasterState.fillMode = nvrhi::RasterFillMode::Wireframe;
         m_WireframePipeline = m_Device->createGraphicsPipeline(pso, fbi);
+
+        // Skinned PSO: solid fill (wireframe mutated pso above), skinning VS + skinned IA/binding layout.
+        nvrhi::GraphicsPipelineDesc spso = pso;
+        spso.renderState.rasterState.fillMode = nvrhi::RasterFillMode::Solid;
+        spso.VS = m_SkinnedVS;
+        spso.inputLayout = m_SkinnedInputLayout;
+        spso.bindingLayouts = { m_SkinnedBindingLayout };
+        m_SkinnedPipeline = m_Device->createGraphicsPipeline(spso, fbi);
     }
 
     commandList->beginMarker("GBufferFillPass");
@@ -165,6 +228,30 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
     const CameraView& cam = m_Renderer->GetActiveCamera();
     cb.VP = cam.Projection * cam.View;
     commandList->writeBuffer(m_FrameCB, &cb, sizeof(cb));
+
+    // Load the bone palette published by the GameThread skinning step, build an entity->offset
+    // lookup, and (re)upload the matrix array to the GPU StructuredBuffer when it changed.
+    std::shared_ptr<const PaletteFrame> palette =
+        m_Renderer->GetAppContext()->LatestPaletteFrame.load(std::memory_order_acquire);
+    std::unordered_map<EntityId, uint32_t> paletteOffsetByEntity;
+    if (palette && !palette->matrices.empty()) {
+        for (const auto& rg : palette->ranges) paletteOffsetByEntity[rg.entity] = rg.offset;
+        if (palette != m_LastPaletteFrame) {
+            const uint32_t need = static_cast<uint32_t>(palette->matrices.size());
+            if (need > m_PaletteCapacity) {
+                nvrhi::BufferDesc pd;
+                pd.debugName = "GBufferFillPass PaletteBuffer";
+                pd.byteSize = sizeof(glm::mat4) * need;
+                pd.structStride = sizeof(glm::mat4);
+                pd.initialState = nvrhi::ResourceStates::CopyDest;
+                pd.keepInitialState = true;
+                m_PaletteBuffer = m_Device->createBuffer(pd);
+                m_PaletteCapacity = need;
+            }
+            commandList->writeBuffer(m_PaletteBuffer, palette->matrices.data(), sizeof(glm::mat4) * need);
+            m_LastPaletteFrame = palette;
+        }
+    }
 
     const Frustum cullFrustum = ExtractFrustum(cb.VP);
     const bool cullEnabled = GetCullingSettings().Enabled;
@@ -239,6 +326,8 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(MeshSystem::MissingMesh);
         }
 
+        const bool runSkinned = meshResources.isSkinned && meshResources.boneBuffer && m_PaletteBuffer && (palette != nullptr);
+
         const uint32_t instanceCount = std::min(run.count, m_MaxInstances);
 
         const auto instanceMark = frameAllocator->GetMarker();
@@ -276,6 +365,8 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             inst.NormalMatrix = glm::mat4(N3);
             inst.BaseColor = baseColor;
             inst.Flags = flags;
+            auto poIt = paletteOffsetByEntity.find(entity);
+            inst.PaletteOffset = (poIt != paletteOffsetByEntity.end()) ? poIt->second : 0u;
 
             instances[instanceOut++] = inst;
         }
@@ -309,10 +400,20 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                     nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
                     nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
                 };
-                nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
+                if (runSkinned)
+                    bindingDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_PaletteBuffer));
+                nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(
+                    bindingDesc, runSkinned ? m_SkinnedBindingLayout : m_BindingLayout);
 
+                state.pipeline = runSkinned ? m_SkinnedPipeline
+                                            : ((GetDebugDrawSettings().Wireframe && m_WireframePipeline)
+                                                   ? m_WireframePipeline : m_Pipeline);
                 state.bindings = { bindingSet };
-                state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
+                if (runSkinned)
+                    state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0),
+                                            nvrhi::VertexBufferBinding(meshResources.boneBuffer, 1, 0) };
+                else
+                    state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
                 state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
 
                 commandList->setGraphicsState(state);
@@ -340,10 +441,20 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                 nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
             };
-            nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
+            if (runSkinned)
+                bindingDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_PaletteBuffer));
+            nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(
+                bindingDesc, runSkinned ? m_SkinnedBindingLayout : m_BindingLayout);
 
+            state.pipeline = runSkinned ? m_SkinnedPipeline
+                                        : ((GetDebugDrawSettings().Wireframe && m_WireframePipeline)
+                                               ? m_WireframePipeline : m_Pipeline);
             state.bindings = { bindingSet };
-            state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
+            if (runSkinned)
+                state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0),
+                                        nvrhi::VertexBufferBinding(meshResources.boneBuffer, 1, 0) };
+            else
+                state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
             state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
 
             commandList->setGraphicsState(state);
@@ -379,6 +490,13 @@ void GBufferFillPass::Shutdown()
     m_InstanceBuffer = nullptr;
     m_VS = nullptr;
     m_PS = nullptr;
+    m_SkinnedVS = nullptr;
+    m_SkinnedPipeline = nullptr;
+    m_SkinnedInputLayout = nullptr;
+    m_SkinnedBindingLayout = nullptr;
+    m_PaletteBuffer = nullptr;
+    m_PaletteCapacity = 0;
+    m_LastPaletteFrame = nullptr;
     m_Device = nullptr;
     m_Renderer = nullptr;
 }
@@ -388,4 +506,5 @@ void GBufferFillPass::OnResize(uint32_t /*width*/, uint32_t /*height*/)
     // Rebuild the pipeline against the resized G-buffer framebuffer on next render.
     m_Pipeline = nullptr;
     m_WireframePipeline = nullptr;
+    m_SkinnedPipeline = nullptr;
 }

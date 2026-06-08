@@ -3,9 +3,11 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
 #include <cstdint>
+#include <memory>
 #include "IRenderPass.h"
 
 class Renderer;
+struct PaletteFrame;
 
 // Deferred geometry pass: writes albedo / world-normal / world-position into the
 // Renderer's G-buffer MRTs + shared depth. No lighting.
@@ -21,7 +23,7 @@ private:
     struct GBufFrameCB { glm::mat4 VP; };
     struct MeshInstanceCPU { // keep identical to MeshRenderPass's MeshInstanceCPU
         glm::mat4 Model; glm::mat4 NormalMatrix; glm::vec4 BaseColor;
-        uint32_t Flags; uint32_t _pad[3];
+        uint32_t Flags; uint32_t PaletteOffset; uint32_t _pad[2];
     };
     static_assert(sizeof(MeshInstanceCPU) % 16 == 0, "MeshInstanceCPU must be 16-byte aligned");
 
@@ -35,4 +37,12 @@ private:
     nvrhi::BufferHandle m_FrameCB;
     nvrhi::BufferHandle m_InstanceBuffer;
     uint32_t m_MaxInstances = 4096;
+
+    nvrhi::ShaderHandle m_SkinnedVS;
+    nvrhi::GraphicsPipelineHandle m_SkinnedPipeline;
+    nvrhi::InputLayoutHandle m_SkinnedInputLayout;
+    nvrhi::BindingLayoutHandle m_SkinnedBindingLayout;
+    nvrhi::BufferHandle m_PaletteBuffer;
+    uint32_t m_PaletteCapacity = 0;                 // in mat4 elements
+    std::shared_ptr<const PaletteFrame> m_LastPaletteFrame; // skip re-upload when unchanged
 };
