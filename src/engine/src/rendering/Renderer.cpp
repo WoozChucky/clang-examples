@@ -345,10 +345,9 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                     m_ActiveCamera = active;
                 }
 
-                // First compute pass: GPU-skin all skinned entities into a per-frame skinned VB +
-                // upload the bone palette. Must run BEFORE the World passes (shadow/g-buffer): it
-                // owns the palette buffer that GBuffer's interim skinned VS path reads. Nothing
-                // consumes the skinned VB yet (Task 6) — this isolates the first dispatch.
+                // Run the skinning compute pass first: it skins each skinned entity into a per-frame
+                // vertex buffer that the shadow + g-buffer passes then read via their static pipelines
+                // (baseVertex per entity). Also uploads the palette consumed by the skin shader.
                 if (m_SkinningPass) {
                     std::shared_ptr<const PaletteFrame> palette =
                         m_AppContext ? m_AppContext->LatestPaletteFrame.load(std::memory_order_acquire) : nullptr;

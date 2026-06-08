@@ -235,7 +235,7 @@ void SkinningComputePass::Execute(nvrhi::ICommandList* cl, const ECS* world, con
         cl->dispatch((job.vertexCount + 63u) / 64u, 1, 1);
     }
 
-    // Barrier UAV -> VertexBuffer so a later raster pass can read the skinned VB (Task 6 consumes it).
+    // Barrier UAV -> VertexBuffer so a later raster pass can read the skinned VB (shadow + g-buffer read this skinned VB as a vertex buffer).
     cl->setBufferState(m_SkinnedVB, nvrhi::ResourceStates::VertexBuffer);
 
     cl->endMarker();

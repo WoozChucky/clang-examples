@@ -119,8 +119,8 @@ public:
     MaterialSystem* GetMaterialSystem() { return &m_MaterialSystem; }
     ApplicationContext* GetAppContext() const { return m_AppContext; }
 
-    // First compute pass: per-frame GPU skinning into a shared skinned VB + palette owner.
-    // GBuffer's (interim) skinned VS path reads the palette from here.
+    // Returns the skinning compute pass; shadow + g-buffer query it for the per-frame skinned
+    // vertex buffer + per-entity offsets.
     SkinningComputePass* GetSkinningPass() { return m_SkinningPass.get(); }
 
     // The camera the world passes render with this frame: editor override when active, else the

@@ -8,10 +8,9 @@ class Renderer;
 struct PaletteFrame;
 class ECS;
 
-// First compute pass: each frame, GPU-skins every skinned entity's mesh vertices into a single
-// per-frame skinned vertex buffer + builds an entity->outputVertexOffset table. Runs BEFORE
-// shadow/g-buffer. Nothing consumes the output yet (g-buffer still VS-skins, shadow still static);
-// this isolates "does the first compute dispatch run cleanly". Renders must look exactly as before.
+// Skins each skinned entity's mesh once into a per-frame skinned vertex buffer (posed mesh-local,
+// MeshVertex layout) + an entity->offset table; the shadow + g-buffer passes read it via their
+// static pipelines (baseVertex per entity). The engine's first compute pass.
 //
 // Standalone (not an IRenderPass): Renderer owns it, calls Execute() once per frame on the shared
 // command list before the World pass loop, and drives DestroyGpuResources/RecreateGpuResources on
@@ -23,7 +22,6 @@ public:
     void Execute(nvrhi::ICommandList* cl, const ECS* world, const PaletteFrame* palette);
     nvrhi::IBuffer* GetSkinnedVertexBuffer() const { return m_SkinnedVB; }
     int64_t GetSkinnedVertexOffset(EntityId e) const;       // -1 if entity not skinned this frame
-    nvrhi::IBuffer* GetPaletteBuffer() const { return m_PaletteBuffer; }  // moved here from GBuffer
     void DestroyGpuResources();
     bool RecreateGpuResources(nvrhi::IDevice* device, Renderer* renderer);
 private:
