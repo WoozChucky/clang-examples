@@ -11,7 +11,10 @@
 // docs/superpowers/specs/2026-06-08-anim-statemachine-design.md.
 
 enum class AnimParamType { Float, Bool, Trigger };
-// Bool/Trigger conditions ignore `op` and test "is set" (value != 0).
+// EvalCondition always applies the numeric `op` regardless of param type (no special-casing of
+// Bool/Trigger). `Equal` does an exact float == compare with no epsilon, so it is meant for discrete
+// params only (Bool/Trigger/integer-valued Float); using it on a continuous, velocity-driven Float
+// (e.g. `speed`) will almost never fire because of floating-point noise.
 enum class AnimCondOp { Greater, Less, GreaterEqual, LessEqual, Equal };
 
 struct AnimParam     { std::string name; AnimParamType type = AnimParamType::Float; };
