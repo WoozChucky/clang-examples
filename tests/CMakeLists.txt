@@ -817,3 +817,28 @@ set_target_properties(test_skinning PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_animation
+    test_animation.cpp
+)
+
+target_link_libraries(test_animation PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+)
+
+target_include_directories(test_animation PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+target_compile_definitions(test_animation PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_animation PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
