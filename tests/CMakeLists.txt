@@ -792,3 +792,28 @@ set_target_properties(test_skeleton PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_skinning
+    test_skinning.cpp
+)
+
+target_link_libraries(test_skinning PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+)
+
+target_include_directories(test_skinning PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+target_compile_definitions(test_skinning PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_skinning PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
