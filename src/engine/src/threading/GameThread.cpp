@@ -24,6 +24,7 @@
 #include "lib.h"
 #include "AssetKey.h"
 #include "Skeleton.h"
+#include "Skinning.h"
 #include "animation/SkeletonStore.h"
 #include "InputDrain.h"
 #include "MaterialLoader.h"
@@ -392,11 +393,17 @@ void GameThread::RunLoop() {
                         meshCmd.MeshRequest.Vertices = nullptr;
                         meshCmd.MeshRequest.Indices = nullptr;
                         meshCmd.MeshRequest.SubMeshes = nullptr;
+                        meshCmd.MeshRequest.BoneData = nullptr;
 
                         if (meshCmd.MeshRequest.VertexCount > 0)
                         {
                             meshCmd.MeshRequest.Vertices = static_cast<MeshVertex*>(GetStagingPool().Acquire(meshCmd.MeshRequest.VertexCount * sizeof(MeshVertex)));
                             std::memcpy(meshCmd.MeshRequest.Vertices, res.vertices.data(), meshCmd.MeshRequest.VertexCount * sizeof(MeshVertex));
+                        }
+                        if (!res.skinning.empty() && res.skinning.size() == res.vertices.size())
+                        {
+                            meshCmd.MeshRequest.BoneData = static_cast<SkinnedVertex*>(GetStagingPool().Acquire(res.skinning.size() * sizeof(SkinnedVertex)));
+                            std::memcpy(meshCmd.MeshRequest.BoneData, res.skinning.data(), res.skinning.size() * sizeof(SkinnedVertex));
                         }
                         if (meshCmd.MeshRequest.IndexCount > 0)
                         {
@@ -415,6 +422,7 @@ void GameThread::RunLoop() {
                             if (meshCmd.MeshRequest.Vertices) GetStagingPool().Return(meshCmd.MeshRequest.Vertices);
                             if (meshCmd.MeshRequest.Indices) GetStagingPool().Return(meshCmd.MeshRequest.Indices);
                             if (meshCmd.MeshRequest.SubMeshes) GetStagingPool().Return(meshCmd.MeshRequest.SubMeshes);
+                            if (meshCmd.MeshRequest.BoneData) GetStagingPool().Return(meshCmd.MeshRequest.BoneData);
                             requeueAndStop(res, local);
                             break;
                         }
@@ -880,6 +888,7 @@ void GameThread::WorkerThreadFunc()
             //    A node whose name matches a bone becomes a Skeleton bone; parent = nearest ancestor bone.
             if (!boneInverseBind.empty()) {
                 Skeleton skel;
+                std::unordered_map<std::string,int> boneNameToIndex;
                 std::function<void(const aiNode*, int)> walk = [&](const aiNode* node, int parentBoneIdx) {
                     int myIdx = parentBoneIdx;
                     auto it = boneInverseBind.find(node->mName.C_Str());
@@ -890,6 +899,7 @@ void GameThread::WorkerThreadFunc()
                         bone.localBind   = AiToGlm(node->mTransformation);
                         bone.inverseBind = it->second;
                         myIdx = static_cast<int>(skel.bones.size());
+                        boneNameToIndex[bone.name] = myIdx;
                         skel.bones.push_back(std::move(bone));
                     }
                     for (unsigned c = 0; c < node->mNumChildren; ++c)
@@ -901,6 +911,37 @@ void GameThread::WorkerThreadFunc()
                     result.hasSkeleton = true;
                     result.skeletonKey = result.assetKey + "#skeleton";
                     SM_TRACE("Skeleton extracted: '%s' (%zu bones)", result.skeletonKey.c_str(), result.skeleton.bones.size());
+
+                    // Per-vertex weights, aligned to result.vertices. Accumulate influences in the SAME
+                    // mesh concatenation order processNode used, then reduce to top-4. Bone index = the
+                    // Skeleton's index (by name).
+                    std::vector<std::vector<std::pair<uint32_t,float>>> perVertex(result.vertices.size());
+                    uint32_t base = 0;
+                    std::function<void(const aiNode*)> collect = [&](const aiNode* node) {
+                        for (unsigned m = 0; m < node->mNumMeshes; ++m) {
+                            const aiMesh* mesh = scene->mMeshes[node->mMeshes[m]];
+                            for (unsigned bi = 0; bi < mesh->mNumBones; ++bi) {
+                                const aiBone* bone = mesh->mBones[bi];
+                                auto ni = boneNameToIndex.find(bone->mName.C_Str());
+                                if (ni == boneNameToIndex.end()) continue;
+                                const uint32_t boneIdx = static_cast<uint32_t>(ni->second);
+                                for (unsigned w = 0; w < bone->mNumWeights; ++w) {
+                                    const aiVertexWeight& vw = bone->mWeights[w];
+                                    const size_t vtx = static_cast<size_t>(base) + vw.mVertexId;
+                                    if (vtx < perVertex.size() && vw.mWeight > 0.0f)
+                                        perVertex[vtx].emplace_back(boneIdx, vw.mWeight);
+                                }
+                            }
+                            base += mesh->mNumVertices;
+                        }
+                        for (unsigned c = 0; c < node->mNumChildren; ++c) collect(node->mChildren[c]);
+                    };
+                    collect(scene->mRootNode);
+
+                    result.skinning.resize(result.vertices.size());
+                    for (size_t v = 0; v < result.vertices.size(); ++v)
+                        result.skinning[v] = MakeSkinnedVertex(std::move(perVertex[v]));
+                    SM_TRACE("Skinning extracted: %zu verts", result.skinning.size());
                 }
             }
         }

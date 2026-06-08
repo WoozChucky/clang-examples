@@ -15,6 +15,7 @@
 #include "GameLibrary.h"
 #include "Systems.h"
 #include "Skeleton.h"
+#include "Skinning.h"
 #include "GLFW/glfw3.h"
 
 class GameThread {
@@ -57,6 +58,7 @@ private:
         Skeleton    skeleton{};
         bool        hasSkeleton{false};
         std::string skeletonKey;
+        std::vector<SkinnedVertex> skinning; // per-vertex bone idx+weights, aligned to `vertices`; empty if static
     };
 
     void DrainInputToSingleton(GameState& state);

@@ -116,13 +116,15 @@ void RenderThread::RunLoop()
                         std::string(cmd.MeshRequest.Key),
                         cmd.MeshRequest.Vertices, static_cast<uint32_t>(cmd.MeshRequest.VertexCount),
                         cmd.MeshRequest.Indices, static_cast<uint32_t>(cmd.MeshRequest.IndexCount),
-                        cmd.MeshRequest.SubMeshes, static_cast<uint32_t>(cmd.MeshRequest.SubMeshCount)
+                        cmd.MeshRequest.SubMeshes, static_cast<uint32_t>(cmd.MeshRequest.SubMeshCount),
+                        cmd.MeshRequest.BoneData
                     );
 
                     // Return staging buffers to the pool
                     if (cmd.MeshRequest.Vertices) GetStagingPool().Return(cmd.MeshRequest.Vertices);
                     if (cmd.MeshRequest.Indices) GetStagingPool().Return(cmd.MeshRequest.Indices);
                     if (cmd.MeshRequest.SubMeshes) GetStagingPool().Return(cmd.MeshRequest.SubMeshes);
+                    if (cmd.MeshRequest.BoneData) GetStagingPool().Return(cmd.MeshRequest.BoneData);
 
                     RendererResponse response{};
                     response.Type = RendererResponseType::MeshUpload;
