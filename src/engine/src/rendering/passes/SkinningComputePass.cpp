@@ -21,8 +21,8 @@ struct BoneVertex { uint4 BoneIndices; float4 BoneWeights; };
 StructuredBuffer<MeshVertex>   gIn      : register(t0);
 StructuredBuffer<BoneVertex>   gBoneIn  : register(t1);
 StructuredBuffer<float4x4>     gPalette : register(t2);
-RWStructuredBuffer<MeshVertex> gOut     : register(u0);
-cbuffer Params : register(b0) { uint gPaletteOffset; uint gOutputOffset; uint gVertexCount; uint _pad; };
+RWStructuredBuffer<MeshVertex> gOut     : register(u3);
+cbuffer Params : register(b4) { uint gPaletteOffset; uint gOutputOffset; uint gVertexCount; uint _pad; };
 [numthreads(64,1,1)]
 void main_cs(uint3 tid : SV_DispatchThreadID) {
     uint i = tid.x;
@@ -63,16 +63,17 @@ bool SkinningComputePass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     if (!m_CS)
         return false;
 
-    // Binding layout: t0 in-VB SRV, t1 bone SRV, t2 palette SRV, u0 out-VB UAV, b0 volatile params CB.
-    // Compute visibility only. Vulkan flat-binding offsets line up SRV/UAV/CB families from 0.
+    // Binding layout: t0 in-VB SRV, t1 bone SRV, t2 palette SRV, u3 out-VB UAV, b4 volatile params CB.
+    // NVRHI is flat (Vulkan): t/u/b share one number space and VulkanBindingOffsets stay 0, so the
+    // HLSL register NUMBERS must be globally unique (0/1/2/3/4) — same convention as GBufferFillPass.
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::Compute;
     layoutDesc.bindings = {
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0),
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1),
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2),
-        nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0),
-        nvrhi::BindingLayoutItem::VolatileConstantBuffer(0)
+        nvrhi::BindingLayoutItem::StructuredBuffer_UAV(3),
+        nvrhi::BindingLayoutItem::VolatileConstantBuffer(4)
     };
     if (m_Device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
     {
@@ -221,8 +222,8 @@ void SkinningComputePass::Execute(nvrhi::ICommandList* cl, const ECS* world, con
             nvrhi::BindingSetItem::StructuredBuffer_SRV(0, job.inVB),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(1, job.boneVB),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(2, m_PaletteBuffer),
-            nvrhi::BindingSetItem::StructuredBuffer_UAV(0, m_SkinnedVB),
-            nvrhi::BindingSetItem::ConstantBuffer(0, m_ParamsCB)
+            nvrhi::BindingSetItem::StructuredBuffer_UAV(3, m_SkinnedVB),
+            nvrhi::BindingSetItem::ConstantBuffer(4, m_ParamsCB)
         };
         nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bsd, m_BindingLayout);
 
