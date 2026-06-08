@@ -4,6 +4,7 @@
 #include <imgui_node_editor.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cstring>
 #include <functional>
 #include <fstream>
@@ -265,12 +266,11 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
 
     const ImVec4 kActiveBorder(0.20f, 1.0f, 0.30f, 1.0f); // green = active state
 
-    // Deferred mutations from in-node widgets (apply AFTER the node loop to avoid invalidating
-    // m_Working.states while iterating / while node ids are live this frame).
-    int        renameIdx = -1; std::string renameOld, renameNew;
-    uint32_t   setEntryUid = 0;   // 0 == none (entry state at idx 0 cannot be re-set to entry)
-
     // state nodes
+    // Node bodies are DISPLAY-ONLY: no interactive widgets. imgui-node-editor applies a
+    // canvas pan/zoom transform, so any ImGui popup (BeginCombo) opened inside ed::BeginNode
+    // is positioned in canvas space and renders far off-screen. All per-state editing lives in
+    // the selected-node inspector (post-canvas, off the transformed canvas) instead.
     for (int s = 0; s < (int)m_Working.states.size(); ++s) {
         AnimState& st = m_Working.states[s];
         const uint32_t uid = m_StateUids[s];
@@ -288,42 +288,16 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
         ed::BeginNode(NodeId(uid));
         ImGui::PushID((int)uid);
 
-        if (s == 0) ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "(entry)");
+        // name (+ entry marker)
+        if (s == 0) ImGui::Text("%s (entry)", st.name.c_str());
+        else        ImGui::Text("%s", st.name.c_str());
 
-        // Name editor: a frame-local buffer re-seeded from the state name each frame.
-        // The actual rename is deferred to post-loop (renameIdx/renameOld/renameNew) so we
-        // don't mutate m_Working.states while iterating or while node ids are live this frame.
-        char nameBuf[64];
-        std::snprintf(nameBuf, sizeof(nameBuf), "%s", st.name.c_str());
-        ImGui::SetNextItemWidth(150.0f);
-        if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf),
-                             ImGuiInputTextFlags_EnterReturnsTrue)) {
-            std::string nn = nameBuf;
-            if (!nn.empty() && nn != st.name) { renameIdx = s; renameOld = st.name; renameNew = nn; }
-        }
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            std::string nn = nameBuf;
-            if (!nn.empty() && nn != st.name) { renameIdx = s; renameOld = st.name; renameNew = nn; }
-        }
+        // clip (read-only)
+        ImGui::TextDisabled("%s", st.clipKey.empty() ? "(no clip)" : st.clipKey.c_str());
 
-        // Clip dropdown.
-        ImGui::SetNextItemWidth(150.0f);
-        const char* clipLabel = st.clipKey.empty() ? "(none)" : st.clipKey.c_str();
-        if (ImGui::BeginCombo("##clip", clipLabel)) {
-            if (ImGui::Selectable("(none)", st.clipKey.empty())) { st.clipKey.clear(); MarkEdited(); }
-            for (const auto& cn : clips) {
-                const bool csel = (cn == st.clipKey);
-                if (ImGui::Selectable(cn.c_str(), csel) && cn != st.clipKey) { st.clipKey = cn; MarkEdited(); }
-                if (csel) ImGui::SetItemDefaultFocus();
-            }
-            ImGui::EndCombo();
-        }
-
-        if (ImGui::Checkbox("cyclic", &st.cyclic)) MarkEdited();
-        ImGui::SameLine();
-        if (ImGui::Checkbox("loop", &st.loop)) MarkEdited();
-
-        if (s != 0 && ImGui::SmallButton("Set as entry")) setEntryUid = uid;
+        // cyclic / loop (read-only markers)
+        if (st.cyclic || st.loop)
+            ImGui::TextDisabled("%s%s", st.cyclic ? "[cyclic] " : "", st.loop ? "[loop]" : "");
 
         if (active) ImGui::TextColored(kActiveBorder, "<- ACTIVE");
 
@@ -496,7 +470,9 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
         MarkEdited();
     }
 
-    // capture selected link (for the inspector) before End()
+    // capture selection (for the inspector) before End()
+    ed::NodeId selNodes[1];
+    const int selNodeCount = ed::GetSelectedNodes(selNodes, 1);
     ed::LinkId selLinks[1];
     const int selLinkCount = ed::GetSelectedLinks(selLinks, 1);
 
@@ -508,33 +484,8 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
 
     ImGui::EndChild(); // canvas
 
-    // --- apply deferred node-widget mutations ---
-    if (renameIdx >= 0 && renameIdx < (int)m_Working.states.size()) {
-        // move layout entry old->new, then rewrite states + transitions
-        auto it = m_Layout.nodes.find(renameOld);
-        std::array<float,2> xy = (it != m_Layout.nodes.end()) ? it->second : std::array<float,2>{0.0f, 0.0f};
-        if (it != m_Layout.nodes.end()) m_Layout.nodes.erase(it);
-        m_Layout.nodes[renameNew] = xy;
-        RenameState(m_Working, renameOld, renameNew);
-        MarkEdited();
-    }
-    if (setEntryUid != 0) {
-        // Re-resolve by uid AFTER any same-frame deletions shifted the state vectors.
-        const int setEntryIdx = StateIndexForUid(setEntryUid);
-        if (setEntryIdx > 0 && setEntryIdx < (int)m_Working.states.size()) {
-            // rotate that state to index 0; keep its uid aligned.
-            AnimState st = m_Working.states[setEntryIdx];
-            uint32_t  u  = m_StateUids[setEntryIdx];
-            m_Working.states.erase(m_Working.states.begin() + setEntryIdx);
-            m_StateUids.erase(m_StateUids.begin() + setEntryIdx);
-            m_Working.states.insert(m_Working.states.begin(), st);
-            m_StateUids.insert(m_StateUids.begin(), u);
-            MarkEdited();
-        }
-    }
-
-    // --- deferred save: runs after the canvas ed::End() (current editor already cleared above) and
-    //     after this frame's node-widget mutations, so node positions / renames are final. ---
+    // --- deferred save: runs after the canvas ed::End() (current editor already cleared above),
+    //     so node positions / renames are final. ---
     if (m_SavePending) { m_SavePending = false; SaveController(); }
 
     // --- inspector (right) ---
@@ -568,8 +519,71 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
 
     ImGui::Separator();
 
+    // --- selection inspector: a NODE takes priority over a LINK ---
+    // Decode a selected node -> state index (kAnyStateNode and stale ids resolve to no real state).
+    int selStateIdx = -1;
+    if (selNodeCount == 1) {
+        const uint32_t uid = static_cast<uint32_t>(selNodes[0].Get());
+        if (uid != kAnyStateNode) selStateIdx = StateIndexForUid(uid);
+    }
+
+    if (selStateIdx >= 0 && selStateIdx < (int)m_Working.states.size()) {
+        // --- selected-node inspector (off-canvas: combo/inputtext popups position correctly) ---
+        const int i = selStateIdx;
+        AnimState& st = m_Working.states[i];
+        ImGui::Text("Selected state%s", i == 0 ? " (entry)" : "");
+
+        // Name: frame-local buffer seeded from the state name. ImGui keeps its own edit buffer
+        // while the field is focused (reads this one only on (re)activation), so re-seeding each
+        // frame is safe and doesn't clobber in-progress typing.
+        char nameBuf[64];
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", st.name.c_str());
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf), ImGuiInputTextFlags_EnterReturnsTrue) ||
+            ImGui::IsItemDeactivatedAfterEdit()) {
+            std::string nn = nameBuf;
+            if (!nn.empty() && nn != st.name) {
+                const std::string oldName = st.name;
+                // move layout entry old->new, then rewrite states + transitions
+                auto it = m_Layout.nodes.find(oldName);
+                std::array<float,2> xy = (it != m_Layout.nodes.end()) ? it->second : std::array<float,2>{0.0f, 0.0f};
+                if (it != m_Layout.nodes.end()) m_Layout.nodes.erase(it);
+                m_Layout.nodes[nn] = xy;
+                RenameState(m_Working, oldName, nn);
+                MarkEdited();
+            }
+        }
+
+        // Clip dropdown (now outside the canvas transform).
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        const char* clipLabel = st.clipKey.empty() ? "(none)" : st.clipKey.c_str();
+        if (ImGui::BeginCombo("##clip", clipLabel)) {
+            if (ImGui::Selectable("(none)", st.clipKey.empty())) { st.clipKey.clear(); MarkEdited(); }
+            for (const auto& cn : clips) {
+                const bool csel = (cn == st.clipKey);
+                if (ImGui::Selectable(cn.c_str(), csel) && cn != st.clipKey) { st.clipKey = cn; MarkEdited(); }
+                if (csel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        if (ImGui::Checkbox("cyclic", &st.cyclic)) MarkEdited();
+        ImGui::SameLine();
+        if (ImGui::Checkbox("loop", &st.loop)) MarkEdited();
+
+        if (i != 0 && ImGui::Button("Set as entry")) {
+            // rotate state i -> index 0; keep its uid aligned in lock-step.
+            AnimState moved = m_Working.states[i];
+            uint32_t  u     = m_StateUids[i];
+            m_Working.states.erase(m_Working.states.begin() + i);
+            m_StateUids.erase(m_StateUids.begin() + i);
+            m_Working.states.insert(m_Working.states.begin(), moved);
+            m_StateUids.insert(m_StateUids.begin(), u);
+            MarkEdited();
+        }
+    }
     // Selected-transition inspector
-    if (selLinkCount == 1) {
+    else if (selLinkCount == 1) {
         const uintptr_t v = selLinks[0].Get();
         if (v >= 400000u) {
             const int ti = (int)(v - 400000u);
@@ -624,7 +638,7 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
             }
         }
     } else {
-        ImGui::TextDisabled("Select a transition to edit");
+        ImGui::TextDisabled("Select a node or transition to edit");
     }
 
     ImGui::EndChild(); // inspector
