@@ -615,7 +615,6 @@ void Renderer::EnsureSsao(uint32_t width, uint32_t height)
         td.dimension = nvrhi::TextureDimension::Texture2D; td.isShaderResource = true;
         td.isUAV = true;                   // compute-only: written via RWTexture2D UAV, read as SRV
         td.debugName = name; td.initialState = nvrhi::ResourceStates::ShaderResource; td.keepInitialState = true;
-        td.clearValue = nvrhi::Color(1.f); td.useClearValue = true;
         return m_Device->createTexture(td);
     };
     m_SsaoRaw  = mk("SSAO.Raw");
