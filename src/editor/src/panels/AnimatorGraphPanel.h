@@ -19,6 +19,11 @@ public:
     void Draw(const EditorContext& ctx, bool* open);
 private:
     void LoadController(uint64_t handle);
+    // Capture node positions -> m_Layout, serialize working copy + layout to m_SourcePath, then
+    // re-resolve clip names and live-reload the store. No-op (warns) if no controller / no path.
+    void SaveController();
+    // Discard the working copy and re-read it (graph + layout) from m_SourcePath.
+    void ReloadFromDisk();
     void RecomputeWarnings();
     // Mark the working copy edited: set dirty + re-run validation. Call after EVERY mutation.
     void MarkEdited() { m_Dirty = true; RecomputeWarnings(); }
@@ -35,6 +40,9 @@ private:
     AnimGraphLayout     m_Layout;
     bool                m_Dirty = false;
     bool                m_LayoutApplied = false;
+    // Deferred-save flag: the Save toolbar button sets this; SaveController() runs AFTER the canvas
+    // ed::End() so GetNodePosition reads this frame's final node positions.
+    bool                m_SavePending = false;
     std::vector<std::string> m_Warnings;
 
     // Stable per-state canvas identity, reordered/erased in lock-step with m_Working.states.

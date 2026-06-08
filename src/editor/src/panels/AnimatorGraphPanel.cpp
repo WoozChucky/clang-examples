@@ -114,6 +114,62 @@ void AnimatorGraphPanel::RecomputeWarnings() {
     m_Warnings = ValidateController(m_Working, resolver);
 }
 
+void AnimatorGraphPanel::SaveController() {
+    if (m_ControllerId == 0 || m_SourcePath.empty()) {
+        SM_WARN("AnimatorGraphPanel: no controller / no source path — cannot save");
+        return;
+    }
+    // 1. Capture current node positions into m_Layout (keyed by state NAME), using UID-based node ids.
+    ed::SetCurrentEditor(m_Ed);
+    for (size_t i = 0; i < m_Working.states.size(); ++i) {
+        const ImVec2 p = ed::GetNodePosition(NodeId(m_StateUids[i]));
+        m_Layout.nodes[m_Working.states[i].name] = { p.x, p.y };
+    }
+    { const ImVec2 ap = ed::GetNodePosition(NodeId(kAnyStateNode)); m_Layout.nodes["__any__"] = { ap.x, ap.y }; }
+    ed::SetCurrentEditor(nullptr);
+    // 2. Serialize graph (to_json) + merge editorLayout.
+    nlohmann::json doc = m_Working;          // to_json(AnimatorController) — emits name/params/states/transitions
+    WriteLayout(doc, m_Layout);
+    // 3. Write the source .animctrl.json.
+    std::ofstream f(m_SourcePath);
+    if (!f) { SM_WARN("AnimatorGraphPanel: failed to open '%s' for write", m_SourcePath.c_str()); return; }
+    f << doc.dump(2);
+    f.close();
+    // 4. Resolve clip names (mirror the GameThread drain) + live-reload the store.
+    AnimatorController resolved = m_Working;
+    const std::string suffix = "#animctrl";
+    const std::string assetKey = (m_ControllerKey.size() >= suffix.size())
+        ? m_ControllerKey.substr(0, m_ControllerKey.size() - suffix.size()) : m_ControllerKey;
+    resolved.stateClipIds.assign(resolved.states.size(), 0);
+    for (size_t s = 0; s < resolved.states.size(); ++s) {
+        if (resolved.states[s].clipKey.empty()) continue;
+        resolved.stateClipIds[s] = AssetKeyHash(assetKey + "#anim/" + resolved.states[s].clipKey);
+    }
+    AnimatorControllerStore::Instance().Reload(m_ControllerKey, std::move(resolved));
+    m_Dirty = false;
+    SM_TRACE("AnimatorGraphPanel: saved + reloaded '%s' -> %s", m_ControllerKey.c_str(), m_SourcePath.c_str());
+}
+
+void AnimatorGraphPanel::ReloadFromDisk() {
+    if (m_SourcePath.empty()) { SM_WARN("AnimatorGraphPanel: no source path to reload"); return; }
+    std::ifstream f(m_SourcePath);
+    if (!f) { SM_WARN("AnimatorGraphPanel: failed to open '%s'", m_SourcePath.c_str()); return; }
+    nlohmann::json doc;
+    try { f >> doc; } catch (const std::exception& ex) {
+        SM_WARN("AnimatorGraphPanel: parse '%s': %s", m_SourcePath.c_str(), ex.what()); return;
+    }
+    m_Working = doc.get<AnimatorController>();
+    m_Layout  = ReadLayout(doc);
+    // Rebuild the stable uids for the freshly-loaded states (same as LoadController does).
+    m_StateUids.assign(m_Working.states.size(), 0);
+    for (auto& u : m_StateUids) u = m_NextUid++;
+    m_ShowAnyState = false;
+    for (const auto& t : m_Working.transitions) if (t.from == "*") { m_ShowAnyState = true; break; }
+    m_LayoutApplied = false;
+    m_Dirty = false;
+    RecomputeWarnings();
+}
+
 void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
     if (!*open) return;
     if (!ImGui::Begin("Animator Graph", open)) { ImGui::End(); return; }
@@ -146,10 +202,10 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
 
     // --- toolbar ---
     ImGui::BeginDisabled(!m_Dirty);
-    if (ImGui::Button("Save")) SM_WARN("AnimatorGraphPanel: Save not implemented yet");
+    if (ImGui::Button("Save")) m_SavePending = true; // deferred: run after the canvas ed::End() so node positions are final
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("Reload from disk")) SM_WARN("AnimatorGraphPanel: Reload from disk not implemented yet");
+    if (ImGui::Button("Reload from disk")) ReloadFromDisk();
     ImGui::SameLine();
     const bool haveController = (m_ControllerId != 0);
     ImGui::BeginDisabled(!haveController);
@@ -476,6 +532,10 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
             MarkEdited();
         }
     }
+
+    // --- deferred save: runs after the canvas ed::End() (current editor already cleared above) and
+    //     after this frame's node-widget mutations, so node positions / renames are final. ---
+    if (m_SavePending) { m_SavePending = false; SaveController(); }
 
     // --- inspector (right) ---
     ImGui::SameLine();
