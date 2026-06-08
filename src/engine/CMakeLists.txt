@@ -67,6 +67,7 @@ add_library(Engine SHARED
 
     # Animation
     src/animation/SkeletonStore.cpp
+    src/animation/AnimationStore.cpp
 
     # Networking (netlib integration)
     src/network/NetSubsystem.cpp
