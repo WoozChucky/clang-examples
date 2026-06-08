@@ -105,7 +105,26 @@ bone-wiggle for visible proof. Static (non-skinned) rendering is untouched.
 - **RenderThread:** atomic-load `LatestPaletteFrame` alongside the ECS snapshot. Upload
   `frame->matrices` into a palette `StructuredBuffer` (`t6`; grow on demand; same Vulkan
   register-offset handling as `t5`). Build a transient `EntityId → offset` lookup from `ranges` for the
-  draw loop.
+  draw loop. **Skip the SB upload when the loaded frame pointer is unchanged from last frame** (cache
+  the last `shared_ptr`): the palette only changes at tick rate, so at high render FPS most frames
+  reuse the same upload + lookup.
+
+### Threading & update rate
+The palette is **produced at GameThread (fixed ~60 Hz) and consumed at RenderThread (uncapped, may be
+faster)** — the *same* producer/consumer relationship as the ECS snapshot, which is why the palette
+uses the identical atomic-`shared_ptr` publish. The RenderThread reuses the latest published
+`PaletteFrame` across all render frames until the next tick, exactly as it reuses the latest ECS
+snapshot. Consequences, all acceptable for SP2:
+- **Bind-pose (default):** palette is identity every tick → no rate effect at all.
+- **`SkinTest` wiggle:** advances per tick → steps at 60 Hz (slightly steppy above 60 FPS); fine for a
+  debug proof.
+- **Pairing:** load `LatestPaletteFrame` next to `LatestWorldSnapshot` on the RenderThread. They are
+  two independent atomics, so a ≤1-tick skew between an entity's transform (snapshot) and its palette
+  is possible; it is harmless — handled by the same graceful fallbacks (a palette `Range` for an
+  entity missing from the snapshot is simply not drawn; an entity in the snapshot with no palette
+  `Range` takes the static path). No tearing of a single matrix (each `PaletteFrame` is immutable).
+- **SP3** will add render-side interpolation between the two most recent poses to remove 60 Hz
+  stepping for real animation — out of scope here, noted in [[project_animation]].
 
 ### 3. Skinned PSO + skinning vertex shader (GBufferFillPass)
 - New inline VS `GBUF_SKINNED_VS_HLSL`: `VSIn` adds `uint4 BoneIndices:BLENDINDICES; float4
