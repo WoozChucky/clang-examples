@@ -20,6 +20,7 @@
 
 #include "passes/FxaaRenderPass.h"
 #include "passes/SmaaRenderPass.h"
+#include "passes/SkinningComputePass.h"
 
 struct GpuTimer
 {
@@ -117,6 +118,10 @@ public:
     MeshSystem* GetMeshSystem() { return &m_MeshSystem; }
     MaterialSystem* GetMaterialSystem() { return &m_MaterialSystem; }
     ApplicationContext* GetAppContext() const { return m_AppContext; }
+
+    // First compute pass: per-frame GPU skinning into a shared skinned VB + palette owner.
+    // GBuffer's (interim) skinned VS path reads the palette from here.
+    SkinningComputePass* GetSkinningPass() { return m_SkinningPass.get(); }
 
     // The camera the world passes render with this frame: editor override when active, else the
     // game's WorldCameraComponent. Resolved once at the top of Render(), before the pass loop.
@@ -236,6 +241,10 @@ private:
     // World and Overlay pass loops when FXAA is enabled.
     std::unique_ptr<FxaaRenderPass> m_FxaaPass;
     std::unique_ptr<SmaaRenderPass> m_SmaaPass;
+
+    // First compute pass. Renderer-owned (not in m_RenderPasses); Execute()d on the shared command
+    // list before the World pass loop each frame. Owns the bone palette buffer (moved from GBuffer).
+    std::unique_ptr<SkinningComputePass> m_SkinningPass;
 
     RendererBackend*            m_Backend = nullptr;
     RendererBackendSettings     m_BackendSettings{};

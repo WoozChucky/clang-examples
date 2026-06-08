@@ -16,6 +16,8 @@
 #include "passes/SsaoRenderPass.h"
 #include "passes/SkyRenderPass.h"
 #include "passes/ShadowDepthPass.h"
+#include "passes/SkinningComputePass.h"
+#include "PaletteFrame.h"
 
 #include <tracy/Tracy.hpp>
 
@@ -162,6 +164,13 @@ bool Renderer::Init(const RendererAPI api) {
         m_SmaaPass.reset(); // SMAA unavailable; AA switch falls back with a one-shot warn
     }
 
+    // First compute pass: per-frame GPU skinning. Renderer-owned; Execute()d before the pass loop.
+    m_SkinningPass = std::make_unique<SkinningComputePass>();
+    if (!m_SkinningPass->Initialize(m_Device, this)) {
+        SM_ERROR("Failed to initialize SkinningComputePass");
+        return false;
+    }
+
     Engine::Registry().Register(&m_FrameAllocator);
 
     return true;
@@ -190,6 +199,7 @@ void Renderer::Shutdown(const uint32_t timeoutMs) {
     m_RenderPasses.clear();
     if (m_FxaaPass) { m_FxaaPass->Shutdown(); m_FxaaPass.reset(); }
     if (m_SmaaPass) { m_SmaaPass->Shutdown(); m_SmaaPass.reset(); }
+    if (m_SkinningPass) { m_SkinningPass->DestroyGpuResources(); m_SkinningPass.reset(); }
 
     // Cleanup resource systems
     m_MaterialSystem.Shutdown();
@@ -333,6 +343,16 @@ float Renderer::Render(double deltaTime, float red, float green, float blue, Sim
                             active = { cam->View, cam->Projection, cam->Position };
                     }
                     m_ActiveCamera = active;
+                }
+
+                // First compute pass: GPU-skin all skinned entities into a per-frame skinned VB +
+                // upload the bone palette. Must run BEFORE the World passes (shadow/g-buffer): it
+                // owns the palette buffer that GBuffer's interim skinned VS path reads. Nothing
+                // consumes the skinned VB yet (Task 6) — this isolates the first dispatch.
+                if (m_SkinningPass) {
+                    std::shared_ptr<const PaletteFrame> palette =
+                        m_AppContext ? m_AppContext->LatestPaletteFrame.load(std::memory_order_acquire) : nullptr;
+                    m_SkinningPass->Execute(m_CommandList, world, palette.get());
                 }
 
                 // World passes -> world target (offscreen scene color when AA on, else sceneBuffer).
@@ -666,6 +686,7 @@ void Renderer::TeardownForSwap()
     m_RenderPasses.clear();
     if (m_FxaaPass) { m_FxaaPass->Shutdown(); m_FxaaPass.reset(); }
     if (m_SmaaPass) { m_SmaaPass->Shutdown(); m_SmaaPass.reset(); }
+    if (m_SkinningPass) { m_SkinningPass->DestroyGpuResources(); m_SkinningPass.reset(); }
 
     // Release GPU resources but keep CPU caches + entry slots.
     m_MaterialSystem.DestroyGpuResources();
@@ -787,6 +808,9 @@ bool Renderer::InitForSwap(RendererAPI newApi)
         SM_ERROR("InitForSwap: SmaaPass failed");
         m_SmaaPass.reset(); // SMAA unavailable; AA switch falls back with a one-shot warn
     }
+
+    m_SkinningPass = std::make_unique<SkinningComputePass>();
+    if (!m_SkinningPass->RecreateGpuResources(m_Device, this)) { SM_ERROR("InitForSwap: SkinningComputePass failed"); return false; }
 
     // Frame index reset so the first post-swap frame is treated like a warm-up
     // (Render() skips frame 0; see m_FrameIndex guard).

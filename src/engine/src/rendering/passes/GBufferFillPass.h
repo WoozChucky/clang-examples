@@ -42,7 +42,6 @@ private:
     nvrhi::GraphicsPipelineHandle m_SkinnedPipeline;
     nvrhi::InputLayoutHandle m_SkinnedInputLayout;
     nvrhi::BindingLayoutHandle m_SkinnedBindingLayout;
-    nvrhi::BufferHandle m_PaletteBuffer;
-    uint32_t m_PaletteCapacity = 0;                 // in mat4 elements
-    std::shared_ptr<const PaletteFrame> m_LastPaletteFrame; // skip re-upload when unchanged
+    // Palette buffer ownership moved to SkinningComputePass (it uploads it each frame before this
+    // pass runs); the skinned VS path samples renderer->GetSkinningPass()->GetPaletteBuffer() @ t6.
 };

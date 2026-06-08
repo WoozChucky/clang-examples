@@ -238,28 +238,16 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
     cb.VP = cam.Projection * cam.View;
     commandList->writeBuffer(m_FrameCB, &cb, sizeof(cb));
 
-    // Load the bone palette published by the GameThread skinning step, build an entity->offset
-    // lookup, and (re)upload the matrix array to the GPU StructuredBuffer when it changed.
+    // Load the bone palette published by the GameThread skinning step and build an entity->offset
+    // lookup for the (interim) skinned VS path. The palette BUFFER is now owned + uploaded by the
+    // SkinningComputePass (which runs before this pass each frame); we just sample it at t6.
     std::shared_ptr<const PaletteFrame> palette =
         m_Renderer->GetAppContext()->LatestPaletteFrame.load(std::memory_order_acquire);
     std::unordered_map<EntityId, uint32_t> paletteOffsetByEntity;
+    nvrhi::IBuffer* paletteBuffer = m_Renderer->GetSkinningPass()
+                                        ? m_Renderer->GetSkinningPass()->GetPaletteBuffer() : nullptr;
     if (palette && !palette->matrices.empty()) {
         for (const auto& rg : palette->ranges) paletteOffsetByEntity[rg.entity] = rg.offset;
-        if (palette != m_LastPaletteFrame) {
-            const uint32_t need = static_cast<uint32_t>(palette->matrices.size());
-            if (need > m_PaletteCapacity) {
-                nvrhi::BufferDesc pd;
-                pd.debugName = "GBufferFillPass PaletteBuffer";
-                pd.byteSize = sizeof(glm::mat4) * need;
-                pd.structStride = sizeof(glm::mat4);
-                pd.initialState = nvrhi::ResourceStates::CopyDest;
-                pd.keepInitialState = true;
-                m_PaletteBuffer = m_Device->createBuffer(pd);
-                m_PaletteCapacity = need;
-            }
-            commandList->writeBuffer(m_PaletteBuffer, palette->matrices.data(), sizeof(glm::mat4) * need);
-            m_LastPaletteFrame = palette;
-        }
     }
 
     const Frustum cullFrustum = ExtractFrustum(cb.VP);
@@ -335,7 +323,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(MeshSystem::MissingMesh);
         }
 
-        const bool runSkinned = meshResources.isSkinned && meshResources.boneBuffer && m_PaletteBuffer && (palette != nullptr);
+        const bool runSkinned = meshResources.isSkinned && meshResources.boneBuffer && paletteBuffer && (palette != nullptr);
 
         const uint32_t instanceCount = std::min(run.count, m_MaxInstances);
 
@@ -410,7 +398,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                     nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
                 };
                 if (runSkinned)
-                    bindingDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_PaletteBuffer));
+                    bindingDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, paletteBuffer));
                 nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(
                     bindingDesc, runSkinned ? m_SkinnedBindingLayout : m_BindingLayout);
 
@@ -451,7 +439,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
             };
             if (runSkinned)
-                bindingDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_PaletteBuffer));
+                bindingDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, paletteBuffer));
             nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(
                 bindingDesc, runSkinned ? m_SkinnedBindingLayout : m_BindingLayout);
 
@@ -503,9 +491,6 @@ void GBufferFillPass::Shutdown()
     m_SkinnedPipeline = nullptr;
     m_SkinnedInputLayout = nullptr;
     m_SkinnedBindingLayout = nullptr;
-    m_PaletteBuffer = nullptr;
-    m_PaletteCapacity = 0;
-    m_LastPaletteFrame = nullptr;
     m_Device = nullptr;
     m_Renderer = nullptr;
 }
