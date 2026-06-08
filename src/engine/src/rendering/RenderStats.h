@@ -25,7 +25,6 @@ struct DebugDrawSettings {
     bool ShowObstacles     = false;
     bool ShowNavPaths      = false;
     bool ShowSkeleton      = false;
-    bool SkinTest          = false;
     int  NavMeshClass      = 0;   // which class mesh ShowNavMesh draws (index into NavMeshConfig classes)
 };
 

@@ -575,7 +575,7 @@ void GameThread::RunLoop() {
 				ui.View = glm::mat4(1.0f);
 			});
 
-			PublishPaletteFrame(gameState);
+			PublishPaletteFrame(gameState, static_cast<float>(gameState.DeltaTime));
 			PublishSnapshot(gameState, frameStats); // publish to SnapshotRing (S -> R)
 		}
 
@@ -706,18 +706,37 @@ void GameThread::PublishSnapshot(GameState& state, const FrameTimeStats& frameSt
     m_AppContext->LatestSnapshot.store(snap);
 }
 
-void GameThread::PublishPaletteFrame(GameState& state) {
+void GameThread::PublishPaletteFrame(GameState& state, float dt) {
     auto frame = std::make_shared<PaletteFrame>();
-    const bool wiggle = GetDebugDrawSettings().SkinTest;
-    const float t = static_cast<float>(TimeNowSec());
     state.World.Each<SkeletonComponent>([&](EntityId e, const SkeletonComponent& sc) {
         const Skeleton* sk = SkeletonStore::Instance().Get(sc.SkeletonId);
         if (!sk || sk->bones.empty()) return;
-        std::vector<glm::mat4> globals = ComputeBindPoseGlobals(*sk);
-        if (wiggle && !globals.empty()) {
-            const size_t b = globals.size() - 1; // perturb the last (leaf) bone
-            globals[b] = globals[b] * glm::rotate(glm::mat4(1.0f), std::sin(t) * 0.8f, glm::vec3(0,0,1));
+
+        std::vector<glm::mat4> globals;
+        const AnimationComponent* anim = state.World.GetComponent<AnimationComponent>(e);
+        const AnimationClip* clip = (anim && anim->ClipId) ? AnimationStore::Instance().Get(anim->ClipId) : nullptr;
+        if (anim && clip) {
+            float sampleTime = anim->Time;
+            state.World.Modify<AnimationComponent>(e, [&](AnimationComponent& a) {
+                if (a.Playing && clip->duration > 0.0f) {
+                    a.Time += dt * a.Speed;
+                    if (a.Looping) {
+                        a.Time = std::fmod(a.Time, clip->duration);
+                        if (a.Time < 0.0f) a.Time += clip->duration;
+                    } else if (a.Time >= clip->duration) {
+                        a.Time = clip->duration;
+                        a.Playing = false;
+                    }
+                }
+                sampleTime = a.Time;
+            });
+            globals = SampleAnimation(*sk, *clip, sampleTime);
+        } else {
+            if (anim && anim->ClipId && !clip)
+                SM_WARN("AnimationComponent on entity %llu: clip handle %llu not in AnimationStore", (unsigned long long)e, (unsigned long long)anim->ClipId);
+            globals = ComputeBindPoseGlobals(*sk);
         }
+
         const std::vector<glm::mat4> palette = ComputeSkinningPalette(*sk, globals);
         const uint32_t offset = static_cast<uint32_t>(frame->matrices.size());
         frame->matrices.insert(frame->matrices.end(), palette.begin(), palette.end());

@@ -32,7 +32,7 @@ private:
     // Main loop helpers
     void SimulateStep(double dt);
     void PublishSnapshot(GameState& state, const FrameTimeStats& frameStats);
-    void PublishPaletteFrame(GameState& state);
+    void PublishPaletteFrame(GameState& state, float dt);
 
     // Background job system (minimal): single worker for model loading
     struct ModelLoadJob
