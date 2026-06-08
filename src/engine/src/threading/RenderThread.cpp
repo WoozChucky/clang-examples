@@ -33,6 +33,9 @@ void RenderThread::RunLoop()
 
     if (!Initialize())
     {
+        // RunLoop never starts: signal "exited / will never touch a snapshot" so the GameThread's
+        // shutdown wait (ApplicationContext::RenderThreadExited) doesn't burn its full deadline.
+        m_AppContext->RenderThreadExited.store(true, std::memory_order_release);
         return;
     }
 
@@ -232,6 +235,11 @@ void RenderThread::RunLoop()
 
         // worldSnapshot shared_ptr goes out of scope here, decrementing ref count
     }
+
+    // Loop exited: every local snapshot ref has been released. Signal the GameThread that it is now
+    // safe to drop LatestWorldSnapshot + FreeLibrary(Game.dll) — no snapshot holding Game.dll-typed
+    // component-array clones is alive on this thread anymore. (See ApplicationContext::RenderThreadExited.)
+    m_AppContext->RenderThreadExited.store(true, std::memory_order_release);
 
     Cleanup();
 }

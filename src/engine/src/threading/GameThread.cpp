@@ -655,12 +655,31 @@ void GameThread::RunLoop() {
     NetSubsystem::Instance().Shutdown();
 
     // Game-defined component arrays (e.g. LoginForm) carry vtables/code in Game.dll, so they
-    // must be destroyed before FreeLibrary — same as the reload barrier. By here the RenderThread
-    // is already stopped+joined (Application joins it before the GameThread), so the only live
-    // snapshot is LatestWorldSnapshot. Drop it (recycle runs on this thread), then clear the
-    // master's non-builtin arrays; both releases destroy the ComponentArray<GameType> objects
-    // HERE while Game.dll is still mapped. Without this, World.Clear() below — and the later
-    // LatestWorldSnapshot reset — call virtuals/dtors on those arrays after the DLL unloads → AV.
+    // must be destroyed before FreeLibrary — same as the reload barrier. We must NOT FreeLibrary
+    // while the RenderThread still holds a snapshot: a game-initiated (ESC/QuitRequested) quit
+    // breaks this loop and runs this tail CONCURRENTLY with the RenderThread (Application's
+    // join-render-first ordering only governs the app-driven path, not this one). If the
+    // RenderThread is still mid-loop holding a local snapshot, dropping LatestWorldSnapshot +
+    // FreeLibrary here lets that snapshot's recycle (decref of cloned ComponentArray<GameType>,
+    // vtable in Game.dll) run AFTER the DLL unmaps → access violation in RenderThread::RunLoop.
+    // Wait for the RenderThread to confirm it has exited + released all snapshot refs first.
+    // Best-effort (deadline) so a headless/no-render-loop config never deadlocks the shutdown.
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!m_AppContext->RenderThreadExited.load(std::memory_order_acquire)) {
+            if (std::chrono::steady_clock::now() > deadline) {
+                SM_WARN("GameThread: RenderThread did not signal exit before unload; proceeding (shutdown may be unsafe)");
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    // By here the RenderThread has exited, so the only live snapshot is LatestWorldSnapshot.
+    // Drop it (recycle runs on this thread), then clear the master's non-builtin arrays; both
+    // releases destroy the ComponentArray<GameType> objects HERE while Game.dll is still mapped.
+    // Without this, World.Clear() below — and the later LatestWorldSnapshot reset — call
+    // virtuals/dtors on those arrays after the DLL unloads → AV.
     m_AppContext->LatestWorldSnapshot.store(nullptr, std::memory_order_release);
     gameState.World.RemoveNonBuiltinComponentArrays();
 

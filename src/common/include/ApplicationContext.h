@@ -163,6 +163,15 @@ struct ApplicationContext {
     std::atomic<bool> ReloadInProgress{false};
     std::atomic<bool> RenderThreadPausedForReload{false};
 
+    // Shutdown coordination. The RenderThread sets this true once it has exited its loop and
+    // released every snapshot ref. The GameThread's shutdown tail waits for it before dropping
+    // LatestWorldSnapshot + FreeLibrary(Game.dll): a game-initiated (ESC/QuitRequested) quit lets
+    // the GameThread reach Unload concurrently with a RenderThread still holding a snapshot whose
+    // cloned game-component arrays carry Game.dll vtables — decref'ing that after FreeLibrary is an
+    // access violation. (Pure Application-driven shutdown joins render first, but the game-initiated
+    // path does not — this is the missing happens-before.)
+    std::atomic<bool> RenderThreadExited{false};
+
     // Editor scene-viewport size, packed (width<<32 | height). 0 => use the OS window size.
     // Written by the editor overlay (RenderThread) each frame; read by the GameThread for the
     // camera aspect + UI ortho. The runtime never writes it, so it keeps the full-window aspect.
