@@ -42,7 +42,7 @@
 
 namespace {
 
-// Game-owned, transient (per-tick) tag: set by AbilityRootSystem from the animator cursor, read by
+// Game-owned; added once then toggled each tick; never serialized. Set by AbilityRootSystem from the animator cursor, read by
 // PlayerMovementSystem to suppress move intent while an ability roots the player. Never persisted —
 // header-instantiable game component, no serializer (mirrors how VelocityComponent is added/Modified,
 // minus the SerializerRegistry registration since it never round-trips to world.json).
@@ -441,11 +441,23 @@ public:
             const auto* a = ctx.world.GetComponent<AnimatorComponent>(e);
             if (!a) return;
             bool rooted = false;
+            bool inAttack = false;
             if (ctx.Anim && ctx.Anim->QueryStateCursor && a->ControllerId) {
                 char name[64];
                 const float norm = ctx.Anim->QueryStateCursor(a->ControllerId, a->CurrentState,
                                                                a->StateTime, a->Phase, name, (int)sizeof(name));
-                if (norm >= 0.0f) rooted = ShouldRootMovement(name, norm);
+                if (norm >= 0.0f) {
+                    rooted   = ShouldRootMovement(name, norm);
+                    inAttack = (std::string(name) == "Attack");
+                }
+            }
+            // While in the one-shot Attack state, clear the `attack` Trigger so a mid-attack click is
+            // dropped rather than queued (which would auto-fire a second attack after Attack->Idle).
+            if (inAttack) {
+                const uint64_t attackKey = AssetKeyHash("attack");
+                ctx.world.Modify<AnimatorComponent>(e, [&](AnimatorComponent& am){
+                    for (auto& pr : am.Params) if (pr.first == attackKey) { pr.second = 0.0f; return; }
+                });
             }
             if (!ctx.world.HasComponent<MovementLockedComponent>(e))
                 ctx.world.AddComponent(e, MovementLockedComponent{});
