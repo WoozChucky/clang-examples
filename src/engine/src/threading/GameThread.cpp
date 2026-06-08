@@ -878,6 +878,11 @@ void GameThread::WorkerThreadFunc()
 
                     if (material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS) {
                         std::string fullTexPath = std::string(texPath.C_Str());
+                        {
+                            std::filesystem::path tp(fullTexPath);
+                            if (tp.is_relative() && !job.mtlBaseDir.empty())
+                                fullTexPath = (std::filesystem::path(job.mtlBaseDir) / tp).string();
+                        }
 
                         std::vector<uint32_t> pixels;
                         uint32_t width = 0;
