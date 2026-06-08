@@ -1,0 +1,15 @@
+{
+  "name": "Fox",
+  "params": [ { "name": "speed", "type": "Float" } ],
+  "states": [
+    { "name": "Idle", "clipKey": "Survey", "cyclic": false, "loop": true },
+    { "name": "Walk", "clipKey": "Walk",   "cyclic": true  },
+    { "name": "Run",  "clipKey": "Run",    "cyclic": true  }
+  ],
+  "transitions": [
+    { "from": "Idle", "to": "Walk", "duration": 0.2, "conditions": [ { "paramName": "speed", "op": "Greater",   "value": 0.1 } ] },
+    { "from": "Walk", "to": "Run",  "duration": 0.2, "conditions": [ { "paramName": "speed", "op": "Greater",   "value": 4.0 } ] },
+    { "from": "Run",  "to": "Walk", "duration": 0.2, "conditions": [ { "paramName": "speed", "op": "LessEqual", "value": 4.0 } ] },
+    { "from": "Walk", "to": "Idle", "duration": 0.2, "conditions": [ { "paramName": "speed", "op": "LessEqual", "value": 0.1 } ] }
+  ]
+}
