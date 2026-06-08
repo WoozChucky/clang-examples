@@ -406,7 +406,7 @@ void GameThread::RunLoop() {
                                 SM_WARN("Animator '%s' state '%s': clip '%s' not found in AnimationStore",
                                         res.assetKey.c_str(), ctrl.states[s].name.c_str(), clipKey.c_str());
                         }
-                        AnimatorControllerStore::Instance().Add(res.assetKey + "#animctrl", std::move(ctrl));
+                        AnimatorControllerStore::Instance().Add(res.assetKey + "#animctrl", std::move(ctrl), res.controllerSourcePath);
                     }
 
                     if (!res.MeshUploaded)
@@ -825,7 +825,7 @@ void GameThread::PublishPaletteFrame(GameState& state, float dt) {
 
         std::vector<glm::mat4> globals;
         const AnimatorComponent* animator = state.World.GetComponent<AnimatorComponent>(e);
-        const AnimatorController* ctrl =
+        std::shared_ptr<const AnimatorController> ctrl =
             (animator && animator->ControllerId) ? AnimatorControllerStore::Instance().Get(animator->ControllerId) : nullptr;
         if (animator && animator->ControllerId && !ctrl)
             SM_WARN("AnimatorComponent on entity %llu: controller %llu not in store",
@@ -1182,6 +1182,7 @@ void GameThread::WorkerThreadFunc()
                     nlohmann::json j; f >> j;
                     result.controller = j.get<AnimatorController>();
                     result.hasController = true;
+                    result.controllerSourcePath = ctrlPath.string();
                     SM_TRACE("Animator controller loaded: '%s' (%zu states, %zu transitions)",
                              ctrlPath.string().c_str(), result.controller.states.size(),
                              result.controller.transitions.size());

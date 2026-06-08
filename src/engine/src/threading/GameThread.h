@@ -65,6 +65,7 @@ private:
         std::vector<AnimationClip> clips; // animation clips extracted from the scene (skeleton-bone-indexed)
         bool                hasController = false;
         AnimatorController  controller;        // clipKey = bare names; stateClipIds resolved at drain time
+        std::string         controllerSourcePath; // .animctrl.json the controller was loaded from
     };
 
     void DrainInputToSingleton(GameState& state);

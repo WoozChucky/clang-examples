@@ -36,7 +36,7 @@ void AnimatorEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
                 // Fresh start: seed params from the controller's declarations + reset the runtime cursor
                 // (so the new controller enters at its default state rather than a stale index).
                 m_St.edit.Params.clear();
-                if (const auto* c = AnimatorControllerStore::Instance().Get(handle))
+                if (std::shared_ptr<const AnimatorController> c = AnimatorControllerStore::Instance().Get(handle))
                     for (const auto& p : c->params) m_St.edit.Params.emplace_back(AssetKeyHash(p.name), 0.0f);
                 m_St.edit.CurrentState = -1; m_St.edit.FromState = -1;
                 m_St.edit.TransitionElapsed = 0.0f; m_St.edit.Phase = 0.0f; m_St.edit.StateTime = 0.0f;
@@ -49,7 +49,7 @@ void AnimatorEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
     }
 
     // Live debug readout (from the live component, not the edit copy).
-    const AnimatorController* c = AnimatorControllerStore::Instance().Get(live->ControllerId);
+    std::shared_ptr<const AnimatorController> c = AnimatorControllerStore::Instance().Get(live->ControllerId);
     if (c) {
         auto stateName = [&](int s){ return (s >= 0 && s < (int)c->states.size()) ? c->states[s].name.c_str() : "-"; };
         ImGui::SeparatorText("Runtime");
