@@ -37,10 +37,10 @@ void main_cs(uint3 tid : SV_DispatchThreadID) {
     uint2 px = tid.xy;
     if (px.x >= (uint)uRtSize.x || px.y >= (uint)uRtSize.y) return;
     float2 uv = (float2(px) + 0.5) * uRtSize.zw;
-    float3 N = uNormal.Sample(uPt, uv).xyz;
+    float3 N = uNormal.SampleLevel(uPt, uv, 0).xyz;
     if (dot(N,N) < 0.5) { uOut[px] = 1.0; return; }
     N = normalize(N);
-    float3 P = uWorldPos.Sample(uPt, uv).xyz;
+    float3 P = uWorldPos.SampleLevel(uPt, uv, 0).xyz;
     float2 fpx  = floor(uv * uRtSize.xy);
     float2 cell = fmod(fpx, 4.0);
     float  idx  = cell.y * 4.0 + cell.x;
@@ -58,7 +58,7 @@ void main_cs(uint3 tid : SV_DispatchThreadID) {
         float3 ndc = clip.xyz/clip.w;
         float2 uvs = ndc.xy*0.5+0.5; uvs.y = 1-uvs.y;
         if (any(uvs<0)||any(uvs>1)) continue;
-        float3 Pocc = uWorldPos.Sample(uPt, uvs).xyz;
+        float3 Pocc = uWorldPos.SampleLevel(uPt, uvs, 0).xyz;
         float occZ = mul(uView, float4(Pocc,1)).z;
         float sZ   = mul(uView, float4(sp,1)).z;
         float range = saturate(1.0 - length(Pocc - P)/radius);
