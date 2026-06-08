@@ -789,7 +789,10 @@ static std::vector<glm::mat4> EvaluateAnimator(const Skeleton& sk, const Animato
     // Transition selection (only when not already transitioning).
     // No transition is re-selected mid-crossfade (gate: not already transitioning). Fast input or an anyState trigger is therefore deferred until the active crossfade completes. Interrupt support (re-snapshot the live blended pose) is a future improvement.
     if (a.FromState < 0) {
-        const int ti = SelectTransition(c, a.CurrentState, paramLookup);
+        const float curNorm = (a.CurrentState >= 0 && a.CurrentState < (int)c.states.size() && curClip)
+            ? NormalizedStateTime(c.states[a.CurrentState], a.StateTime, a.Phase, curClip->duration)
+            : 0.0f;
+        const int ti = SelectTransition(c, a.CurrentState, paramLookup, curNorm);
         if (ti >= 0) {
             const AnimTransition& tr = c.transitions[ti];
             const int toState = FindState(c, tr.to);
