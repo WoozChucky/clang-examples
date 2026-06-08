@@ -215,6 +215,9 @@ struct AnimationComponent {
     float    Speed   = 1.0f;
     bool     Looping = true;
     bool     Playing = false;
+    uint64_t ClipB       = 0;     // second clip for blending; 0 = no blend (pure ClipId)
+    float    TimeB       = 0.0f;  // B cursor
+    float    BlendWeight = 0.0f;  // 0 = A, 1 = B
 };
 
 // Scopes an entity to one or more game states (bit i = game state index i; 0 = always-on).

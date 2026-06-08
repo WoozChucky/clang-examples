@@ -256,6 +256,22 @@ static void T14_animation_roundtrip()
     EXPECT(def.ClipId == 0ull && def.Looping == true && def.Playing == false);
 }
 
+static void T15_animation_blend_roundtrip()
+{
+    AnimationComponent in; in.ClipId=0xAA; in.Time=0.5f; in.Speed=1.5f; in.Looping=false; in.Playing=true;
+    in.ClipB=0xBB; in.TimeB=0.25f; in.BlendWeight=0.7f;
+    const nlohmann::json j = in;
+    const auto out = j.get<AnimationComponent>();
+    EXPECT(out.ClipB == in.ClipB);
+    EXPECT(out.TimeB == in.TimeB);
+    EXPECT(out.BlendWeight == in.BlendWeight);
+
+    // Backward-compat: an OLD-shape json (no blend fields) must load with blend defaults, not throw.
+    nlohmann::json old = { {"ClipId", 5u}, {"Time", 1.0f}, {"Speed", 1.0f}, {"Looping", true}, {"Playing", false} };
+    const auto migrated = old.get<AnimationComponent>();
+    EXPECT(migrated.ClipId == 5u && migrated.ClipB == 0ull && migrated.BlendWeight == 0.0f);
+}
+
 static void T12_name_roundtrip()
 {
     NameComponent in;
@@ -414,6 +430,7 @@ int main()
     T12_asset_key_roundtrip();
     T13_skeleton_roundtrip();
     T14_animation_roundtrip();
+    T15_animation_blend_roundtrip();
     T12_name_roundtrip();
     Test_Navigation();
     T_navcfg_multiclass_roundtrip();
