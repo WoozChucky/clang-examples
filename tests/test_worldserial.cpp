@@ -241,6 +241,21 @@ static void T13_skeleton_roundtrip()
     EXPECT(def.SkeletonId == 0ull);
 }
 
+static void T14_animation_roundtrip()
+{
+    AnimationComponent in; in.ClipId = 0x00CAFE0042u; in.Time = 1.25f; in.Speed = 2.0f; in.Looping = false; in.Playing = true;
+    const nlohmann::json j = in;
+    const auto out = j.get<AnimationComponent>();
+    EXPECT(out.ClipId == in.ClipId);
+    EXPECT(out.Time == in.Time);
+    EXPECT(out.Speed == in.Speed);
+    EXPECT(out.Looping == in.Looping);
+    EXPECT(out.Playing == in.Playing);
+
+    AnimationComponent def;
+    EXPECT(def.ClipId == 0ull && def.Looping == true && def.Playing == false);
+}
+
 static void T12_name_roundtrip()
 {
     NameComponent in;
@@ -398,6 +413,7 @@ int main()
     T11_collider_backward_compatible_defaults();
     T12_asset_key_roundtrip();
     T13_skeleton_roundtrip();
+    T14_animation_roundtrip();
     T12_name_roundtrip();
     Test_Navigation();
     T_navcfg_multiclass_roundtrip();

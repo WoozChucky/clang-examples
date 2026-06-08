@@ -112,6 +112,17 @@ inline void from_json(const nlohmann::json& j, SkeletonComponent& t) {
     j.at("SkeletonId").get_to(t.SkeletonId);
 }
 
+inline void to_json(nlohmann::json& j, const AnimationComponent& t) {
+    j = nlohmann::json{ {"ClipId", t.ClipId}, {"Time", t.Time}, {"Speed", t.Speed}, {"Looping", t.Looping}, {"Playing", t.Playing} };
+}
+inline void from_json(const nlohmann::json& j, AnimationComponent& t) {
+    j.at("ClipId").get_to(t.ClipId);
+    j.at("Time").get_to(t.Time);
+    j.at("Speed").get_to(t.Speed);
+    j.at("Looping").get_to(t.Looping);
+    j.at("Playing").get_to(t.Playing);
+}
+
 inline void to_json(nlohmann::json& j, const StateScopeComponent& t) {
     j = nlohmann::json{{"StateMask", t.StateMask}};
 }

@@ -24,6 +24,7 @@ ComponentSerializerRegistry& SerializerRegistry() {
         r.Register<NavClassComponent>("NavClassComponent", true);
         r.Register<NameComponent>("NameComponent", true);
         r.Register<SkeletonComponent>("SkeletonComponent", true);
+        r.Register<AnimationComponent>("AnimationComponent", true);
         return r;
     }();
     return reg;

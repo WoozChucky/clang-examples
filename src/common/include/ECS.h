@@ -207,6 +207,16 @@ struct SkeletonComponent {
     uint64_t SkeletonId = 0;
 };
 
+// Plays an AnimationClip (in AnimationStore) on a skinned entity. Engine builtin: the engine advances
+// Time + samples in the GameThread skinning step; the game sets ClipId/Playing/Speed to drive it.
+struct AnimationComponent {
+    uint64_t ClipId  = 0;     // AnimationStore handle (stable hash); 0 = none
+    float    Time    = 0.0f;  // playback cursor, seconds
+    float    Speed   = 1.0f;
+    bool     Looping = true;
+    bool     Playing = false;
+};
+
 // Scopes an entity to one or more game states (bit i = game state index i; 0 = always-on).
 // The UI renderer + menu interaction only act on entities whose scope allows the current state.
 struct StateScopeComponent {
@@ -407,7 +417,8 @@ struct NavClassComponent { uint8_t ClassId = 0; };
     X(NavConstrainedComponent) \
     X(NavClassComponent) \
     X(NameComponent) \
-    X(SkeletonComponent)
+    X(SkeletonComponent) \
+    X(AnimationComponent)
 
 // #############################################################################
 //                           Component Storage (Type-erased container)
