@@ -121,6 +121,16 @@ MeshHandle MeshSystem::AddMesh(std::string key,
     vbDesc.byteSize = sizeof(MeshVertex) * vertexCount;
     vbDesc.isVertexBuffer = true;
     vbDesc.initialState = nvrhi::ResourceStates::CopyDest;
+    if (entry.isSkinned)
+    {
+        // Skinned VB is dual-usage: a vertex buffer for the old VS-skinning path AND a
+        // StructuredBuffer<MeshVertex> SRV input for the compute-skinning pass. structStride
+        // enables the structured SRV; keepInitialState (not setPermanentBufferState) leaves it
+        // trackable so NVRHI auto-transitions VertexBuffer<->ShaderResource as each consumer
+        // requires (setGraphicsState requires VertexBuffer; compute will require ShaderResource).
+        vbDesc.structStride = sizeof(MeshVertex);
+        vbDesc.keepInitialState = true;
+    }
     entry.vertexBuffer = m_Device->createBuffer(vbDesc);
 
     if (!entry.vertexBuffer)
@@ -132,7 +142,12 @@ MeshHandle MeshSystem::AddMesh(std::string key,
 
     cl->beginTrackingBufferState(entry.vertexBuffer, nvrhi::ResourceStates::CopyDest);
     cl->writeBuffer(entry.vertexBuffer, vertices, vbDesc.byteSize);
-    cl->setPermanentBufferState(entry.vertexBuffer, nvrhi::ResourceStates::VertexBuffer);
+    if (!entry.isSkinned)
+    {
+        // Static VB: state never changes -> lock it permanent (cheapest, no per-frame tracking).
+        cl->setPermanentBufferState(entry.vertexBuffer, nvrhi::ResourceStates::VertexBuffer);
+    }
+    // Skinned VB stays tracked (keepInitialState) so it can flip to ShaderResource for compute.
 
     // Create and upload index buffer
     nvrhi::BufferDesc ibDesc;
@@ -159,6 +174,10 @@ MeshHandle MeshSystem::AddMesh(std::string key,
         bbDesc.byteSize = sizeof(SkinnedVertex) * vertexCount;
         bbDesc.isVertexBuffer = true;
         bbDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        // Dual-usage like the skinned VB above: slot-1 vertex buffer (old VS path) AND
+        // StructuredBuffer<SkinnedVertex> SRV (compute path). Trackable, not permanent.
+        bbDesc.structStride = sizeof(SkinnedVertex);
+        bbDesc.keepInitialState = true;
         entry.boneBuffer = m_Device->createBuffer(bbDesc);
         if (!entry.boneBuffer) {
             SM_ERROR("MeshSystem::AddMesh: Failed to create bone buffer");
@@ -167,7 +186,7 @@ MeshHandle MeshSystem::AddMesh(std::string key,
         }
         cl->beginTrackingBufferState(entry.boneBuffer, nvrhi::ResourceStates::CopyDest);
         cl->writeBuffer(entry.boneBuffer, entry.cpuSkinning.data(), bbDesc.byteSize);
-        cl->setPermanentBufferState(entry.boneBuffer, nvrhi::ResourceStates::VertexBuffer);
+        // No setPermanentBufferState: stays tracked so it can transition VertexBuffer<->ShaderResource.
     }
 
     // Execute upload commands
@@ -330,6 +349,13 @@ bool MeshSystem::RecreateGpuResources()
         vbDesc.byteSize = sizeof(MeshVertex) * entry.cpuVertices.size();
         vbDesc.isVertexBuffer = true;
         vbDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        if (entry.isSkinned)
+        {
+            // Mirror AddMesh: skinned VB is dual-usage (vertex buffer + StructuredBuffer SRV),
+            // trackable rather than permanent so it can flip to ShaderResource for compute.
+            vbDesc.structStride = sizeof(MeshVertex);
+            vbDesc.keepInitialState = true;
+        }
         entry.vertexBuffer = m_Device->createBuffer(vbDesc);
         if (!entry.vertexBuffer)
         {
@@ -340,7 +366,8 @@ bool MeshSystem::RecreateGpuResources()
         }
         cl->beginTrackingBufferState(entry.vertexBuffer, nvrhi::ResourceStates::CopyDest);
         cl->writeBuffer(entry.vertexBuffer, entry.cpuVertices.data(), vbDesc.byteSize);
-        cl->setPermanentBufferState(entry.vertexBuffer, nvrhi::ResourceStates::VertexBuffer);
+        if (!entry.isSkinned)
+            cl->setPermanentBufferState(entry.vertexBuffer, nvrhi::ResourceStates::VertexBuffer);
 
         nvrhi::BufferDesc ibDesc;
         ibDesc.debugName = "MeshSystem IB " + std::to_string(i);
@@ -366,11 +393,14 @@ bool MeshSystem::RecreateGpuResources()
             bbDesc.byteSize = sizeof(SkinnedVertex) * entry.cpuSkinning.size();
             bbDesc.isVertexBuffer = true;
             bbDesc.initialState = nvrhi::ResourceStates::CopyDest;
+            // Mirror AddMesh: dual-usage (vertex buffer + StructuredBuffer SRV), trackable.
+            bbDesc.structStride = sizeof(SkinnedVertex);
+            bbDesc.keepInitialState = true;
             entry.boneBuffer = m_Device->createBuffer(bbDesc);
             if (entry.boneBuffer) {
                 cl->beginTrackingBufferState(entry.boneBuffer, nvrhi::ResourceStates::CopyDest);
                 cl->writeBuffer(entry.boneBuffer, entry.cpuSkinning.data(), bbDesc.byteSize);
-                cl->setPermanentBufferState(entry.boneBuffer, nvrhi::ResourceStates::VertexBuffer);
+                // No setPermanentBufferState: stays tracked for VertexBuffer<->ShaderResource.
             }
         }
 
