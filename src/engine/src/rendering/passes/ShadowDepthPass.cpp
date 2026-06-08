@@ -161,8 +161,14 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
     commandList->clearDepthStencilTexture(shadowFb->getDesc().depthAttachment.texture,
                                           nvrhi::AllSubresources, true, 1.0f, false, 0);
 
+    // Skinned entities cast deformed shadows: bind the per-frame compute-skinned VB (posed
+    // mesh-local vertices) at the entity's offset instead of the static bind-pose VB. The
+    // mesh's index buffer is unchanged; baseVertex (startVertexLocation) shifts each index
+    // into the entity's range within the shared skinned VB. The Model CB is still applied.
+    SkinningComputePass* skinningPass = m_Renderer->GetSkinningPass();
+
     world->Each<TransformComponent, MeshComponent>(
-        [&](EntityId, const TransformComponent& t, const MeshComponent& m)
+        [&](EntityId e, const TransformComponent& t, const MeshComponent& m)
         {
             if (!m.Visible)
                 return;
@@ -171,6 +177,11 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
             const auto res = ms->GetMeshResources(m.MeshId);
             if (!res.valid)
                 return;
+
+            const int64_t skinnedOff = skinningPass ? skinningPass->GetSkinnedVertexOffset(e) : -1;
+            const bool useSkinned = (skinnedOff >= 0) && skinningPass->GetSkinnedVertexBuffer();
+            nvrhi::IBuffer* vb = useSkinned ? skinningPass->GetSkinnedVertexBuffer() : res.vertexBuffer.Get();
+            const uint32_t baseVertex = useSkinned ? (uint32_t)skinnedOff : 0;
 
             ShadowCB cb{};
             cb.LightVP = lightVP;
@@ -182,7 +193,7 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
             state.framebuffer = shadowFb;
             state.viewport.addViewportAndScissorRect(shadowFb->getFramebufferInfo().getViewport());
             state.bindings = { m_BindingSet };
-            state.vertexBuffers = { nvrhi::VertexBufferBinding(res.vertexBuffer, 0, 0) };
+            state.vertexBuffers = { nvrhi::VertexBufferBinding(vb, 0, 0) };
             state.indexBuffer = nvrhi::IndexBufferBinding(res.indexBuffer, nvrhi::Format::R32_UINT, 0);
             commandList->setGraphicsState(state);
 
@@ -194,6 +205,7 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
                     a.vertexCount = sm.IndexCount;
                     a.instanceCount = 1;
                     a.startIndexLocation = sm.IndexStart;
+                    a.startVertexLocation = baseVertex;
                     commandList->drawIndexed(a);
                 }
             }
@@ -202,6 +214,7 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
                 nvrhi::DrawArguments a{};
                 a.vertexCount = res.indexCount;
                 a.instanceCount = 1;
+                a.startVertexLocation = baseVertex;
                 commandList->drawIndexed(a);
             }
         });
