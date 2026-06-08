@@ -892,3 +892,25 @@ set_target_properties(test_animator PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_animgraph
+    test_animgraph.cpp
+)
+target_link_libraries(test_animgraph PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+)
+target_include_directories(test_animgraph PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/editor/src/panels
+)
+target_compile_definitions(test_animgraph PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+set_target_properties(test_animgraph PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)

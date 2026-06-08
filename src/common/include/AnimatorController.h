@@ -90,6 +90,43 @@ inline int FindState(const AnimatorController& c, const std::string& name) {
     return -1;
 }
 
+// Rename a state and rewrite every transition referencing it (from/to). anyState ("*") is left alone.
+inline void RenameState(AnimatorController& c, const std::string& oldName, const std::string& newName) {
+    for (auto& s : c.states) if (s.name == oldName) s.name = newName;
+    for (auto& t : c.transitions) {
+        if (t.from == oldName) t.from = newName;
+        if (t.to   == oldName) t.to   = newName;
+    }
+}
+
+// Returns human-readable validation warnings (empty = clean). `clipResolves(stateIndex)` answers
+// whether a state's clip handle is present in the AnimationStore (passed in so this stays engine-free;
+// default = unchecked).
+inline std::vector<std::string> ValidateController(
+        const AnimatorController& c,
+        const std::function<bool(size_t)>& clipResolves = {}) {
+    std::vector<std::string> w;
+    if (c.states.empty()) w.push_back("Controller has no states.");
+    for (size_t i = 0; i < c.states.size(); ++i)
+        for (size_t j = i + 1; j < c.states.size(); ++j)
+            if (c.states[i].name == c.states[j].name)
+                w.push_back("Duplicate state name: " + c.states[i].name);
+    for (const auto& t : c.transitions) {
+        if (t.from != "*" && FindState(c, t.from) < 0) w.push_back("Transition from unknown state: " + t.from);
+        if (FindState(c, t.to) < 0)                    w.push_back("Transition to unknown state: " + t.to);
+        for (const auto& cond : t.conditions) {
+            bool declared = false;
+            for (const auto& p : c.params) if (p.name == cond.paramName) { declared = true; break; }
+            if (!declared) w.push_back("Condition uses undeclared param: " + cond.paramName);
+        }
+    }
+    if (clipResolves)
+        for (size_t s = 0; s < c.states.size(); ++s)
+            if (!c.states[s].clipKey.empty() && !clipResolves(s))
+                w.push_back("State '" + c.states[s].name + "' clip does not resolve: " + c.states[s].clipKey);
+    return w;
+}
+
 // --- JSON (de)serialization ---
 
 NLOHMANN_JSON_SERIALIZE_ENUM(AnimParamType, {
