@@ -223,6 +223,9 @@ ShaderBlob CompileGlsl(std::string_view sourceCode,
         else if (std::string(targetName) == "ps_6_1") {
             cmd += " -S frag";
         }
+        else if (std::string(targetName) == "cs_6_1") {
+            cmd += " -S comp";
+        }
     }
     if(entryPoint && std::strlen(entryPoint) > 0) {
         cmd += " -e " + std::string(entryPoint);
