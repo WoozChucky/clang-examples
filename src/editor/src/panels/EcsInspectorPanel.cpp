@@ -16,6 +16,7 @@
 #include "inspector/MeshEditor.h"
 #include "inspector/SkeletonEditor.h"
 #include "inspector/AnimationEditor.h"
+#include "inspector/AnimatorEditor.h"
 #include "inspector/MaterialEditor.h"
 #include "inspector/TextEditor.h"
 #include "inspector/SunMarkerEditor.h"
@@ -36,6 +37,7 @@ EcsInspectorPanel::EcsInspectorPanel() {
     m_Editors.push_back(std::make_unique<MeshEditor>());
     m_Editors.push_back(std::make_unique<SkeletonEditor>());
     m_Editors.push_back(std::make_unique<AnimationEditor>());
+    m_Editors.push_back(std::make_unique<AnimatorEditor>());
     m_Editors.push_back(std::make_unique<MaterialEditor>());
     m_Editors.push_back(std::make_unique<TextEditor>());
     m_Editors.push_back(std::make_unique<SunMarkerEditor>());
