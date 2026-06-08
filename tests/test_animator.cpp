@@ -113,6 +113,44 @@ static void T_state_loop_default_and_json() {
     EXPECT(jhit.get<AnimState>().loop == false);
 }
 
+static void T_exit_time() {
+    AnimatorController c;
+    c.params = { {"attack", AnimParamType::Trigger} };
+    c.states = { {"Idle","Survey",false,true}, {"Attack","Survey",false,false} };
+    c.transitions = {
+        {"*","Attack",0.1f,{{"attack",AnimCondOp::Greater,0.0f}}},   // anyState trigger (index 0)
+        {"Attack","Idle",0.15f,{}},                                  // index 1 — exit-time
+    };
+    c.transitions[1].hasExitTime = true;
+    c.transitions[1].exitTime    = 1.0f;
+    const int attack = FindState(c, "Attack");
+    auto noParams = [](const std::string&){ return 0.0f; };
+    EXPECT(SelectTransition(c, attack, noParams, 0.5f) == -1);   // below exitTime
+    EXPECT(SelectTransition(c, attack, noParams, 1.0f) == 1);    // at exitTime
+    EXPECT(SelectTransition(c, attack, noParams, 1.5f) == 1);    // past
+    AnimatorController c2 = c;
+    c2.transitions[0].hasExitTime = true; c2.transitions[0].exitTime = 1.0f; // anyState ignores exit-time
+    auto attackSet = [](const std::string& n){ return n=="attack"?1.0f:0.0f; };
+    EXPECT(SelectTransition(c2, FindState(c2,"Idle"), attackSet, 0.0f) == 0);
+    AnimatorController c3;
+    c3.params = { {"go", AnimParamType::Float} };
+    c3.states = { {"A","x",false,false}, {"B","x",false,true} };
+    c3.transitions = { {"A","B",0.2f,{{"go",AnimCondOp::Greater,0.5f}}} };
+    c3.transitions[0].hasExitTime = true; c3.transitions[0].exitTime = 0.8f;
+    auto go = [](const std::string& n){ return n=="go"?1.0f:0.0f; };
+    EXPECT(SelectTransition(c3, 0, go, 0.5f) == -1);   // cond holds but before exitTime
+    EXPECT(SelectTransition(c3, 0, [](const std::string&){return 0.0f;}, 0.9f) == -1); // past exitTime, cond fails
+    EXPECT(SelectTransition(c3, 0, go, 0.9f) == 0);    // both
+}
+static void T_normalized_state_time() {
+    AnimState noncyc{"A","x",false,true};
+    AnimState cyc{"B","x",true,true};
+    EXPECT(nearf(NormalizedStateTime(noncyc, 0.5f, 0.0f, 2.0f), 0.25f));
+    EXPECT(nearf(NormalizedStateTime(noncyc, 5.0f, 0.0f, 2.0f), 1.0f));   // clamped
+    EXPECT(nearf(NormalizedStateTime(cyc,    0.0f, 0.3f, 2.0f), 0.3f));   // cyclic uses phase
+    EXPECT(nearf(NormalizedStateTime(noncyc, 1.0f, 0.0f, 0.0f), 0.0f));   // 0-duration guard
+}
+
 int main() {
     T_eval_condition();
     T_state_loop_default_and_json();
@@ -122,6 +160,8 @@ int main() {
     T_select_empty_conditions();
     T_phase_math();
     T_json_roundtrip();
+    T_exit_time();
+    T_normalized_state_time();
     if (g_Failures) { std::fprintf(stderr, "test_animator: %d FAILURES\n", g_Failures); return 1; }
     std::printf("All animator tests passed.\n");
     return 0;

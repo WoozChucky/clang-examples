@@ -1,9 +1,11 @@
 #include <cstdio>
+#include <cmath>
 #include "AnimatorController.h"
 #include "AnimatorGraphLayout.h"
 
 static int g_Failures = 0;
 #define EXPECT(c) do{ if(!(c)){ std::fprintf(stderr,"FAIL %s:%d: %s\n",__FILE__,__LINE__,#c); ++g_Failures; } }while(0)
+static bool nearf(float a, float b) { return std::fabs(a-b) < 1e-4f; }
 
 static AnimatorController Loco() {
     AnimatorController c; c.name = "Loco";
@@ -26,6 +28,16 @@ static void T_tojson_roundtrip() {
     EXPECT(r.states[1].cyclic && r.states[0].loop);
     EXPECT(r.transitions[2].from == "*" && r.transitions[2].to == "Idle");
     EXPECT(!j.contains("stateClipIds"));
+}
+
+static void T_exit_time_json() {
+    AnimatorController c = Loco();
+    c.transitions[0].hasExitTime = true; c.transitions[0].exitTime = 0.75f;
+    nlohmann::json j = c; AnimatorController r = j.get<AnimatorController>();
+    EXPECT(r.transitions[0].hasExitTime == true && nearf(r.transitions[0].exitTime, 0.75f));
+    nlohmann::json jt = { {"from","A"}, {"to","B"}, {"duration",0.2} };
+    AnimTransition dt = jt.get<AnimTransition>();
+    EXPECT(dt.hasExitTime == false && nearf(dt.exitTime, 1.0f));   // defaults when keys absent
 }
 
 static void T_rename_rewrites_transitions() {
@@ -67,6 +79,7 @@ static void T_layout_roundtrip() {
 
 int main() {
     T_tojson_roundtrip();
+    T_exit_time_json();
     T_rename_rewrites_transitions();
     T_validate();
     T_layout_roundtrip();

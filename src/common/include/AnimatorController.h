@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstdint>
 #include <cmath>
+#include <algorithm>
 #include <functional>
 #include <nlohmann/json.hpp>
 
@@ -30,6 +31,8 @@ struct AnimTransition {
     std::string to;
     float duration = 0.2f;                  // seconds
     std::vector<AnimCondition> conditions;  // ALL must hold (AND)
+    bool  hasExitTime = false;              // when true (non-anyState only), also require the FROM state's
+    float exitTime    = 1.0f;               // normalized progress [0,1] to have reached exitTime
 };
 struct AnimatorController {
     std::string name;
@@ -61,25 +64,39 @@ inline float WrapPhase01(float phase) {
 
 inline float PhaseToTime(float phase, float duration) { return WrapPhase01(phase) * duration; }
 
+// Normalized progress [0,1] of a state's clip. Non-cyclic: stateTime/duration (clamped). Cyclic: the
+// wrapped phase. 0 when the clip has no duration. Shared by the evaluator, the game's root policy,
+// and the editor readout so they agree on "how far through".
+inline float NormalizedStateTime(const AnimState& s, float stateTime, float phase, float clipDuration) {
+    if (clipDuration <= 0.0f) return 0.0f;
+    return s.cyclic ? WrapPhase01(phase) : std::min(stateTime / clipDuration, 1.0f);
+}
+
 // Find the index in controller.transitions of the first transition that should fire from
 // `currentState`, given a parameter lookup. anyState ("*") transitions are evaluated first (in
 // declared order), then the current state's outgoing (declared order). -1 = none.
 inline int SelectTransition(const AnimatorController& c, int currentState,
-                            const std::function<float(const std::string&)>& param) {
+                            const std::function<float(const std::string&)>& param,
+                            float normalizedTime = 0.0f) {
     auto allHold = [&](const AnimTransition& t) {
         for (const auto& cond : t.conditions)
             if (!EvalCondition(cond.op, param(cond.paramName), cond.value)) return false;
         return true; // all conditions held (an empty condition list trivially fires)
     };
+    auto fires = [&](const AnimTransition& t, bool isAnyState) {
+        if (!allHold(t)) return false;
+        if (t.hasExitTime && !isAnyState && normalizedTime < t.exitTime) return false;
+        return true;
+    };
     const std::string current =
         (currentState >= 0 && currentState < (int)c.states.size()) ? c.states[currentState].name : std::string();
     // Pass 1: anyState.
     for (size_t i = 0; i < c.transitions.size(); ++i)
-        if (c.transitions[i].from == "*" && c.transitions[i].to != current && allHold(c.transitions[i]))
+        if (c.transitions[i].from == "*" && c.transitions[i].to != current && fires(c.transitions[i], true))
             return (int)i;
     // Pass 2: outgoing from current.
     for (size_t i = 0; i < c.transitions.size(); ++i)
-        if (c.transitions[i].from == current && allHold(c.transitions[i]))
+        if (c.transitions[i].from == current && fires(c.transitions[i], false))
             return (int)i;
     return -1;
 }
@@ -114,6 +131,8 @@ inline std::vector<std::string> ValidateController(
     for (const auto& t : c.transitions) {
         if (t.from != "*" && FindState(c, t.from) < 0) w.push_back("Transition from unknown state: " + t.from);
         if (FindState(c, t.to) < 0)                    w.push_back("Transition to unknown state: " + t.to);
+        if (t.from == "*" && t.hasExitTime)
+            w.push_back("anyState transition to '" + t.to + "' sets hasExitTime, which is ignored (no single FROM state).");
         for (const auto& cond : t.conditions) {
             bool declared = false;
             for (const auto& p : c.params) if (p.name == cond.paramName) { declared = true; break; }
@@ -150,12 +169,15 @@ inline void from_json(const nlohmann::json& j, AnimCondition& c) {
     j.at("paramName").get_to(c.paramName); c.op = j.value("op", AnimCondOp::Greater); c.value = j.value("value", 0.0f);
 }
 inline void to_json(nlohmann::json& j, const AnimTransition& t) {
-    j = {{"from", t.from}, {"to", t.to}, {"duration", t.duration}, {"conditions", t.conditions}};
+    j = {{"from", t.from}, {"to", t.to}, {"duration", t.duration}, {"conditions", t.conditions},
+         {"hasExitTime", t.hasExitTime}, {"exitTime", t.exitTime}};
 }
 inline void from_json(const nlohmann::json& j, AnimTransition& t) {
     j.at("from").get_to(t.from); j.at("to").get_to(t.to);
-    t.duration = j.value("duration", 0.2f);
-    t.conditions = j.value("conditions", std::vector<AnimCondition>{});
+    t.duration     = j.value("duration", 0.2f);
+    t.conditions   = j.value("conditions", std::vector<AnimCondition>{});
+    t.hasExitTime  = j.value("hasExitTime", false);
+    t.exitTime     = j.value("exitTime", 1.0f);
 }
 inline void to_json(nlohmann::json& j, const AnimatorController& c) {
     j = {{"name", c.name}, {"params", c.params}, {"states", c.states}, {"transitions", c.transitions}};
