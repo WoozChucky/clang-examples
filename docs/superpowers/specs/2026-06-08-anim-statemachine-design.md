@@ -34,7 +34,7 @@ enum class AnimParamType { Float, Bool, Trigger };
 enum class AnimCondOp    { Greater, Less, GreaterEqual, LessEqual, Equal }; // Bool/Trigger: "is set" (value != 0)
 
 struct AnimParam      { std::string name; AnimParamType type; };
-struct AnimState      { std::string name; std::string clipKey; bool cyclic = false; };
+struct AnimState      { std::string name; std::string clipKey; bool cyclic = false; }; // clipKey = BARE clip name (e.g. "Walk"); loader resolves it against the owning model's assetKey -> "<assetKey>#anim/<clipKey>"
 struct AnimCondition  { std::string paramName; AnimCondOp op; float value; };
 struct AnimTransition { std::string from;          // "*" = anyState
                         std::string to;
@@ -81,10 +81,14 @@ struct AnimatorComponent {
 ### `VelocityComponent` (game-owned)
 
 ```cpp
-struct VelocityComponent { glm::vec3 Linear{0.0f}; }; // world units / second, post-collision
+struct VelocityComponent {
+    glm::vec3 Linear{0.0f};   // world units / second, post-collision (derived from actual transform delta)
+    glm::vec3 PrevPos{0.0f};  // last tick's position (for the finite-difference)
+    bool      Init = false;   // false until PrevPos seeded on the first tick
+};
 ```
 
-Game-owned (registered via the engine/game-boundary machinery: to_json/from_json + EditorUI hook; no `ecs.dll` rebuild). Written by `KinematicMovementSystem` as `appliedDelta / dt` after collision resolution.
+Game-owned (registered via the engine/game-boundary machinery: to_json/from_json + EditorUI hook; no `ecs.dll` rebuild). A dedicated `VelocitySystem` (Physics phase, registered **after** `KinematicMovementSystem`) computes `Linear = (Position - PrevPos) / dt` each tick for every entity carrying both `TransformComponent` and `VelocityComponent`, then stores `PrevPos = Position`. Deriving from the actual post-resolution transform (rather than threading a value out of the kinematic/navmesh resolver) makes it robust: stuck-against-a-wall yields zero velocity, and a stationary entity decays to zero instead of holding a stale value.
 
 ## Evaluator (engine, GameThread)
 
@@ -130,9 +134,9 @@ Controllers authored as `<model>.animctrl.json` next to the model; loaded into `
   "name": "Fox",
   "params": [ { "name": "speed", "type": "Float" } ],
   "states": [
-    { "name": "Idle", "clipKey": "Fox#anim/Survey", "cyclic": false },
-    { "name": "Walk", "clipKey": "Fox#anim/Walk",   "cyclic": true  },
-    { "name": "Run",  "clipKey": "Fox#anim/Run",    "cyclic": true  }
+    { "name": "Idle", "clipKey": "Survey", "cyclic": false },
+    { "name": "Walk", "clipKey": "Walk",   "cyclic": true  },
+    { "name": "Run",  "clipKey": "Run",    "cyclic": true  }
   ],
   "transitions": [
     { "from": "Idle", "to": "Walk", "duration": 0.2, "conditions": [ { "paramName": "speed", "op": "Greater",      "value": 0.1 } ] },
@@ -158,8 +162,8 @@ Strip the SP4 demo-scaffold blend fields from the engine-builtin `AnimationCompo
 
 ## Game side
 
-- `VelocityComponent` (above); `KinematicMovementSystem` writes it (`appliedDelta / dt`) after resolving movement. Where collision zeroes a delta (wall), velocity reflects the *actual* zero — so the animator shows idle when stuck, not a walk-into-wall.
-- `PlayerAnimParamSystem` (game ISystem, `SystemPhase::PostSimulation`, runs after Physics): for player entities with `AnimatorComponent`, `SetParam(speed, len(Velocity.Linear))`. Triggers/bools added as gameplay grows. A boss/AI param-setter is the same pattern over its own controller — no engine change.
+- `VelocityComponent` + `VelocitySystem` (above): finite-difference of the post-resolution transform, Physics phase, after `KinematicMovementSystem`. Where collision zeroes a delta (wall), velocity reflects the *actual* zero — so the animator shows idle when stuck, not a walk-into-wall.
+- `PlayerAnimParamSystem` (game ISystem, `SystemPhase::PostSimulation`, runs after Physics): for player entities with `AnimatorComponent`, `SetParam(speed, len(horizontal Velocity.Linear))` (XZ magnitude — vertical/ground-snap motion must not read as locomotion). Triggers/bools added as gameplay grows. A boss/AI param-setter is the same pattern over its own controller — no engine change.
 
 ## Testing
 
