@@ -256,6 +256,35 @@ static void T14_animation_roundtrip()
     EXPECT(def.ClipId == 0ull && def.Looping == true && def.Playing == false);
 }
 
+static void T15_animator_roundtrip()
+{
+    AnimatorComponent in;
+    in.ControllerId = 0xABCDEF0123456789ull;
+    in.Params = { {111ull, 4.5f}, {222ull, 0.0f}, {333ull, 1.0f} };
+    // Set transient runtime fields to non-default values to prove they are NOT persisted.
+    in.CurrentState = 2;
+    in.FromState = 1;
+    in.Phase = 0.37f;
+
+    const nlohmann::json j = in;
+    const auto out = j.get<AnimatorComponent>();
+
+    EXPECT(out.ControllerId == 0xABCDEF0123456789ull);
+    EXPECT(out.Params.size() == 3);
+    EXPECT(out.Params[0].first == 111ull && near(out.Params[0].second, 4.5f));
+    EXPECT(out.Params[1].first == 222ull && near(out.Params[1].second, 0.0f));
+    EXPECT(out.Params[2].first == 333ull && near(out.Params[2].second, 1.0f));
+    // Transient fields must come back default (not serialized).
+    EXPECT(out.CurrentState == -1);
+    EXPECT(out.FromState == -1);
+    EXPECT(near(out.Phase, 0.0f));
+
+    // Partial-JSON robustness: from_json must not throw on missing keys.
+    nlohmann::json empty = nlohmann::json::object();
+    const auto def = empty.get<AnimatorComponent>();
+    EXPECT(def.ControllerId == 0ull && def.Params.empty());
+}
+
 static void T12_name_roundtrip()
 {
     NameComponent in;
@@ -414,6 +443,7 @@ int main()
     T12_asset_key_roundtrip();
     T13_skeleton_roundtrip();
     T14_animation_roundtrip();
+    T15_animator_roundtrip();
     T12_name_roundtrip();
     Test_Navigation();
     T_navcfg_multiclass_roundtrip();
