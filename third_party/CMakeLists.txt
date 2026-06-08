@@ -88,6 +88,22 @@ set_target_properties(ImGuizmo PROPERTIES
 target_include_directories(ImGuizmo PUBLIC ImGuizmo)
 target_link_libraries(ImGuizmo PRIVATE imgui)
 
+add_library(imgui-node-editor STATIC
+    imgui-node-editor/imgui_node_editor.cpp
+    imgui-node-editor/imgui_node_editor_api.cpp
+    imgui-node-editor/imgui_canvas.cpp
+    imgui-node-editor/crude_json.cpp
+)
+set_target_properties(imgui-node-editor PROPERTIES
+    OUTPUT_NAME imgui-node-editor
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    ARCHIVE_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER ThirdParty/imgui-node-editor
+)
+target_include_directories(imgui-node-editor PUBLIC imgui-node-editor)
+target_link_libraries(imgui-node-editor PRIVATE imgui)
+
 option(ASSIMP_BUILD_TESTS "" OFF)
 option(ASSIMP_INSTALL "" OFF)
 add_subdirectory(assimp)

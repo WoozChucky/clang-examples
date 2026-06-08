@@ -110,6 +110,7 @@ target_link_libraries(editor PRIVATE
     dxcompiler
     imgui
     ImGuizmo
+    imgui-node-editor
     freetype
     Tracy::TracyClient
 )
