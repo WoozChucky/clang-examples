@@ -1,15 +1,21 @@
 {
   "name": "Fox",
-  "params": [ { "name": "speed", "type": "Float" } ],
+  "params": [
+    { "name": "speed", "type": "Float" },
+    { "name": "attack", "type": "Trigger" }
+  ],
   "states": [
     { "name": "Idle", "clipKey": "Survey", "cyclic": false, "loop": true },
     { "name": "Walk", "clipKey": "Walk",   "cyclic": true  },
-    { "name": "Run",  "clipKey": "Run",    "cyclic": true  }
+    { "name": "Run",  "clipKey": "Run",    "cyclic": true  },
+    { "name": "Attack", "clipKey": "Survey", "cyclic": false, "loop": false }
   ],
   "transitions": [
     { "from": "Idle", "to": "Walk", "duration": 0.2, "conditions": [ { "paramName": "speed", "op": "Greater",   "value": 0.1 } ] },
     { "from": "Walk", "to": "Run",  "duration": 0.2, "conditions": [ { "paramName": "speed", "op": "Greater",   "value": 4.0 } ] },
     { "from": "Run",  "to": "Walk", "duration": 0.2, "conditions": [ { "paramName": "speed", "op": "LessEqual", "value": 4.0 } ] },
-    { "from": "Walk", "to": "Idle", "duration": 0.2, "conditions": [ { "paramName": "speed", "op": "LessEqual", "value": 0.1 } ] }
+    { "from": "Walk", "to": "Idle", "duration": 0.2, "conditions": [ { "paramName": "speed", "op": "LessEqual", "value": 0.1 } ] },
+    { "from": "*",      "to": "Attack", "duration": 0.1,  "conditions": [ { "paramName": "attack", "op": "Greater", "value": 0.0 } ] },
+    { "from": "Attack", "to": "Idle",   "duration": 0.15, "hasExitTime": true, "exitTime": 1.0, "conditions": [] }
   ]
 }
