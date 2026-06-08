@@ -949,23 +949,32 @@ void GameThread::WorkerThreadFunc()
             if (!boneInverseBind.empty()) {
                 Skeleton skel;
                 std::unordered_map<std::string,int> boneNameToIndex;
-                std::function<void(const aiNode*, int)> walk = [&](const aiNode* node, int parentBoneIdx) {
+                // `parentGlobal` accumulates the transforms of NON-bone ancestor nodes (e.g. a "Z_UP"
+                // up-axis-correction matrix or an "Armature" node) above the skeleton root. The ROOT
+                // bone folds that chain into its localBind so the correction isn't lost (CesiumMan's
+                // skeleton sits under Z_UP/Armature non-bone nodes). Non-root bones inherit it via
+                // their parent bone, so they use only their own node transform.
+                std::function<void(const aiNode*, int, const glm::mat4&)> walk =
+                    [&](const aiNode* node, int parentBoneIdx, const glm::mat4& parentGlobal) {
+                    const glm::mat4 nodeLocal = AiToGlm(node->mTransformation);
                     int myIdx = parentBoneIdx;
+                    glm::mat4 childParentGlobal = parentGlobal * nodeLocal; // accumulate until the first bone
                     auto it = boneInverseBind.find(node->mName.C_Str());
                     if (it != boneInverseBind.end()) {
                         Bone bone;
                         bone.name        = node->mName.C_Str();
                         bone.parent      = parentBoneIdx;
-                        bone.localBind   = AiToGlm(node->mTransformation);
+                        bone.localBind   = (parentBoneIdx < 0) ? (parentGlobal * nodeLocal) : nodeLocal;
                         bone.inverseBind = it->second;
                         myIdx = static_cast<int>(skel.bones.size());
                         boneNameToIndex[bone.name] = myIdx;
                         skel.bones.push_back(std::move(bone));
+                        childParentGlobal = glm::mat4(1.0f); // descendants are under a bone (parent index carries the chain)
                     }
                     for (unsigned c = 0; c < node->mNumChildren; ++c)
-                        walk(node->mChildren[c], myIdx);
+                        walk(node->mChildren[c], myIdx, childParentGlobal);
                 };
-                walk(scene->mRootNode, -1);
+                walk(scene->mRootNode, -1, glm::mat4(1.0f));
                 if (!skel.bones.empty()) {
                     result.skeleton    = std::move(skel);
                     result.hasSkeleton = true;
