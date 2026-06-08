@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <functional>
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -211,7 +212,7 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
     // Deferred mutations from in-node widgets (apply AFTER the node loop to avoid invalidating
     // m_Working.states while iterating / while node ids are live this frame).
     int        renameIdx = -1; std::string renameOld, renameNew;
-    int        setEntryIdx = -1;
+    uint32_t   setEntryUid = 0;   // 0 == none (entry state at idx 0 cannot be re-set to entry)
 
     // state nodes
     for (int s = 0; s < (int)m_Working.states.size(); ++s) {
@@ -233,7 +234,9 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
 
         if (s == 0) ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "(entry)");
 
-        // Name editor: a per-uid static buffer seeded from the current name when not active.
+        // Name editor: a frame-local buffer re-seeded from the state name each frame.
+        // The actual rename is deferred to post-loop (renameIdx/renameOld/renameNew) so we
+        // don't mutate m_Working.states while iterating or while node ids are live this frame.
         char nameBuf[64];
         std::snprintf(nameBuf, sizeof(nameBuf), "%s", st.name.c_str());
         ImGui::SetNextItemWidth(150.0f);
@@ -264,7 +267,7 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
         ImGui::SameLine();
         if (ImGui::Checkbox("loop", &st.loop)) MarkEdited();
 
-        if (s != 0 && ImGui::SmallButton("Set as entry")) setEntryIdx = s;
+        if (s != 0 && ImGui::SmallButton("Set as entry")) setEntryUid = uid;
 
         if (active) ImGui::TextColored(kActiveBorder, "<- ACTIVE");
 
@@ -364,6 +367,11 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
     ed::EndCreate();
 
     // --- delete nodes / links ---
+    // imgui-node-editor can report multiple deletions in a single frame (box-select + Del).
+    // Erasing inline mid-loop shifts the vectors and invalidates the index-based link ids,
+    // so we only COLLECT here and apply a single coherent removal pass after EndDelete().
+    std::vector<uint32_t> deletedNodeUids;   // states the user asked to delete
+    std::vector<int>      deletedLinkTis;    // transition indices from explicit link deletes
     if (ed::BeginDelete()) {
         ed::NodeId delNode;
         while (ed::QueryDeletedNode(&delNode)) {
@@ -371,15 +379,7 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
             if (uid == kAnyStateNode) { ed::RejectDeletedItem(); continue; } // anyState isn't a real state
             const int idx = StateIndexForUid(uid);
             if (idx >= 0 && ed::AcceptDeletedItem()) {
-                const std::string name = m_Working.states[idx].name;
-                // drop transitions referencing this state
-                auto& tr = m_Working.transitions;
-                tr.erase(std::remove_if(tr.begin(), tr.end(),
-                         [&](const AnimTransition& t){ return t.from == name || t.to == name; }), tr.end());
-                m_Working.states.erase(m_Working.states.begin() + idx);
-                m_StateUids.erase(m_StateUids.begin() + idx);
-                m_Layout.nodes.erase(name);
-                MarkEdited();
+                deletedNodeUids.push_back(uid);
             } else if (idx < 0) {
                 ed::RejectDeletedItem();
             }
@@ -390,8 +390,7 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
             if (v >= 400000u) {
                 const int ti = (int)(v - 400000u);
                 if (ti >= 0 && ti < (int)m_Working.transitions.size() && ed::AcceptDeletedItem()) {
-                    m_Working.transitions.erase(m_Working.transitions.begin() + ti);
-                    MarkEdited();
+                    deletedLinkTis.push_back(ti);
                 } else {
                     ed::RejectDeletedItem();
                 }
@@ -401,6 +400,45 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
         }
     }
     ed::EndDelete();
+
+    // Apply collected deletions once, in a way that doesn't invalidate indices mid-pass.
+    if (!deletedNodeUids.empty() || !deletedLinkTis.empty()) {
+        // 1. Resolve node uids -> state indices, collect their names, then erase states/uids/layout
+        //    in DESCENDING index order so earlier erases don't shift later indices.
+        std::vector<std::string> deletedNames;
+        std::vector<int>         nodeIdxs;
+        for (uint32_t uid : deletedNodeUids) {
+            const int idx = StateIndexForUid(uid);
+            if (idx >= 0) { nodeIdxs.push_back(idx); deletedNames.push_back(m_Working.states[idx].name); }
+        }
+        std::sort(nodeIdxs.begin(), nodeIdxs.end(), std::greater<int>());
+        nodeIdxs.erase(std::unique(nodeIdxs.begin(), nodeIdxs.end()), nodeIdxs.end());
+        for (int idx : nodeIdxs) {
+            if (idx >= 0 && idx < (int)m_Working.states.size()) {
+                m_Layout.nodes.erase(m_Working.states[idx].name);
+                m_Working.states.erase(m_Working.states.begin() + idx);
+                m_StateUids.erase(m_StateUids.begin() + idx);
+            }
+        }
+
+        // 2. Build the final transition-removal index set: explicit link deletes PLUS any
+        //    transition referencing a deleted state name. Dedup, sort DESCENDING, erase once.
+        std::vector<int> txToErase = deletedLinkTis;
+        for (int ti = 0; ti < (int)m_Working.transitions.size(); ++ti) {
+            const AnimTransition& t = m_Working.transitions[ti];
+            for (const std::string& n : deletedNames) {
+                if (t.from == n || t.to == n) { txToErase.push_back(ti); break; }
+            }
+        }
+        std::sort(txToErase.begin(), txToErase.end(), std::greater<int>());
+        txToErase.erase(std::unique(txToErase.begin(), txToErase.end()), txToErase.end());
+        for (int ti : txToErase) {
+            if (ti >= 0 && ti < (int)m_Working.transitions.size())
+                m_Working.transitions.erase(m_Working.transitions.begin() + ti);
+        }
+
+        MarkEdited();
+    }
 
     // capture selected link (for the inspector) before End()
     ed::LinkId selLinks[1];
@@ -424,15 +462,19 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
         RenameState(m_Working, renameOld, renameNew);
         MarkEdited();
     }
-    if (setEntryIdx > 0 && setEntryIdx < (int)m_Working.states.size()) {
-        // rotate state setEntryIdx to index 0; keep its uid aligned.
-        AnimState st = m_Working.states[setEntryIdx];
-        uint32_t  u  = m_StateUids[setEntryIdx];
-        m_Working.states.erase(m_Working.states.begin() + setEntryIdx);
-        m_StateUids.erase(m_StateUids.begin() + setEntryIdx);
-        m_Working.states.insert(m_Working.states.begin(), st);
-        m_StateUids.insert(m_StateUids.begin(), u);
-        MarkEdited();
+    if (setEntryUid != 0) {
+        // Re-resolve by uid AFTER any same-frame deletions shifted the state vectors.
+        const int setEntryIdx = StateIndexForUid(setEntryUid);
+        if (setEntryIdx > 0 && setEntryIdx < (int)m_Working.states.size()) {
+            // rotate that state to index 0; keep its uid aligned.
+            AnimState st = m_Working.states[setEntryIdx];
+            uint32_t  u  = m_StateUids[setEntryIdx];
+            m_Working.states.erase(m_Working.states.begin() + setEntryIdx);
+            m_StateUids.erase(m_StateUids.begin() + setEntryIdx);
+            m_Working.states.insert(m_Working.states.begin(), st);
+            m_StateUids.insert(m_StateUids.begin(), u);
+            MarkEdited();
+        }
     }
 
     // --- inspector (right) ---
