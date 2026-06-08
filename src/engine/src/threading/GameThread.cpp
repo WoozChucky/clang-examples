@@ -26,8 +26,10 @@
 #include "AssetKey.h"
 #include "Skeleton.h"
 #include "Skinning.h"
+#include "AnimationClip.h"
 #include "PaletteFrame.h"
 #include "animation/SkeletonStore.h"
+#include "animation/AnimationStore.h"
 #include "RenderStats.h"
 #include "InputDrain.h"
 #include "MaterialLoader.h"
@@ -381,6 +383,10 @@ void GameThread::RunLoop() {
                             else
                                 gameState.World.Modify<SkeletonComponent>(res.ticketId, [&](auto& s){ s.SkeletonId = skelHandle; });
                         }
+                    }
+
+                    for (auto& clip : res.clips) {
+                        AnimationStore::Instance().Add(res.assetKey + "#anim/" + clip.name, clip);
                     }
 
                     if (!res.MeshUploaded)
@@ -966,6 +972,42 @@ void GameThread::WorkerThreadFunc()
                     for (size_t v = 0; v < result.vertices.size(); ++v)
                         result.skinning[v] = MakeSkinnedVertex(std::move(perVertex[v]));
                     SM_TRACE("Skinning extracted: %zu verts", result.skinning.size());
+
+                    // --- Animation clip extraction (SP3) ---
+                    for (unsigned a = 0; a < scene->mNumAnimations; ++a) {
+                        const aiAnimation* anim = scene->mAnimations[a];
+                        const double tps = (anim->mTicksPerSecond != 0.0) ? anim->mTicksPerSecond : 25.0;
+                        AnimationClip clip;
+                        clip.name     = anim->mName.length ? anim->mName.C_Str() : ("clip" + std::to_string(a));
+                        clip.duration = static_cast<float>(anim->mDuration / tps);
+                        for (unsigned c = 0; c < anim->mNumChannels; ++c) {
+                            const aiNodeAnim* nodeAnim = anim->mChannels[c];
+                            auto ni = boneNameToIndex.find(nodeAnim->mNodeName.C_Str());
+                            if (ni == boneNameToIndex.end()) continue; // channel targets a non-bone node
+                            AnimChannel ch;
+                            ch.boneIndex = ni->second;
+                            ch.posKeys.reserve(nodeAnim->mNumPositionKeys);
+                            for (unsigned k = 0; k < nodeAnim->mNumPositionKeys; ++k) {
+                                const aiVectorKey& vk = nodeAnim->mPositionKeys[k];
+                                ch.posKeys.emplace_back(static_cast<float>(vk.mTime / tps), glm::vec3(vk.mValue.x, vk.mValue.y, vk.mValue.z));
+                            }
+                            ch.rotKeys.reserve(nodeAnim->mNumRotationKeys);
+                            for (unsigned k = 0; k < nodeAnim->mNumRotationKeys; ++k) {
+                                const aiQuatKey& qk = nodeAnim->mRotationKeys[k];
+                                ch.rotKeys.emplace_back(static_cast<float>(qk.mTime / tps), glm::quat(qk.mValue.w, qk.mValue.x, qk.mValue.y, qk.mValue.z));
+                            }
+                            ch.scaleKeys.reserve(nodeAnim->mNumScalingKeys);
+                            for (unsigned k = 0; k < nodeAnim->mNumScalingKeys; ++k) {
+                                const aiVectorKey& sk2 = nodeAnim->mScalingKeys[k];
+                                ch.scaleKeys.emplace_back(static_cast<float>(sk2.mTime / tps), glm::vec3(sk2.mValue.x, sk2.mValue.y, sk2.mValue.z));
+                            }
+                            clip.channels.push_back(std::move(ch));
+                        }
+                        result.clips.push_back(std::move(clip));
+                        SM_TRACE("Animation extracted: '%s#anim/%s' (%.2fs, %zu channels)",
+                                 result.assetKey.c_str(), result.clips.back().name.c_str(),
+                                 result.clips.back().duration, result.clips.back().channels.size());
+                    }
                 }
             }
         }

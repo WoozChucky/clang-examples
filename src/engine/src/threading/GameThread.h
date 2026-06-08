@@ -16,6 +16,7 @@
 #include "Systems.h"
 #include "Skeleton.h"
 #include "Skinning.h"
+#include "AnimationClip.h"
 #include "GLFW/glfw3.h"
 
 class GameThread {
@@ -60,6 +61,7 @@ private:
         bool        hasSkeleton{false};
         std::string skeletonKey;
         std::vector<SkinnedVertex> skinning; // per-vertex bone idx+weights, aligned to `vertices`; empty if static
+        std::vector<AnimationClip> clips; // animation clips extracted from the scene (skeleton-bone-indexed)
     };
 
     void DrainInputToSingleton(GameState& state);
