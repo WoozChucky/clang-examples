@@ -91,6 +91,13 @@ inline std::vector<BonePose> SampleClipPose(const Skeleton& sk, const AnimationC
     return pose;
 }
 
+// Rest pose (every bone = DecomposeTRS(localBind)) — used when a state has no resolvable clip.
+inline std::vector<BonePose> SampleClipPoseFromBind(const Skeleton& sk) {
+    std::vector<BonePose> pose(sk.bones.size());
+    for (size_t b = 0; b < sk.bones.size(); ++b) pose[b] = DecomposeTRS(sk.bones[b].localBind);
+    return pose;
+}
+
 // Per-bone blend of two LOCAL poses: lerp T/S, slerp R (shortest-path). Clamped to the shorter size.
 inline std::vector<BonePose> BlendPoses(const std::vector<BonePose>& a, const std::vector<BonePose>& b, float w) {
     const size_t n = a.size() < b.size() ? a.size() : b.size();

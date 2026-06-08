@@ -11,6 +11,7 @@
 #include <regex>
 #include <unordered_map>
 #include <cmath>
+#include <algorithm>
 #include <nlohmann/json.hpp>
 
 #ifdef _WIN32
@@ -725,6 +726,88 @@ void GameThread::PublishSnapshot(GameState& state, const FrameTimeStats& frameSt
     m_AppContext->LatestSnapshot.store(snap);
 }
 
+// Advance + evaluate one AnimatorComponent against its controller for `dt`, returning model-space
+// bone globals. Mutates the runtime cursor in `a`. `sk` is the entity's skeleton.
+static std::vector<glm::mat4> EvaluateAnimator(const Skeleton& sk, const AnimatorController& c,
+                                               AnimatorComponent& a, float dt) {
+    auto paramLookup = [&](const std::string& name) -> float {
+        const uint64_t h = AssetKeyHash(name);
+        for (const auto& [ph, v] : a.Params) if (ph == h) return v;
+        return 0.0f;
+    };
+    auto clipFor = [&](int state) -> const AnimationClip* {
+        if (state < 0 || state >= (int)c.stateClipIds.size()) return nullptr;
+        return AnimationStore::Instance().Get(c.stateClipIds[state]);
+    };
+    auto sampleState = [&](int state) -> std::vector<BonePose> {
+        const AnimationClip* clip = clipFor(state);
+        if (!clip) return SampleClipPoseFromBind(sk);
+        const bool cyclic = (state >= 0 && state < (int)c.states.size()) ? c.states[state].cyclic : false;
+        const float t = cyclic ? PhaseToTime(a.Phase, clip->duration) : a.StateTime;
+        return SampleClipPose(sk, *clip, t);
+    };
+
+    if (c.states.empty()) return ComputeBindPoseGlobals(sk);
+    if (a.CurrentState < 0) { a.CurrentState = 0; a.Phase = 0.0f; a.StateTime = 0.0f; a.FromState = -1; }
+
+    // Advance cursors.
+    const AnimationClip* curClip = clipFor(a.CurrentState);
+    const float cycleDur = (curClip && curClip->duration > 0.0f) ? curClip->duration : 1.0f;
+    a.Phase = WrapPhase01(a.Phase + dt / cycleDur);
+    a.StateTime += dt;
+    if (curClip && !c.states[a.CurrentState].cyclic && a.StateTime > curClip->duration)
+        a.StateTime = curClip->duration; // non-cyclic clamps (oneshots hold last frame)
+    if (a.FromState >= 0) a.TransitionElapsed += dt;
+
+    // Transition selection (only when not already transitioning).
+    if (a.FromState < 0) {
+        const int ti = SelectTransition(c, a.CurrentState, paramLookup);
+        if (ti >= 0) {
+            const AnimTransition& tr = c.transitions[ti];
+            const int toState = FindState(c, tr.to);
+            if (toState >= 0) {
+                a.FromState         = a.CurrentState;
+                a.TransitionElapsed = 0.0f;
+                a.TransitionDur     = (tr.duration > 0.0f) ? tr.duration : 0.0001f;
+                const bool fromCyclic = c.states[a.FromState].cyclic;
+                const bool toCyclic   = c.states[toState].cyclic;
+                a.TransitionCyclic    = fromCyclic && toCyclic;
+                if (!a.TransitionCyclic) a.SnapshotPose = sampleState(a.FromState); // freeze "from" BEFORE switching state/StateTime
+                a.StateTime    = 0.0f;                       // reset new state's non-cyclic cursor
+                a.CurrentState = toState;
+                // Consume triggers referenced by this transition's conditions.
+                for (const auto& cond : tr.conditions) {
+                    const uint64_t h = AssetKeyHash(cond.paramName);
+                    for (const auto& decl : c.params)
+                        if (decl.type == AnimParamType::Trigger && AssetKeyHash(decl.name) == h)
+                            for (auto& pr : a.Params) if (pr.first == h) pr.second = 0.0f;
+                }
+            }
+        }
+    }
+
+    // Produce the pose.
+    std::vector<BonePose> pose;
+    if (a.FromState < 0) {
+        pose = sampleState(a.CurrentState);
+    } else {
+        const float w = std::min(a.TransitionElapsed / a.TransitionDur, 1.0f);
+        if (a.TransitionCyclic) {
+            const AnimationClip* fc = clipFor(a.FromState);
+            const AnimationClip* tc = clipFor(a.CurrentState);
+            const float tFrom = fc ? PhaseToTime(a.Phase, fc->duration) : 0.0f;
+            const float tTo   = tc ? PhaseToTime(a.Phase, tc->duration) : 0.0f;
+            std::vector<BonePose> from = fc ? SampleClipPose(sk, *fc, tFrom) : SampleClipPoseFromBind(sk);
+            std::vector<BonePose> to   = tc ? SampleClipPose(sk, *tc, tTo)   : SampleClipPoseFromBind(sk);
+            pose = BlendPoses(from, to, w);
+        } else {
+            pose = BlendPoses(a.SnapshotPose, sampleState(a.CurrentState), w);
+        }
+        if (w >= 1.0f) { a.FromState = -1; a.SnapshotPose.clear(); }
+    }
+    return PoseToGlobals(sk, pose);
+}
+
 void GameThread::PublishPaletteFrame(GameState& state, float dt) {
     auto frame = std::make_shared<PaletteFrame>();
     state.World.Each<SkeletonComponent>([&](EntityId e, const SkeletonComponent& sc) {
@@ -732,27 +815,37 @@ void GameThread::PublishPaletteFrame(GameState& state, float dt) {
         if (!sk || sk->bones.empty()) return;
 
         std::vector<glm::mat4> globals;
-        const AnimationComponent* anim = state.World.GetComponent<AnimationComponent>(e);
-        const AnimationClip* clipA = (anim && anim->ClipId) ? AnimationStore::Instance().Get(anim->ClipId) : nullptr;
-        if (anim && clipA) {
-            float tA = anim->Time;
-            state.World.Modify<AnimationComponent>(e, [&](AnimationComponent& a) {
-                auto advance = [&](float& time, const AnimationClip* c) {
-                    if (a.Playing && c && c->duration > 0.0f) {
-                        time += dt * a.Speed;
-                        if (a.Looping) { time = std::fmod(time, c->duration); if (time < 0.0f) time += c->duration; }
-                        else if (time >= c->duration) { time = c->duration; }
-                    }
-                };
-                advance(a.Time, clipA);
-                if (!a.Looping && a.Playing && clipA->duration > 0.0f && a.Time >= clipA->duration) a.Playing = false;
-                tA = a.Time;
+        const AnimatorComponent* animator = state.World.GetComponent<AnimatorComponent>(e);
+        const AnimatorController* ctrl =
+            (animator && animator->ControllerId) ? AnimatorControllerStore::Instance().Get(animator->ControllerId) : nullptr;
+        if (animator && animator->ControllerId && !ctrl)
+            SM_WARN("AnimatorComponent on entity %llu: controller %llu not in store",
+                    (unsigned long long)e, (unsigned long long)animator->ControllerId);
+
+        if (ctrl) {
+            state.World.Modify<AnimatorComponent>(e, [&](AnimatorComponent& a) {
+                globals = EvaluateAnimator(*sk, *ctrl, a, dt);
             });
-            globals = SampleAnimation(*sk, *clipA, tA);
         } else {
-            if (anim && anim->ClipId && !clipA)
-                SM_WARN("AnimationComponent on entity %llu: clip A handle %llu not in AnimationStore", (unsigned long long)e, (unsigned long long)anim->ClipId);
-            globals = ComputeBindPoseGlobals(*sk);
+            const AnimationComponent* anim = state.World.GetComponent<AnimationComponent>(e);
+            const AnimationClip* clipA = (anim && anim->ClipId) ? AnimationStore::Instance().Get(anim->ClipId) : nullptr;
+            if (anim && clipA) {
+                float tA = anim->Time;
+                state.World.Modify<AnimationComponent>(e, [&](AnimationComponent& a) {
+                    if (a.Playing && clipA->duration > 0.0f) {
+                        a.Time += dt * a.Speed;
+                        if (a.Looping) { a.Time = std::fmod(a.Time, clipA->duration); if (a.Time < 0.0f) a.Time += clipA->duration; }
+                        else if (a.Time >= clipA->duration) { a.Time = clipA->duration; a.Playing = false; }
+                    }
+                    tA = a.Time;
+                });
+                globals = SampleAnimation(*sk, *clipA, tA);
+            } else {
+                if (anim && anim->ClipId && !clipA)
+                    SM_WARN("AnimationComponent on entity %llu: clip %llu not in AnimationStore",
+                            (unsigned long long)e, (unsigned long long)anim->ClipId);
+                globals = ComputeBindPoseGlobals(*sk);
+            }
         }
 
         const std::vector<glm::mat4> palette = ComputeSkinningPalette(*sk, globals);
