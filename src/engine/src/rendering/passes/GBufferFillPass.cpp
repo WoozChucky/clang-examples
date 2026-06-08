@@ -9,15 +9,13 @@
 #include "TransformMath.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
-#include <unordered_map>
-#include "PaletteFrame.h"
-#include "Skinning.h"
+#include "SkinningComputePass.h"
 
 // Deferred geometry shaders: write albedo / world-normal / world-position into the
 // G-buffer MRTs. Registers mirror the mesh-pass scheme (CB b0, texture t2, sampler s3,
 // instances t5) so the Vulkan flat-binding offsets line up.
 static const char* GBUF_VS_HLSL = R"(
-struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint PaletteOffset; uint2 _pad; };
+struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint3 _pad; };
 cbuffer PerFrame : register(b0) { float4x4 uVP; };
 StructuredBuffer<InstanceData> gInstances : register(t5);
 struct VSIn  { float3 Position:POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; uint InstanceID:SV_InstanceID; };
@@ -32,7 +30,7 @@ VSOut main_vs(VSIn vin){
 )";
 
 static const char* GBUF_PS_HLSL = R"(
-struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint PaletteOffset; uint2 _pad; };
+struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint3 _pad; };
 Texture2D uTexture : register(t2);
 SamplerState uSampler : register(s3);
 StructuredBuffer<InstanceData> gInstances : register(t5);
@@ -52,39 +50,6 @@ PSOut main_ps(PSIn i){
 }
 )";
 
-static const char* GBUF_SKINNED_VS_HLSL = R"(
-struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint PaletteOffset; uint2 _pad; };
-cbuffer PerFrame : register(b0) { float4x4 uVP; };
-StructuredBuffer<InstanceData> gInstances : register(t5);
-StructuredBuffer<float4x4>     gBones     : register(t6);
-struct VSIn  { float3 Position:POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; uint4 BoneIndices:BLENDINDICES; float4 BoneWeights:BLENDWEIGHT; uint InstanceID:SV_InstanceID; };
-struct VSOut { float4 PosH:SV_POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; float3 WorldPos:TEXCOORD1; uint InstanceID:TEXCOORD2; };
-VSOut main_vs(VSIn vin){
-    InstanceData inst = gInstances[vin.InstanceID];
-    uint off = inst.PaletteOffset;
-    // Sentinel (0xFFFFFFFF) = this entity has no palette range (skinned mesh, no SkeletonComponent):
-    // skip skinning (identity) so it renders at bind pose instead of indexing another entity's palette.
-    float4 skinned;
-    float3 skinnedN;
-    if (off == 0xFFFFFFFFu) {
-        skinned  = float4(vin.Position, 1.0);
-        skinnedN = vin.Normal;
-    } else {
-        float4x4 skin =
-            vin.BoneWeights.x * gBones[off + vin.BoneIndices.x] +
-            vin.BoneWeights.y * gBones[off + vin.BoneIndices.y] +
-            vin.BoneWeights.z * gBones[off + vin.BoneIndices.z] +
-            vin.BoneWeights.w * gBones[off + vin.BoneIndices.w];
-        skinned  = mul(skin, float4(vin.Position,1.0));
-        skinnedN = mul((float3x3)skin, vin.Normal);
-    }
-    float4 wp = mul(inst.Model, skinned);
-    VSOut o; o.PosH = mul(uVP, wp);
-    o.Normal = mul((float3x3)inst.NormalMatrix, skinnedN);
-    o.UV = vin.UV; o.WorldPos = wp.xyz; o.InstanceID = vin.InstanceID; return o;
-}
-)";
-
 bool GBufferFillPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
 {
     m_Device = device;
@@ -98,10 +63,6 @@ bool GBufferFillPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     if (!m_VS || !m_PS)
         return false;
 
-    m_SkinnedVS = m_Renderer->CreateShader(nvrhi::ShaderType::Vertex, GBUF_SKINNED_VS_HLSL, 0, "main_vs", "vs_6_1");
-    if (!m_SkinnedVS)
-        return false;
-
     // Input layout: POSITION (RGB32F), NORMAL (RGB32F), TEXCOORD (RG32F) — identical to MeshRenderPass.
     nvrhi::VertexAttributeDesc attrs[3];
     attrs[0].setName("POSITION").setFormat(nvrhi::Format::RGB32_FLOAT)
@@ -111,16 +72,6 @@ bool GBufferFillPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     attrs[2].setName("TEXCOORD").setFormat(nvrhi::Format::RG32_FLOAT)
         .setOffset(offsetof(MeshVertex, u)).setBufferIndex(0).setElementStride(sizeof(MeshVertex));
     m_InputLayout = m_Device->createInputLayout(attrs, 3, m_VS);
-
-    // Skinned input layout: static attrs @buffer0 + BLENDINDICES/BLENDWEIGHT from the parallel
-    // bone buffer @buffer1 (SkinnedVertex stride).
-    nvrhi::VertexAttributeDesc sattrs[5];
-    sattrs[0] = attrs[0]; sattrs[1] = attrs[1]; sattrs[2] = attrs[2];
-    sattrs[3].setName("BLENDINDICES").setFormat(nvrhi::Format::RGBA32_UINT)
-        .setOffset(offsetof(SkinnedVertex, BoneIndices)).setBufferIndex(1).setElementStride(sizeof(SkinnedVertex));
-    sattrs[4].setName("BLENDWEIGHT").setFormat(nvrhi::Format::RGBA32_FLOAT)
-        .setOffset(offsetof(SkinnedVertex, BoneWeights)).setBufferIndex(1).setElementStride(sizeof(SkinnedVertex));
-    m_SkinnedInputLayout = m_Device->createInputLayout(sattrs, 5, m_SkinnedVS);
 
     // Binding layout: b0 (PerFrame), t2 (Texture), s3 (Sampler), t5 (Instances).
     nvrhi::BindingLayoutDesc layoutDesc;
@@ -140,20 +91,6 @@ bool GBufferFillPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     }
 
     m_BindingLayout = m_Device->createBindingLayout(layoutDesc);
-
-    // Skinned binding layout: same as static + t6 (bone palette StructuredBuffer).
-    nvrhi::BindingLayoutDesc slayoutDesc;
-    slayoutDesc.visibility = nvrhi::ShaderType::All;
-    slayoutDesc.bindings = {
-        nvrhi::BindingLayoutItem::ConstantBuffer(0),
-        nvrhi::BindingLayoutItem::Texture_SRV(2),
-        nvrhi::BindingLayoutItem::Sampler(3),
-        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5),
-        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6)
-    };
-    if (m_Device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
-        slayoutDesc.setBindingOffsets(offsets);
-    m_SkinnedBindingLayout = m_Device->createBindingLayout(slayoutDesc);
 
     // Per-frame constant buffer (just VP).
     m_FrameCB = m_Device->createBuffer(
@@ -214,14 +151,6 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
 
         pso.renderState.rasterState.fillMode = nvrhi::RasterFillMode::Wireframe;
         m_WireframePipeline = m_Device->createGraphicsPipeline(pso, fbi);
-
-        // Skinned PSO: solid fill (wireframe mutated pso above), skinning VS + skinned IA/binding layout.
-        nvrhi::GraphicsPipelineDesc spso = pso;
-        spso.renderState.rasterState.fillMode = nvrhi::RasterFillMode::Solid;
-        spso.VS = m_SkinnedVS;
-        spso.inputLayout = m_SkinnedInputLayout;
-        spso.bindingLayouts = { m_SkinnedBindingLayout };
-        m_SkinnedPipeline = m_Device->createGraphicsPipeline(spso, fbi);
     }
 
     commandList->beginMarker("GBufferFillPass");
@@ -238,17 +167,11 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
     cb.VP = cam.Projection * cam.View;
     commandList->writeBuffer(m_FrameCB, &cb, sizeof(cb));
 
-    // Load the bone palette published by the GameThread skinning step and build an entity->offset
-    // lookup for the (interim) skinned VS path. The palette BUFFER is now owned + uploaded by the
-    // SkinningComputePass (which runs before this pass each frame); we just sample it at t6.
-    std::shared_ptr<const PaletteFrame> palette =
-        m_Renderer->GetAppContext()->LatestPaletteFrame.load(std::memory_order_acquire);
-    std::unordered_map<EntityId, uint32_t> paletteOffsetByEntity;
-    nvrhi::IBuffer* paletteBuffer = m_Renderer->GetSkinningPass()
-                                        ? m_Renderer->GetSkinningPass()->GetPaletteBuffer() : nullptr;
-    if (palette && !palette->matrices.empty()) {
-        for (const auto& rg : palette->ranges) paletteOffsetByEntity[rg.entity] = rg.offset;
-    }
+    // Skinned entities are drawn through the STATIC pipeline reading the per-frame compute-skinned
+    // VB (posed mesh-local vertices written by SkinningComputePass, MeshVertex layout) at the
+    // entity's vertex offset. No VS skinning here — there is one skinning implementation (the
+    // compute pass). The static VS still applies inst.Model, giving the correct world result.
+    SkinningComputePass* skinningPass = m_Renderer->GetSkinningPass();
 
     const Frustum cullFrustum = ExtractFrustum(cb.VP);
     const bool cullEnabled = GetCullingSettings().Enabled;
@@ -323,7 +246,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             meshResources = m_Renderer->GetMeshSystem()->GetMeshResources(MeshSystem::MissingMesh);
         }
 
-        const bool runSkinned = meshResources.isSkinned && meshResources.boneBuffer && paletteBuffer && (palette != nullptr);
+        const bool runSkinned = meshResources.isSkinned;
 
         const uint32_t instanceCount = std::min(run.count, m_MaxInstances);
 
@@ -339,6 +262,16 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             continue;
         }
         uint32_t instanceOut = 0;
+
+        // Parallel entity list aligned to `instances` (skinned path needs per-instance entity ids
+        // to look up the compute-skinned vertex offset).
+        auto* instanceEntities = frameAllocator->AllocateArray<EntityId>(instanceCount);
+        if (!instanceEntities)
+        {
+            SM_WARN("GBufferFillPass: frame arena exhausted, dropped run (no entity table)");
+            frameAllocator->RewindTo(instanceMark);
+            continue;
+        }
 
         for (uint32_t i = 0; i < instanceCount; ++i)
         {
@@ -362,9 +295,8 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             inst.NormalMatrix = glm::mat4(N3);
             inst.BaseColor = baseColor;
             inst.Flags = flags;
-            auto poIt = paletteOffsetByEntity.find(entity);
-            inst.PaletteOffset = (poIt != paletteOffsetByEntity.end()) ? poIt->second : 0xFFFFFFFFu; // sentinel: no palette -> VS skips skinning
 
+            instanceEntities[instanceOut] = entity;
             instances[instanceOut++] = inst;
         }
 
@@ -376,19 +308,58 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
 
         instancesDrawn += instanceOut;
 
-        commandList->writeBuffer(m_InstanceBuffer, instances, instanceOut * sizeof(MeshInstanceCPU));
-
-        if (meshResources.subMeshes.size() > 0)
-        {
-            nvrhi::DrawArguments args{};
-            for (const auto& subMesh : meshResources.subMeshes)
+        // Resolve material resources once per run (single-material common case); per-submesh
+        // material is resolved inside the submesh loop below.
+        auto resolveMaterial = [&](uint64_t matIndex) {
+            auto mr = m_Renderer->GetMaterialSystem()->GetMaterialResources(matIndex);
+            if (!mr.valid)
             {
-                auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(subMesh.MaterialIndex);
-                if (!materialResources.valid)
+                SM_WARN("GBufferFillPass: Invalid material ID %llu", (unsigned long long)matIndex);
+                mr = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
+            }
+            return mr;
+        };
+
+        const nvrhi::GraphicsPipelineHandle solidPipeline =
+            (GetDebugDrawSettings().Wireframe && m_WireframePipeline) ? m_WireframePipeline : m_Pipeline;
+
+        if (!runSkinned)
+        {
+            // Static path: one instanced draw per submesh (unchanged).
+            commandList->writeBuffer(m_InstanceBuffer, instances, instanceOut * sizeof(MeshInstanceCPU));
+
+            if (meshResources.subMeshes.size() > 0)
+            {
+                for (const auto& subMesh : meshResources.subMeshes)
                 {
-                    SM_WARN("GBufferFillPass: Invalid material ID %llu", (unsigned long long)head.materialId);
-                    materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
+                    auto materialResources = resolveMaterial(subMesh.MaterialIndex);
+
+                    nvrhi::BindingSetDesc bindingDesc;
+                    bindingDesc.bindings = {
+                        nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
+                        nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
+                        nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
+                        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                    };
+                    nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
+
+                    state.pipeline = solidPipeline;
+                    state.bindings = { bindingSet };
+                    state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
+                    state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
+                    commandList->setGraphicsState(state);
+
+                    nvrhi::DrawArguments args{};
+                    args.vertexCount = subMesh.IndexCount;
+                    args.instanceCount = instanceOut;
+                    args.startIndexLocation = subMesh.IndexStart;
+                    args.startVertexLocation = 0;
+                    commandList->drawIndexed(args);
                 }
+            }
+            else
+            {
+                auto materialResources = resolveMaterial(head.materialId);
 
                 nvrhi::BindingSetDesc bindingDesc;
                 bindingDesc.bindings = {
@@ -397,71 +368,101 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                     nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
                     nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
                 };
-                if (runSkinned)
-                    bindingDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, paletteBuffer));
-                nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(
-                    bindingDesc, runSkinned ? m_SkinnedBindingLayout : m_BindingLayout);
+                nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
-                state.pipeline = runSkinned ? m_SkinnedPipeline
-                                            : ((GetDebugDrawSettings().Wireframe && m_WireframePipeline)
-                                                   ? m_WireframePipeline : m_Pipeline);
+                state.pipeline = solidPipeline;
                 state.bindings = { bindingSet };
-                if (runSkinned)
-                    state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0),
-                                            nvrhi::VertexBufferBinding(meshResources.boneBuffer, 1, 0) };
-                else
-                    state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
+                state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
                 state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
-
                 commandList->setGraphicsState(state);
 
-                args.vertexCount = subMesh.IndexCount;
+                nvrhi::DrawArguments args{};
+                args.vertexCount = meshResources.indexCount;
                 args.instanceCount = instanceOut;
-                args.startIndexLocation = subMesh.IndexStart;
+                args.startIndexLocation = 0;
                 args.startVertexLocation = 0;
                 commandList->drawIndexed(args);
             }
         }
         else
         {
-            auto materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(head.materialId);
-            if (!materialResources.valid)
+            // Skinned path: STATIC pipeline + the per-frame compute-skinned VB (MeshVertex layout,
+            // posed mesh-local). SV_InstanceID is 0-based per draw on D3D, so we draw ONE entity at a
+            // time with instanceCount=1 and write that entity's InstanceData to element 0 of the
+            // instance buffer right before its draw -> the static VS's gInstances[0] resolves to the
+            // correct entity (provably correct: each draw reads element 0, just written for it).
+            // startVertexLocation shifts indices into the entity's range within the shared skinned VB.
+            // If an entity has no compute-skinned range this frame, fall back to its static VB at
+            // bind pose (baseVertex 0).
+            nvrhi::IBuffer* skinnedVB = skinningPass ? skinningPass->GetSkinnedVertexBuffer() : nullptr;
+
+            for (uint32_t i = 0; i < instanceOut; ++i)
             {
-                SM_WARN("GBufferFillPass: Invalid material ID %llu", (unsigned long long)head.materialId);
-                materialResources = m_Renderer->GetMaterialSystem()->GetMaterialResources(MaterialSystem::MissingMaterial);
+                EntityId entity = instanceEntities[i];
+                const int64_t skinnedOff = skinningPass ? skinningPass->GetSkinnedVertexOffset(entity) : -1;
+                const bool useSkinned = (skinnedOff >= 0) && skinnedVB;
+                nvrhi::IBuffer* vb = useSkinned ? skinnedVB : meshResources.vertexBuffer.Get();
+                const uint32_t baseVertex = useSkinned ? (uint32_t)skinnedOff : 0u;
+
+                // This entity's InstanceData at element 0 -> read by gInstances[SV_InstanceID==0].
+                commandList->writeBuffer(m_InstanceBuffer, &instances[i], sizeof(MeshInstanceCPU));
+
+                if (meshResources.subMeshes.size() > 0)
+                {
+                    for (const auto& subMesh : meshResources.subMeshes)
+                    {
+                        auto materialResources = resolveMaterial(subMesh.MaterialIndex);
+
+                        nvrhi::BindingSetDesc bindingDesc;
+                        bindingDesc.bindings = {
+                            nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
+                            nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
+                            nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
+                            nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                        };
+                        nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
+
+                        state.pipeline = solidPipeline;
+                        state.bindings = { bindingSet };
+                        state.vertexBuffers = { nvrhi::VertexBufferBinding(vb, 0, 0) };
+                        state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
+                        commandList->setGraphicsState(state);
+
+                        nvrhi::DrawArguments args{};
+                        args.vertexCount = subMesh.IndexCount;
+                        args.instanceCount = 1;
+                        args.startIndexLocation = subMesh.IndexStart;
+                        args.startVertexLocation = baseVertex;
+                        commandList->drawIndexed(args);
+                    }
+                }
+                else
+                {
+                    auto materialResources = resolveMaterial(head.materialId);
+
+                    nvrhi::BindingSetDesc bindingDesc;
+                    bindingDesc.bindings = {
+                        nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
+                        nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
+                        nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
+                        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                    };
+                    nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
+
+                    state.pipeline = solidPipeline;
+                    state.bindings = { bindingSet };
+                    state.vertexBuffers = { nvrhi::VertexBufferBinding(vb, 0, 0) };
+                    state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
+                    commandList->setGraphicsState(state);
+
+                    nvrhi::DrawArguments args{};
+                    args.vertexCount = meshResources.indexCount;
+                    args.instanceCount = 1;
+                    args.startIndexLocation = 0;
+                    args.startVertexLocation = baseVertex;
+                    commandList->drawIndexed(args);
+                }
             }
-
-            nvrhi::BindingSetDesc bindingDesc;
-            bindingDesc.bindings = {
-                nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
-                nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
-                nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
-            };
-            if (runSkinned)
-                bindingDesc.bindings.push_back(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, paletteBuffer));
-            nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(
-                bindingDesc, runSkinned ? m_SkinnedBindingLayout : m_BindingLayout);
-
-            state.pipeline = runSkinned ? m_SkinnedPipeline
-                                        : ((GetDebugDrawSettings().Wireframe && m_WireframePipeline)
-                                               ? m_WireframePipeline : m_Pipeline);
-            state.bindings = { bindingSet };
-            if (runSkinned)
-                state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0),
-                                        nvrhi::VertexBufferBinding(meshResources.boneBuffer, 1, 0) };
-            else
-                state.vertexBuffers = { nvrhi::VertexBufferBinding(meshResources.vertexBuffer, 0, 0) };
-            state.indexBuffer = nvrhi::IndexBufferBinding(meshResources.indexBuffer, nvrhi::Format::R32_UINT, 0);
-
-            commandList->setGraphicsState(state);
-
-            nvrhi::DrawArguments args{};
-            args.vertexCount = meshResources.indexCount;
-            args.instanceCount = instanceOut;
-            args.startIndexLocation = 0;
-            args.startVertexLocation = 0;
-            commandList->drawIndexed(args);
         }
 
         frameAllocator->RewindTo(instanceMark);
@@ -487,10 +488,6 @@ void GBufferFillPass::Shutdown()
     m_InstanceBuffer = nullptr;
     m_VS = nullptr;
     m_PS = nullptr;
-    m_SkinnedVS = nullptr;
-    m_SkinnedPipeline = nullptr;
-    m_SkinnedInputLayout = nullptr;
-    m_SkinnedBindingLayout = nullptr;
     m_Device = nullptr;
     m_Renderer = nullptr;
 }
@@ -500,5 +497,4 @@ void GBufferFillPass::OnResize(uint32_t /*width*/, uint32_t /*height*/)
     // Rebuild the pipeline against the resized G-buffer framebuffer on next render.
     m_Pipeline = nullptr;
     m_WireframePipeline = nullptr;
-    m_SkinnedPipeline = nullptr;
 }
