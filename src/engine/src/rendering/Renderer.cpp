@@ -611,7 +611,7 @@ void Renderer::EnsureSsao(uint32_t width, uint32_t height)
     if (m_SsaoRaw && m_SsaoW == width && m_SsaoH == height) return;
     m_SsaoW = width; m_SsaoH = height;
     auto mk = [&](const char* name) {
-        nvrhi::TextureDesc td; td.width = width; td.height = height; td.format = nvrhi::Format::R8_UNORM;
+        nvrhi::TextureDesc td; td.width = width; td.height = height; td.format = nvrhi::Format::R16_FLOAT;
         td.dimension = nvrhi::TextureDimension::Texture2D; td.isShaderResource = true;
         td.isUAV = true;                   // compute-only: written via RWTexture2D UAV, read as SRV
         td.debugName = name; td.initialState = nvrhi::ResourceStates::ShaderResource; td.keepInitialState = true;

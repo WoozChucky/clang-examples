@@ -208,7 +208,8 @@ private:
     void EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* sharedDepth);
     void ReleaseGBuffer();
 
-    // SSAO render targets (Renderer-owned, R8_UNORM). m_SsaoRaw holds per-pixel AO from the
+    // SSAO render targets (Renderer-owned, R16_FLOAT — R8_UNORM has no typed-UAV support for
+    // compute write). m_SsaoRaw holds per-pixel AO from the
     // SSAO pass; m_SsaoBlur is the box-blurred result the lighting pass will sample (next task).
     // Size-guarded rebuild via EnsureSsao; nulled on resize/teardown like the G-buffer.
     nvrhi::TextureHandle     m_SsaoRaw, m_SsaoBlur;
