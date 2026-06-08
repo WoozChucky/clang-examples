@@ -842,3 +842,28 @@ set_target_properties(test_animation PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_blend
+    test_blend.cpp
+)
+
+target_link_libraries(test_blend PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+)
+
+target_include_directories(test_blend PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+target_compile_definitions(test_blend PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+set_target_properties(test_blend PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)

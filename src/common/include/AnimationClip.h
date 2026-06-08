@@ -50,23 +50,74 @@ namespace anim_detail {
     }
 }
 
-// Per-bone model-space globals at `time`: animated bones use their channel's sampled T*R*S (empty
-// track => neutral component: pos 0 / rot identity / scale 1 — assimp clips populate all three);
-// unanimated bones use localBind (rest). Hierarchy walk requires topo order (parent index < b).
-inline std::vector<glm::mat4> SampleAnimation(const Skeleton& sk, const AnimationClip& clip, float time) {
-    std::vector<glm::mat4> local(sk.bones.size());
-    for (size_t b = 0; b < sk.bones.size(); ++b) local[b] = sk.bones[b].localBind;
+// One bone's LOCAL transform as TRS (so blending can slerp the rotation). Blend in this space, then
+// ComposeTRS + the hierarchy walk (PoseToGlobals).
+struct BonePose {
+    glm::vec3 T{0.0f};
+    glm::quat R{1.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec3 S{1.0f};
+};
+
+inline glm::mat4 ComposeTRS(const BonePose& p) {
+    return glm::translate(glm::mat4(1.0f), p.T) * glm::mat4_cast(p.R) * glm::scale(glm::mat4(1.0f), p.S);
+}
+
+// Affine decompose (bind/clip locals are T*R*S, no skew): T = col3; S = column lengths; R = quat of
+// the scale-normalized rotation 3x3. Degenerate (zero-length) columns fall back to identity basis.
+inline BonePose DecomposeTRS(const glm::mat4& m) {
+    BonePose p;
+    p.T = glm::vec3(m[3]);
+    const glm::vec3 c0(m[0]), c1(m[1]), c2(m[2]);
+    p.S = glm::vec3(glm::length(c0), glm::length(c1), glm::length(c2));
+    const glm::vec3 r0 = p.S.x > 1e-8f ? c0 / p.S.x : glm::vec3(1,0,0);
+    const glm::vec3 r1 = p.S.y > 1e-8f ? c1 / p.S.y : glm::vec3(0,1,0);
+    const glm::vec3 r2 = p.S.z > 1e-8f ? c2 / p.S.z : glm::vec3(0,0,1);
+    p.R = glm::normalize(glm::quat_cast(glm::mat3(r0, r1, r2)));
+    return p;
+}
+
+// Per-bone LOCAL pose at `time`: each bone starts at rest (DecomposeTRS(localBind)); an animated bone
+// overrides each track it has keys for (empty track keeps rest). R stays a quat (ready to slerp).
+inline std::vector<BonePose> SampleClipPose(const Skeleton& sk, const AnimationClip& clip, float time) {
+    std::vector<BonePose> pose(sk.bones.size());
+    for (size_t b = 0; b < sk.bones.size(); ++b) pose[b] = DecomposeTRS(sk.bones[b].localBind);
     for (const auto& ch : clip.channels) {
-        if (ch.boneIndex < 0 || static_cast<size_t>(ch.boneIndex) >= local.size()) continue;
-        const glm::vec3 p = anim_detail::SampleVec3(ch.posKeys,   time, glm::vec3(0.0f));
-        const glm::quat q = anim_detail::SampleQuat(ch.rotKeys,   time);
-        const glm::vec3 s = anim_detail::SampleVec3(ch.scaleKeys, time, glm::vec3(1.0f));
-        local[ch.boneIndex] = glm::translate(glm::mat4(1.0f), p) * glm::mat4_cast(q) * glm::scale(glm::mat4(1.0f), s);
+        if (ch.boneIndex < 0 || static_cast<size_t>(ch.boneIndex) >= pose.size()) continue;
+        BonePose& bp = pose[ch.boneIndex];
+        if (!ch.posKeys.empty())   bp.T = anim_detail::SampleVec3(ch.posKeys,   time, bp.T);
+        if (!ch.rotKeys.empty())   bp.R = anim_detail::SampleQuat(ch.rotKeys,   time);
+        if (!ch.scaleKeys.empty()) bp.S = anim_detail::SampleVec3(ch.scaleKeys, time, bp.S);
     }
+    return pose;
+}
+
+// Per-bone blend of two LOCAL poses: lerp T/S, slerp R (shortest-path). Clamped to the shorter size.
+inline std::vector<BonePose> BlendPoses(const std::vector<BonePose>& a, const std::vector<BonePose>& b, float w) {
+    const size_t n = a.size() < b.size() ? a.size() : b.size();
+    std::vector<BonePose> out(n);
+    for (size_t i = 0; i < n; ++i) {
+        out[i].T = glm::mix(a[i].T, b[i].T, w);
+        glm::quat qb = b[i].R;
+        if (glm::dot(a[i].R, qb) < 0.0f) qb = -qb;
+        out[i].R = glm::normalize(glm::slerp(a[i].R, qb, w));
+        out[i].S = glm::mix(a[i].S, b[i].S, w);
+    }
+    return out;
+}
+
+// Compose each LOCAL TRS + hierarchy walk (topo order: parent index < b) -> model-space globals.
+inline std::vector<glm::mat4> PoseToGlobals(const Skeleton& sk, const std::vector<BonePose>& localPoses) {
     std::vector<glm::mat4> global(sk.bones.size());
-    for (size_t b = 0; b < sk.bones.size(); ++b) {
+    for (size_t b = 0; b < sk.bones.size() && b < localPoses.size(); ++b) {
+        const glm::mat4 local = ComposeTRS(localPoses[b]);
         const int parent = sk.bones[b].parent;
-        global[b] = (parent < 0) ? local[b] : global[parent] * local[b];
+        global[b] = (parent < 0) ? local : global[parent] * local;
     }
     return global;
+}
+
+// Single-clip globals (SP3 convenience): sample the pose, then walk. Equivalent to the prior direct
+// implementation for fully-keyed clips.
+inline std::vector<glm::mat4> SampleAnimation(const Skeleton& sk, const AnimationClip& clip, float time) {
+    return PoseToGlobals(sk, SampleClipPose(sk, clip, time));
 }
