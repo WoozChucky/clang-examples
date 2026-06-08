@@ -10,6 +10,7 @@
 #include "SimulationPanel.h"
 #include "MaterialManagerPanel.h"
 #include "MeshManagerPanel.h"
+#include "AnimatorGraphPanel.h"
 #include "EcsInspectorPanel.h"
 #include "MainMenuBar.h"
 #include "EditorCamera.h"
@@ -73,6 +74,7 @@ private:
     SimulationPanel  m_Simulation;
     MaterialManagerPanel m_MaterialManager;
     MeshManagerPanel m_MeshManager;
+    AnimatorGraphPanel m_AnimatorGraph;
     EcsInspectorPanel m_EcsInspector;
 
     ServerSupervisor m_ServerSupervisor; // out-of-process dedicated server; dtor kills child on teardown

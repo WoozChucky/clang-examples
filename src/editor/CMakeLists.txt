@@ -13,6 +13,7 @@ add_executable(editor
     # Editor panels
     src/panels/EcsInspectorPanel.cpp
     src/panels/MaterialManagerPanel.cpp
+    src/panels/AnimatorGraphPanel.cpp
     src/panels/MeshManagerPanel.cpp
     src/panels/NavigationPanel.cpp
     src/panels/DedicatedServerPanel.cpp

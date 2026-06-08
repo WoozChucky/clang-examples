@@ -511,6 +511,9 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
         m_MaterialManager.Draw(ctx);
 
+        static bool s_ShowAnimatorGraphPanel = true;
+        m_AnimatorGraph.Draw(ctx, &s_ShowAnimatorGraphPanel);
+
         // Publish input-routing flags for the PlatformThread: the game gets mouse only when the
         // Viewport is hovered (and no gizmo drag), keyboard only when it's focused (and no text
         // field is active). Computed after the panels so ImGui's WantTextInput is up to date.
