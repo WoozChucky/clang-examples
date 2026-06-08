@@ -16,6 +16,10 @@
 #include "MenuButtonComponent.h"  // game-owned component (moved out of ECS.h)
 #include "VelocityComponent.h"  // game-owned component: finite-differenced movement velocity
 #include "AssetKey.h"  // AssetKeyHash — animator param keys (must match the engine evaluator's hashing)
+#include "AbilityRoot.h"  // ShouldRootMovement — game-owned root policy (pure, unit-tested)
+#include "AnimatorController.h"               // AnimatorController + NormalizedStateTime (cursor math)
+#include "animation/AnimationStore.h"         // AnimationStore — resolve a state's clip duration
+#include "animation/AnimatorControllerStore.h" // AnimatorControllerStore — resolve the player's controller
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 #include "WireCodec.h"  // protobuf wire-format encode/decode (plumbing demo)
 #include "SessionFlow.h"  // pure client session FSM driven by ClientSessionSystem
@@ -40,6 +44,12 @@
 #include <glm/gtc/quaternion.hpp>
 
 namespace {
+
+// Game-owned, transient (per-tick) tag: set by AbilityRootSystem from the animator cursor, read by
+// PlayerMovementSystem to suppress move intent while an ability roots the player. Never persisted —
+// header-instantiable game component, no serializer (mirrors how VelocityComponent is added/Modified,
+// minus the SerializerRegistry registration since it never round-trips to world.json).
+struct MovementLockedComponent { bool Locked = false; };
 
 // Spins every text entity and cycles its color. (Was GameUpdate/MainMenu.)
 class TextRotationSystem final : public ISystem {
@@ -246,6 +256,8 @@ public:
         const float dt = static_cast<float>(ctx.dt);
 
         ctx.world.Each<PlayerComponent, TransformComponent>([&](EntityId e) {
+            if (const auto* lock = ctx.world.GetComponent<MovementLockedComponent>(e); lock && lock->Locked)
+                return; // rooted by an ability this tick — emit no move intent
             float speed = 5.0f;
             if (const auto* p = ctx.world.GetComponent<PlayerComponent>(e)) speed = p->MoveSpeed;
             // Align movement to the isometric camera yaw so W = "up the screen".
@@ -393,6 +405,62 @@ public:
         });
     }
     const char* Name() const override { return "PlayerAnimParamSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PostSimulation; }
+};
+
+// LMB -> set the player's "attack" Trigger param (edge-detected). PostSimulation, gated to InLevel.
+class PlayerAbilitySystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
+        if (!gs || gs->Current != StateIndex(GameStateId::InLevel)) { m_PrevLmb = false; return; }
+        const auto* in = ctx.world.GetSingleton<InputStateComponent>();
+        const bool lmb = in && in->MousePressed[MOUSE_BUTTON_LEFT];
+        const bool edge = lmb && !m_PrevLmb;
+        m_PrevLmb = lmb;
+        if (!edge) return;
+        const uint64_t attackKey = AssetKeyHash("attack");
+        ctx.world.Each<PlayerComponent, AnimatorComponent>([&](EntityId e) {
+            ctx.world.Modify<AnimatorComponent>(e, [&](AnimatorComponent& a) {
+                for (auto& pr : a.Params) if (pr.first == attackKey) { pr.second = 1.0f; return; }
+                a.Params.emplace_back(attackKey, 1.0f);
+            });
+        });
+    }
+    const char* Name() const override { return "PlayerAbilitySystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PostSimulation; }
+private:
+    bool m_PrevLmb = false;
+};
+
+// Reads the player's animator cursor (state name + normalized time) and applies the game-owned root
+// policy (AbilityRoot.h) -> MovementLockedComponent. PostSimulation. Engine has zero ability knowledge.
+class AbilityRootSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
+        if (!gs || gs->Current != StateIndex(GameStateId::InLevel)) return;
+        ctx.world.Each<PlayerComponent, AnimatorComponent>([&](EntityId e) {
+            const auto* a = ctx.world.GetComponent<AnimatorComponent>(e);
+            if (!a) return;
+            bool rooted = false;
+            if (const auto ctrl = AnimatorControllerStore::Instance().Get(a->ControllerId)) {
+                const int s = a->CurrentState;
+                if (s >= 0 && s < (int)ctrl->states.size()) {
+                    float dur = 0.0f;
+                    if (s < (int)ctrl->stateClipIds.size())
+                        if (const auto* clip = AnimationStore::Instance().Get(ctrl->stateClipIds[s]))
+                            dur = clip->duration;
+                    const float norm = NormalizedStateTime(ctrl->states[s], a->StateTime, a->Phase, dur);
+                    rooted = ShouldRootMovement(ctrl->states[s].name, norm);
+                }
+            }
+            if (!ctx.world.HasComponent<MovementLockedComponent>(e))
+                ctx.world.AddComponent(e, MovementLockedComponent{});
+            ctx.world.Modify<MovementLockedComponent>(e, [&](MovementLockedComponent& m){ m.Locked = rooted; });
+        });
+    }
+    const char* Name() const override { return "AbilityRootSystem"; }
     SystemPhase Phase() const override { return SystemPhase::PostSimulation; }
 };
 
@@ -970,6 +1038,8 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<CameraZoomSystem>());                // PostSimulation: before follow (sets distance)
     s->Register(std::make_unique<IsometricFollowCameraSystem>());     // PostSimulation: reads post-resolution Transform
     s->Register(std::make_unique<PlayerAnimParamSystem>());          // PostSimulation: velocity -> animator "speed"
+    s->Register(std::make_unique<PlayerAbilitySystem>());            // PostSimulation: LMB -> attack trigger
+    s->Register(std::make_unique<AbilityRootSystem>());             // PostSimulation: cursor -> movement lock
     s->Register(std::make_unique<NetPumpSystem>());                  // Input: drains shared net ring -> per-adapter inboxes (before flow systems)
     s->Register(std::make_unique<AuthServerSystem>());               // PreRender: dual-server flow — auth (login/world)
     s->Register(std::make_unique<WorldServerSystem>());              // PreRender: dual-server flow — world (session/char/enter)

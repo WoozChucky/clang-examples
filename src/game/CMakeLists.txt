@@ -45,7 +45,7 @@ add_library(game SHARED
 
 target_include_directories(game PUBLIC include)
 
-target_link_libraries(game PRIVATE glm::glm CommonHeaders ecs netlib)
+target_link_libraries(game PRIVATE glm::glm CommonHeaders ecs netlib Engine)
 
 target_compile_definitions(game PRIVATE GAME_EXPORTS NOMINMAX WIN32_LEAN_AND_MEAN ${GLM_DEFINES})
 

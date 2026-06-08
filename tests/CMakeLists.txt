@@ -914,3 +914,25 @@ set_target_properties(test_animgraph PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
     FOLDER Tests
 )
+
+add_executable(test_abilityroot
+    test_abilityroot.cpp
+)
+target_link_libraries(test_abilityroot PRIVATE
+    CommonHeaders
+    glm::glm
+    ecs
+)
+target_include_directories(test_abilityroot PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/game/src
+)
+target_compile_definitions(test_abilityroot PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RIGHT_HANDED
+    GLM_ENABLE_EXPERIMENTAL
+)
+set_target_properties(test_abilityroot PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
