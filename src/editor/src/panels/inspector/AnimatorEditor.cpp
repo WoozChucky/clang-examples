@@ -5,6 +5,8 @@
 #include "ApplicationContext.h"
 #include "ECSCommands.h"
 #include "animation/AnimatorControllerStore.h"
+#include "animation/AnimationStore.h"
+#include "AnimatorController.h"
 #include "AssetKey.h"
 #include "lib.h"
 
@@ -60,6 +62,13 @@ void AnimatorEditor::DrawEditor(const EditorContext& ctx, EntityId e) {
                         stateName(live->CurrentState), w, live->TransitionCyclic ? " (phase-sync)" : "");
         }
         ImGui::Text("Phase: %.3f", live->Phase);
+            if (live->CurrentState >= 0 && live->CurrentState < (int)c->states.size()) {
+                float dur = 0.0f;
+                if (live->CurrentState < (int)c->stateClipIds.size())
+                    if (const auto* clip = AnimationStore::Instance().Get(c->stateClipIds[live->CurrentState]))
+                        dur = clip->duration;
+                ImGui::Text("Norm: %.3f", NormalizedStateTime(c->states[live->CurrentState], live->StateTime, live->Phase, dur));
+            }
 
         ImGui::SeparatorText("Params (drag to test)");
         for (const auto& decl : c->params) {

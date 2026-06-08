@@ -602,6 +602,18 @@ void AnimatorGraphPanel::Draw(const EditorContext& ctx, bool* open) {
 
                 if (ImGui::DragFloat("duration", &t.duration, 0.01f, 0.0f, 10.0f)) MarkEdited();
 
+                // Exit-time (ignored for anyState transitions — no single FROM state to measure).
+                if (t.from == "*") {
+                    ImGui::TextDisabled("(exit-time N/A for anyState)");
+                } else {
+                    if (ImGui::Checkbox("has exit time", &t.hasExitTime)) MarkEdited();
+                    if (t.hasExitTime) {
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(120.0f);
+                        if (ImGui::SliderFloat("exit time", &t.exitTime, 0.0f, 1.0f)) MarkEdited();
+                    }
+                }
+
                 ImGui::SeparatorText("Conditions");
                 const char* opNames[] = { "Greater", "Less", "GreaterEqual", "LessEqual", "Equal" };
                 int removeCond = -1;
