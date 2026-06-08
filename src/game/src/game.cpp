@@ -14,6 +14,8 @@
 #include "StateNameRegistry.h"  // register game state bit-index -> label for the editor
 #include "Actions.h"     // ActionCategory / Actions::
 #include "MenuButtonComponent.h"  // game-owned component (moved out of ECS.h)
+#include "VelocityComponent.h"  // game-owned component: finite-differenced movement velocity
+#include "AssetKey.h"  // AssetKeyHash — animator param keys (must match the engine evaluator's hashing)
 #include "Atmosphere.h" // SunDirectionFromAngles (static-mode sun direction)
 #include "WireCodec.h"  // protobuf wire-format encode/decode (plumbing demo)
 #include "SessionFlow.h"  // pure client session FSM driven by ClientSessionSystem
@@ -347,6 +349,51 @@ public:
     }
     const char* Name() const override { return "KinematicMovementSystem"; }
     SystemPhase Phase() const override { return SystemPhase::Physics; }
+};
+
+// Finite-differences actual post-resolution velocity into VelocityComponent. Physics phase, AFTER
+// KinematicMovementSystem (which moves the transform). Robust to walls/nav: a stuck or stationary
+// entity reads zero. Ungated — no-ops when no entity carries VelocityComponent.
+class VelocitySystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const float dt = static_cast<float>(ctx.dt);
+        if (dt <= 0.0f) return;
+        ctx.world.Each<TransformComponent, VelocityComponent>([&](EntityId e) {
+            const auto* tr = ctx.world.GetComponent<TransformComponent>(e);
+            if (!tr) return;
+            ctx.world.Modify<VelocityComponent>(e, [&](VelocityComponent& v) {
+                if (!v.Init) { v.PrevPos = tr->Position; v.Init = true; v.Linear = glm::vec3(0.0f); return; }
+                v.Linear  = (tr->Position - v.PrevPos) / dt;
+                v.PrevPos = tr->Position;
+            });
+        });
+    }
+    const char* Name() const override { return "VelocitySystem"; }
+    SystemPhase Phase() const override { return SystemPhase::Physics; }
+};
+
+// Sets the player's animator "speed" parameter from horizontal velocity. PostSimulation, after
+// Physics (so velocity is current). The ONLY gameplay->animation coupling; bosses/AI mirror this
+// pattern over their own controllers + params.
+class PlayerAnimParamSystem final : public ISystem {
+public:
+    void Update(SystemContext& ctx) override {
+        const auto* gs = ctx.world.GetSingleton<GameStateComponent>();
+        if (!gs || gs->Current != StateIndex(GameStateId::InLevel)) return;
+        const uint64_t speedKey = AssetKeyHash("speed");
+        ctx.world.Each<PlayerComponent, AnimatorComponent, VelocityComponent>([&](EntityId e) {
+            const auto* v = ctx.world.GetComponent<VelocityComponent>(e);
+            if (!v) return;
+            const float speed = glm::length(glm::vec3(v->Linear.x, 0.0f, v->Linear.z));
+            ctx.world.Modify<AnimatorComponent>(e, [&](AnimatorComponent& a) {
+                for (auto& pr : a.Params) if (pr.first == speedKey) { pr.second = speed; return; }
+                a.Params.emplace_back(speedKey, speed); // lazy-add if controller assignment didn't seed it
+            });
+        });
+    }
+    const char* Name() const override { return "PlayerAnimParamSystem"; }
+    SystemPhase Phase() const override { return SystemPhase::PostSimulation; }
 };
 
 // Host-owned GameState pointer (set in GameUpdate). Declared ahead of the systems because
@@ -918,9 +965,11 @@ void GameRegisterSystems(SystemScheduler* s) {
     s->Register(std::make_unique<PlayerMovementSystem>());            // Simulation: writes MoveIntent from input
     s->Register(std::make_unique<NavAgentSystem>());                  // Simulation: writes MoveIntent from navmesh path
     s->Register(std::make_unique<KinematicMovementSystem>());         // Physics: resolves intent + applies Transform
+    s->Register(std::make_unique<VelocitySystem>());                 // Physics: finite-diff velocity (after Kinematic)
     s->Register(std::make_unique<NavObstacleSyncSystem>());           // Physics: syncs NavObstacleComponent → dtTileCache
     s->Register(std::make_unique<CameraZoomSystem>());                // PostSimulation: before follow (sets distance)
     s->Register(std::make_unique<IsometricFollowCameraSystem>());     // PostSimulation: reads post-resolution Transform
+    s->Register(std::make_unique<PlayerAnimParamSystem>());          // PostSimulation: velocity -> animator "speed"
     s->Register(std::make_unique<NetPumpSystem>());                  // Input: drains shared net ring -> per-adapter inboxes (before flow systems)
     s->Register(std::make_unique<AuthServerSystem>());               // PreRender: dual-server flow — auth (login/world)
     s->Register(std::make_unique<WorldServerSystem>());              // PreRender: dual-server flow — world (session/char/enter)
@@ -942,6 +991,11 @@ void GameRegisterComponents() {
         changed |= ui.ColorEdit4(j, "Hover");
         changed |= ui.ColorEdit4(j, "Press");
         return changed;
+    });
+
+    SerializerRegistry().Register<VelocityComponent>("VelocityComponent");
+    SerializerRegistry().RegisterEditorHook("VelocityComponent", [](const EditorUI& ui, nlohmann::json& j) {
+        return ui.DragFloat3(j, "Linear", 0.0f);
     });
 }
 
