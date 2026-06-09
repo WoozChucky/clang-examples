@@ -130,7 +130,9 @@ public:
     // Directional-shadow GPU resources + shared view. Created/destroyed with the backend.
     // The shadow pass (Task 3) renders into m_ShadowFb and publishes LightVP into m_ShadowView;
     // the mesh pass (Task 4) samples m_ShadowDepth via m_ShadowSampler.
-    struct ShadowView { glm::mat4 LightVP{1.0f}; int Enabled = 0; };
+    // Radius = world-space half-extent of the fitted ortho box this frame (0 when disabled).
+    // LightingRenderPass derives the shadow-texel world size from it (2*Radius / kShadowMapSize).
+    struct ShadowView { glm::mat4 LightVP{1.0f}; int Enabled = 0; float Radius = 0.0f; };
 
     nvrhi::ITexture*     GetShadowDepthTexture() const { return m_ShadowDepth; }
     nvrhi::ISampler*     GetShadowSampler()      const { return m_ShadowSampler; }

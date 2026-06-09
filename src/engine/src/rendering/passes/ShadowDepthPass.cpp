@@ -101,12 +101,15 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
     bool haveFit = false;
     {
         const CameraView& cam = m_Renderer->GetActiveCamera();
-        const glm::vec3 fwd  = CameraForward(cam.View);
-        const float coverage = glm::max(shadow.ShadowDistance, 1.0f); // box size (world units); frustum-fit in a later task
+        const glm::vec3 fwd = CameraForward(cam.View);
         if (glm::dot(fwd, fwd) > 0.5f) {                              // valid camera basis
-            const glm::vec3 focus = GroundFocus(cam.Position, fwd, coverage);
-            radius = coverage * 0.5f;                                 // ortho half-extent
-            center = SnapToTexelGrid(focus, radius, sunDir, Renderer::kShadowMapSize);
+            // Fit the ortho box to the camera frustum slice [near, ShadowDistance], so the fixed
+            // 4096^2 texels concentrate exactly on what the camera sees. Smaller ShadowDistance
+            // -> smaller box -> smaller texels -> sharper shadows.
+            const float dist = glm::max(shadow.ShadowDistance, 1.0f);
+            const ShadowSphere s = FrustumSliceSphere(cam.View, cam.Projection, dist);
+            radius = glm::max(s.radius, 1.0f);                        // ortho half-extent
+            center = SnapToTexelGrid(s.center, radius, sunDir, Renderer::kShadowMapSize);
             haveFit = true;
         }
     }
@@ -135,6 +138,7 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
     const glm::mat4 lightVP = ComputeLightViewProj(center, radius, sunDir, shadow.NearExtend);
     sv.LightVP = lightVP;
     sv.Enabled = 1;
+    sv.Radius  = radius;
 
     nvrhi::IFramebuffer* shadowFb = m_Renderer->GetShadowFramebuffer();
     if (!shadowFb)
