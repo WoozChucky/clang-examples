@@ -15,7 +15,7 @@
 // G-buffer MRTs. Registers mirror the mesh-pass scheme (CB b0, texture t2, sampler s3,
 // instances t5) so the Vulkan flat-binding offsets line up.
 static const char* GBUF_VS_HLSL = R"(
-struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4x4 PrevModel; float4 BaseColor; uint Flags; uint IsSkinned; uint PrevSkinnedOffset; uint _pad; };
+struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4x4 PrevModel; float4 BaseColor; uint Flags; uint IsSkinned; uint PrevSkinnedOffset; uint CurSkinnedOffset; };
 struct MeshVertex { float3 Position; float3 Normal; float2 UV; };
 cbuffer PerFrame : register(b0) { float4x4 uVP; float4x4 uPrevVP; };
 StructuredBuffer<InstanceData> gInstances : register(t5);
@@ -25,7 +25,11 @@ struct VSOut { float4 PosH:SV_POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD
 VSOut main_vs(VSIn vin){
     InstanceData inst = gInstances[vin.InstanceID];
     float4 wp = mul(inst.Model, float4(vin.Position,1.0));
-    float3 prevPos = (inst.IsSkinned != 0) ? gPrevSkinned[vin.VertexID + inst.PrevSkinnedOffset].Position : vin.Position;
+    // SV_VertexID already includes the current draw's BaseVertexLocation (= current skinned offset),
+    // so subtract it to get the mesh-local index, then add the previous-frame offset.
+    float3 prevPos = (inst.IsSkinned != 0)
+        ? gPrevSkinned[vin.VertexID - inst.CurSkinnedOffset + inst.PrevSkinnedOffset].Position
+        : vin.Position;
     float4 prevWp = mul(inst.PrevModel, float4(prevPos,1.0));
     VSOut o;
     o.PosH    = mul(uVP, wp);
@@ -37,7 +41,7 @@ VSOut main_vs(VSIn vin){
 )";
 
 static const char* GBUF_PS_HLSL = R"(
-struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4x4 PrevModel; float4 BaseColor; uint Flags; uint IsSkinned; uint PrevSkinnedOffset; uint _pad; };
+struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4x4 PrevModel; float4 BaseColor; uint Flags; uint IsSkinned; uint PrevSkinnedOffset; uint CurSkinnedOffset; };
 Texture2D uTexture : register(t2);
 SamplerState uSampler : register(s3);
 StructuredBuffer<InstanceData> gInstances : register(t5);
@@ -329,6 +333,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             inst.Flags = flags;
             inst.IsSkinned = 0u;            // Task 2 sets 1 for skinned draws
             inst.PrevSkinnedOffset = 0u;
+            inst.CurSkinnedOffset = 0u;     // static path: no baseVertex shift
 
             instanceEntities[instanceOut] = entity;
             instances[instanceOut++] = inst;
@@ -448,6 +453,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                 const bool havePrevSkinned = useSkinned && prevSkinnedVB && (prevOff >= 0);
                 instances[i].IsSkinned = havePrevSkinned ? 1u : 0u;
                 instances[i].PrevSkinnedOffset = havePrevSkinned ? static_cast<uint32_t>(prevOff) : 0u;
+                instances[i].CurSkinnedOffset = (uint32_t)baseVertex; // = startVertexLocation for this skinned draw
 
                 // This entity's InstanceData at element 0 -> read by gInstances[SV_InstanceID==0].
                 commandList->writeBuffer(m_InstanceBuffer, &instances[i], sizeof(MeshInstanceCPU));

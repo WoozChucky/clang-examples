@@ -23,7 +23,7 @@ private:
     struct GBufFrameCB { glm::mat4 VP; glm::mat4 PrevVP; };
     struct MeshInstanceCPU { // keep identical to the HLSL InstanceData (VS + PS) field-for-field
         glm::mat4 Model; glm::mat4 NormalMatrix; glm::mat4 PrevModel; glm::vec4 BaseColor;
-        uint32_t Flags; uint32_t IsSkinned; uint32_t PrevSkinnedOffset; uint32_t _pad;
+        uint32_t Flags; uint32_t IsSkinned; uint32_t PrevSkinnedOffset; uint32_t CurSkinnedOffset;
     };
     static_assert(sizeof(MeshInstanceCPU) % 16 == 0, "MeshInstanceCPU must be 16-byte aligned");
 

@@ -124,6 +124,9 @@ void SkinningComputePass::EnsurePaletteCapacity(uint32_t matrixCount)
 
 void SkinningComputePass::EnsureSkinnedCapacity(uint32_t totalVertices)
 {
+    // Sizes ONLY the current buffer (m_SkinnedVB); the prev buffer catches up on its next
+    // turn-as-current (post-swap in Execute). So capacities ratchet upward independently —
+    // at most 2 reallocs per peak, no per-frame thrash.
     if (totalVertices <= m_SkinnedCapacity && m_SkinnedVB)
         return;
     uint32_t cap = m_SkinnedCapacity ? m_SkinnedCapacity : 4096;
