@@ -440,6 +440,15 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                 nvrhi::IBuffer* vb = useSkinned ? skinnedVB : meshResources.vertexBuffer.Get();
                 const uint32_t baseVertex = useSkinned ? (uint32_t)skinnedOff : 0u;
 
+                // Previous frame's skinned pose for motion vectors. Available only if this entity was
+                // skinned both this frame (useSkinned) AND last frame (prevOff >= 0). Otherwise the VS
+                // falls back to IsSkinned=0 (zero skinned velocity) for this entity for one frame.
+                const int64_t prevOff = skinningPass ? skinningPass->GetPrevSkinnedVertexOffset(entity) : -1;
+                nvrhi::IBuffer* prevSkinnedVB = skinningPass ? skinningPass->GetPrevSkinnedVertexBuffer() : nullptr;
+                const bool havePrevSkinned = useSkinned && prevSkinnedVB && (prevOff >= 0);
+                instances[i].IsSkinned = havePrevSkinned ? 1u : 0u;
+                instances[i].PrevSkinnedOffset = havePrevSkinned ? static_cast<uint32_t>(prevOff) : 0u;
+
                 // This entity's InstanceData at element 0 -> read by gInstances[SV_InstanceID==0].
                 commandList->writeBuffer(m_InstanceBuffer, &instances[i], sizeof(MeshInstanceCPU));
 
@@ -455,7 +464,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                             nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
                             nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
                             nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer),
-                            nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_DummyPrevSkinned)
+                            nvrhi::BindingSetItem::StructuredBuffer_SRV(6, havePrevSkinned ? prevSkinnedVB : static_cast<nvrhi::IBuffer*>(m_DummyPrevSkinned))
                         };
                         nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
@@ -483,7 +492,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                         nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
                         nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
                         nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer),
-                        nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_DummyPrevSkinned)
+                        nvrhi::BindingSetItem::StructuredBuffer_SRV(6, havePrevSkinned ? prevSkinnedVB : static_cast<nvrhi::IBuffer*>(m_DummyPrevSkinned))
                     };
                     nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 

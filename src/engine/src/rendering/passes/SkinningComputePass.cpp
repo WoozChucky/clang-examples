@@ -151,9 +151,18 @@ int64_t SkinningComputePass::GetSkinnedVertexOffset(EntityId e) const
 
 void SkinningComputePass::Execute(nvrhi::ICommandList* cl, const ECS* world, const PaletteFrame* palette)
 {
-    m_OffsetByEntity.clear();
     if (!cl || !world || !palette || palette->ranges.empty() || palette->matrices.empty())
+    {
+        m_OffsetByEntity.clear();
         return;
+    }
+
+    // Promote last frame's skinned output to "previous" before computing this frame's.
+    // (GBuffer runs AFTER this pass in-frame and reads m_PrevSkinned* as last frame's pose.)
+    std::swap(m_SkinnedVB, m_PrevSkinnedVB);
+    std::swap(m_SkinnedCapacity, m_PrevSkinnedCapacity);
+    m_PrevOffsetByEntity.swap(m_OffsetByEntity);   // last frame's offsets become prev
+    m_OffsetByEntity.clear();                      // this frame's offsets start empty
 
     MeshSystem* meshSystem = m_Renderer->GetMeshSystem();
     if (!meshSystem)
@@ -252,6 +261,9 @@ void SkinningComputePass::DestroyGpuResources()
     m_SkinnedCapacity = 0;
     m_PaletteCapacity = 0;
     m_OffsetByEntity.clear();
+    m_PrevSkinnedVB = nullptr;
+    m_PrevSkinnedCapacity = 0;
+    m_PrevOffsetByEntity.clear();
     m_Device = nullptr;
     m_Renderer = nullptr;
 }

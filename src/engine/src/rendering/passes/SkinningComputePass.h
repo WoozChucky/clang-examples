@@ -22,6 +22,11 @@ public:
     void Execute(nvrhi::ICommandList* cl, const ECS* world, const PaletteFrame* palette);
     nvrhi::IBuffer* GetSkinnedVertexBuffer() const { return m_SkinnedVB; }
     int64_t GetSkinnedVertexOffset(EntityId e) const;       // -1 if entity not skinned this frame
+    nvrhi::IBuffer* GetPrevSkinnedVertexBuffer() const { return m_PrevSkinnedVB; }
+    int64_t GetPrevSkinnedVertexOffset(EntityId e) const {  // -1 if entity not skinned last frame
+        auto it = m_PrevOffsetByEntity.find(e);
+        return (it != m_PrevOffsetByEntity.end()) ? static_cast<int64_t>(it->second) : -1;
+    }
     void DestroyGpuResources();
     bool RecreateGpuResources(nvrhi::IDevice* device, Renderer* renderer);
 private:
@@ -38,4 +43,10 @@ private:
     uint32_t m_SkinnedCapacity = 0;      // in MeshVertex elements
     uint32_t m_PaletteCapacity = 0;      // in mat4 elements
     std::unordered_map<EntityId, uint32_t> m_OffsetByEntity;
+    // Previous frame's skinned output, double-buffered for motion vectors. Promoted (swapped) from
+    // the current members at the TOP of Execute; GBuffer (runs after this pass in-frame) reads these
+    // as last frame's pose. See Execute().
+    nvrhi::BufferHandle m_PrevSkinnedVB;
+    uint32_t            m_PrevSkinnedCapacity = 0;
+    std::unordered_map<EntityId, uint32_t> m_PrevOffsetByEntity;
 };
