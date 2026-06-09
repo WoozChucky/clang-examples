@@ -141,51 +141,74 @@ cbuffer SsaoCB : register(b0) {
 #define DIRS 4
 #define STEPS 8
 #define PI 3.14159265
-// Max horizon angle (radians from the view vector) marching `dir` from Pw, sampling worldpos.
-float horizonAngle(float3 Pw, float3 Pv, float3 dir, float radius,
-                   float4x4 vp, float4x4 vw, Texture2D wp, SamplerState pt) {
-    float cosH = -1.0;
-    [loop] for (int s = 1; s <= STEPS; ++s) {
-        float3 sw = Pw + dir * (radius * (float(s)/STEPS));
-        float4 clip = mul(vp, float4(sw,1));
-        if (clip.w <= 1e-5) continue;
-        float2 suv = clip.xy/clip.w*0.5+0.5; suv.y = 1-suv.y;
-        if (any(suv<0)||any(suv>1)) continue;
-        float3 Ov = mul(vw, float4(wp.SampleLevel(pt,suv,0).xyz,1)).xyz;
-        float3 h = Ov - Pv; float len = length(h);
-        if (len < 1e-4 || len > radius) continue;
-        float c = dot(normalize(h), normalize(-Pv)); // vs view direction (toward camera)
-        cosH = max(cosH, c);
-    }
-    return acos(clamp(cosH, -1.0, 1.0));
-}
 [numthreads(8,8,1)]
 void main_cs(uint3 tid : SV_DispatchThreadID) {
     uint2 px = tid.xy;
     if (px.x >= (uint)uRtSize.x || px.y >= (uint)uRtSize.y) return;
-    float2 uv = (float2(px)+0.5)*uRtSize.zw;
+    float2 uv = (float2(px) + 0.5) * uRtSize.zw;
     float3 Nw = uNormal.SampleLevel(uPt, uv, 0).xyz;
     if (dot(Nw,Nw) < 0.5) { uOut[px] = 1.0; return; }
     Nw = normalize(Nw);
     float3 Pw = uWorldPos.SampleLevel(uPt, uv, 0).xyz;
-    float3 Pv = mul(uView, float4(Pw,1)).xyz;
+    float3 P  = mul(uView, float4(Pw,1)).xyz;          // view-space pos
+    float3 N  = normalize(mul((float3x3)uView, Nw));   // view-space normal
+    float3 V  = normalize(-P);                          // toward camera
     float radius = uParams.x, intensity = uParams.z, power = uParams.w;
     float3 up = abs(Nw.y) < 0.99 ? float3(0,1,0) : float3(1,0,0);
-    float3 T0 = normalize(cross(up, Nw)); float3 B0 = cross(Nw, T0);
-    float2 fpx = floor(uv*uRtSize.xy); float2 cell = fmod(fpx,4.0);
-    float jit = frac(sin((cell.y*4.0+cell.x)*12.9898)*43758.5453);
-    float vis = 0.0;
+    float3 T0 = normalize(cross(up, Nw));
+    float3 B0 = cross(Nw, T0);
+    float2 fpx = floor(uv * uRtSize.xy); float2 cell = fmod(fpx, 4.0);
+    float jit = frac(sin((cell.y*4.0 + cell.x) * 12.9898) * 43758.5453);
+    float ao = 0.0;
     [loop] for (int d = 0; d < DIRS; ++d) {
-        float ang = (float(d)+jit)*(PI/DIRS);
-        float3 dir = T0*cos(ang) + B0*sin(ang);
-        float h1 = horizonAngle(Pw, Pv,  dir, radius, uViewProj, uView, uWorldPos, uPt);
-        float h2 = horizonAngle(Pw, Pv, -dir, radius, uViewProj, uView, uWorldPos, uPt);
-        vis += (sin(h1) + sin(h2)) * 0.5;
+        float phi = (float(d) + jit) * (PI / DIRS);
+        float3 wd = T0 * cos(phi) + B0 * sin(phi);          // world-space slice dir (tangent plane)
+        float3 vd = normalize(mul((float3x3)uView, wd));    // view-space slice dir
+        float3 sliceN = cross(vd, V);
+        float sl = length(sliceN);
+        if (sl < 1e-4) continue;
+        sliceN /= sl;
+        float3 projN = N - sliceN * dot(N, sliceN);         // normal projected into slice plane
+        float projLen = length(projN);
+        if (projLen < 1e-4) continue;
+        projN /= projLen;
+        float3 axis = cross(sliceN, V);                     // in-slice axis perpendicular to V
+        float n = atan2(dot(projN, axis), dot(projN, V));   // signed normal angle from V
+        float cH1 = -1.0, cH2 = -1.0;                       // max cos(angle from V) per side
+        [loop] for (int s = 1; s <= STEPS; ++s) {
+            float t = radius * (float(s) / STEPS);
+            // +side
+            float4 c1 = mul(uViewProj, float4(Pw + wd * t, 1));
+            if (c1.w > 1e-5) {
+                float2 su = c1.xy/c1.w * 0.5 + 0.5; su.y = 1 - su.y;
+                if (all(su >= 0) && all(su <= 1)) {
+                    float3 ov = mul(uView, float4(uWorldPos.SampleLevel(uPt, su, 0).xyz, 1)).xyz;
+                    float3 h = ov - P; float l = length(h);
+                    if (l > 1e-4 && l < radius) cH1 = max(cH1, dot(h / l, V));
+                }
+            }
+            // -side
+            float4 c2 = mul(uViewProj, float4(Pw - wd * t, 1));
+            if (c2.w > 1e-5) {
+                float2 su = c2.xy/c2.w * 0.5 + 0.5; su.y = 1 - su.y;
+                if (all(su >= 0) && all(su <= 1)) {
+                    float3 ov = mul(uView, float4(uWorldPos.SampleLevel(uPt, su, 0).xyz, 1)).xyz;
+                    float3 h = ov - P; float l = length(h);
+                    if (l > 1e-4 && l < radius) cH2 = max(cH2, dot(h / l, V));
+                }
+            }
+        }
+        float h1 =  acos(clamp(cH1, -1.0, 1.0));             // +side horizon (>=0)
+        float h2 = -acos(clamp(cH2, -1.0, 1.0));             // -side horizon (<=0)
+        h1 = n + min(h1 - n,  PI * 0.5);                     // clamp to normal hemisphere
+        h2 = n + max(h2 - n, -PI * 0.5);
+        float a1 = 0.25 * (-cos(2.0*h1 - n) + cos(n) + 2.0*h1*sin(n));
+        float a2 = 0.25 * (-cos(2.0*h2 - n) + cos(n) + 2.0*h2*sin(n));
+        ao += projLen * (a1 + a2);                           // visibility (1=open, 0=occluded)
     }
-    float ao = vis / DIRS;
-    ao = pow(saturate(ao), power);
-    ao = lerp(1.0, ao, saturate(intensity));
-    uOut[px] = ao;
+    ao = ao / DIRS;
+    float occ = (1.0 - saturate(ao)) * intensity;            // intensity = occlusion multiplier (matches SSAO/HBAO)
+    uOut[px] = pow(saturate(1.0 - occ), power);
 }
 )";
 
