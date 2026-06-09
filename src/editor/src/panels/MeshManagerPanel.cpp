@@ -185,13 +185,14 @@ void MeshManagerPanel::Draw(const EditorContext& ctx)
 
             if (EditorFileDialog::Open(filePath, sizeof(filePath), filter)) {
                 // File selected, load it using MeshLoader
-                std::vector<MeshVertex> vertices;
-                std::vector<uint32_t> indices;
-                std::vector<MeshLoader::MeshMaterial> materials;
-                std::vector<SubMesh> subMeshes;
+                MeshLoader::LoadedModel model;
                 std::string error;
 
-                if (MeshLoader::LoadMeshFromFile(filePath, vertices, indices, subMeshes, materials, error)) {
+                if (MeshLoader::LoadModel(filePath, model, error)) {
+                    auto& vertices  = model.vertices;
+                    auto& indices   = model.indices;
+                    auto& subMeshes = model.subMeshes;
+                    auto& materials = model.materials;
                     bool hasSubMeshes = !subMeshes.empty();
                     // Successfully loaded, upload to GPU via MeshSystem
                     MeshHandle meshHandle = ctx.MeshSys->AddMesh(
