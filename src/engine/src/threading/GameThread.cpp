@@ -36,7 +36,6 @@
 #include "animation/AnimatorControllerStore.h"
 #include "RenderStats.h"
 #include "InputDrain.h"
-#include "MaterialLoader.h"
 #include "Timing.h"
 #include "MeshLoader.h"
 #include "WorldManager.h"
@@ -144,12 +143,11 @@ void GameThread::RunLoop() {
         for (const auto& entry : std::filesystem::directory_iterator(modelDir)) {
             if (entry.is_regular_file() && (entry.path().extension() == ".obj") || (entry.path().extension() == ".gltf")) {
                 const std::string objPath = entry.path().string();
-                const std::string mtlBaseDir = entry.path().parent_path().string();
                 const std::string assetKey = NormalizeAssetKey(objPath); // e.g. "models/tree.obj"
                 // Unique non-entity ticket per startup load — prevents pendingMeshData
                 // key collision in the Spec 5 mesh-cache flow. IsValidEntity stays false.
                 EnqueueModelLoadJob(m_NextLoadTicket.fetch_add(1, std::memory_order_relaxed),
-                                    objPath, mtlBaseDir, assetKey);
+                                    objPath, assetKey);
             }
         }
     }
@@ -896,12 +894,11 @@ void GameThread::DrainInputToSingleton(GameState& state) {
     state.FrameInputEventCount = m_FrameInput.size();
 }
 
-void GameThread::EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& mtlBaseDir, const std::string& assetKey)
+void GameThread::EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPath, const std::string& assetKey)
 {
     ModelLoadJob job;
     job.ticketId = ticketId;
     job.objPath = objPath;
-    job.mtlBaseDir = mtlBaseDir;
     job.assetKey = assetKey;
     {
         std::scoped_lock lg(m_JobMutex);
