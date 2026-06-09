@@ -127,6 +127,68 @@ void main_cs(uint3 tid : SV_DispatchThreadID) {
 }
 )";
 
+// GTAO compute shader: single-frame ground-truth-style AO. Same bindings as AO_CS (b0/t1/t2/s3/u4
+// -> m_AoLayout). Integrates a horizon-based visibility term over DIRS azimuth directions, each
+// marching STEPS steps in WORLD space (reprojected via uViewProj, matching AO_CS/HBAO_CS).
+static const char* GTAO_CS = R"(
+Texture2D       uNormal   : register(t1);
+Texture2D       uWorldPos : register(t2);
+SamplerState    uPt       : register(s3);
+RWTexture2D<float> uOut    : register(u4);
+cbuffer SsaoCB : register(b0) {
+    float4x4 uViewProj; float4x4 uView; float4 uKernel[16]; float4 uParams; float4 uRtSize;
+};
+#define DIRS 4
+#define STEPS 8
+#define PI 3.14159265
+// Max horizon angle (radians from the view vector) marching `dir` from Pw, sampling worldpos.
+float horizonAngle(float3 Pw, float3 Pv, float3 dir, float radius,
+                   float4x4 vp, float4x4 vw, Texture2D wp, SamplerState pt) {
+    float cosH = -1.0;
+    [loop] for (int s = 1; s <= STEPS; ++s) {
+        float3 sw = Pw + dir * (radius * (float(s)/STEPS));
+        float4 clip = mul(vp, float4(sw,1));
+        if (clip.w <= 1e-5) continue;
+        float2 suv = clip.xy/clip.w*0.5+0.5; suv.y = 1-suv.y;
+        if (any(suv<0)||any(suv>1)) continue;
+        float3 Ov = mul(vw, float4(wp.SampleLevel(pt,suv,0).xyz,1)).xyz;
+        float3 h = Ov - Pv; float len = length(h);
+        if (len < 1e-4 || len > radius) continue;
+        float c = dot(normalize(h), normalize(-Pv)); // vs view direction (toward camera)
+        cosH = max(cosH, c);
+    }
+    return acos(clamp(cosH, -1.0, 1.0));
+}
+[numthreads(8,8,1)]
+void main_cs(uint3 tid : SV_DispatchThreadID) {
+    uint2 px = tid.xy;
+    if (px.x >= (uint)uRtSize.x || px.y >= (uint)uRtSize.y) return;
+    float2 uv = (float2(px)+0.5)*uRtSize.zw;
+    float3 Nw = uNormal.SampleLevel(uPt, uv, 0).xyz;
+    if (dot(Nw,Nw) < 0.5) { uOut[px] = 1.0; return; }
+    Nw = normalize(Nw);
+    float3 Pw = uWorldPos.SampleLevel(uPt, uv, 0).xyz;
+    float3 Pv = mul(uView, float4(Pw,1)).xyz;
+    float radius = uParams.x, intensity = uParams.z, power = uParams.w;
+    float3 up = abs(Nw.y) < 0.99 ? float3(0,1,0) : float3(1,0,0);
+    float3 T0 = normalize(cross(up, Nw)); float3 B0 = cross(Nw, T0);
+    float2 fpx = floor(uv*uRtSize.xy); float2 cell = fmod(fpx,4.0);
+    float jit = frac(sin((cell.y*4.0+cell.x)*12.9898)*43758.5453);
+    float vis = 0.0;
+    [loop] for (int d = 0; d < DIRS; ++d) {
+        float ang = (float(d)+jit)*(PI/DIRS);
+        float3 dir = T0*cos(ang) + B0*sin(ang);
+        float h1 = horizonAngle(Pw, Pv,  dir, radius, uViewProj, uView, uWorldPos, uPt);
+        float h2 = horizonAngle(Pw, Pv, -dir, radius, uViewProj, uView, uWorldPos, uPt);
+        vis += (sin(h1) + sin(h2)) * 0.5;
+    }
+    float ao = vis / DIRS;
+    ao = pow(saturate(ao), power);
+    ao = lerp(1.0, ao, saturate(intensity));
+    uOut[px] = ao;
+}
+)";
+
 // Blur compute shader: STRAIGHT 4x4 box over the raw AO (LDS optimization comes in Task 3). The
 // integer offsets { -1, 0, 1, 2 } reproduce the previous PS's point-sampled {-1.5,-0.5,0.5,1.5}
 // texel box (the half-texel offsets land in the same source texels under point sampling).
@@ -183,6 +245,9 @@ bool SsaoRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
     m_HbaoCS = m_Renderer->CreateShader(nvrhi::ShaderType::Compute, HBAO_CS, strlen(HBAO_CS), "main_cs", "cs_6_1");
     if (!m_HbaoCS) { SM_ERROR("SsaoRenderPass: HBAO shader compilation failed"); return false; }
 
+    m_GtaoCS = m_Renderer->CreateShader(nvrhi::ShaderType::Compute, GTAO_CS, strlen(GTAO_CS), "main_cs", "cs_6_1");
+    if (!m_GtaoCS) { SM_ERROR("SsaoRenderPass: GTAO shader compilation failed"); return false; }
+
     { nvrhi::SamplerDesc sd; sd.setAllFilters(false); sd.setAllAddressModes(nvrhi::SamplerAddressMode::Clamp); m_PointClamp = m_Device->createSampler(sd); }
     if (!m_PointClamp) { SM_ERROR("SsaoRenderPass: sampler creation failed"); return false; }
 
@@ -229,8 +294,11 @@ void SsaoRenderPass::Render(nvrhi::ICommandList* commandList,
 
     if (s.Mode == AoMode::HBAO && !m_HbaoPipeline)
         m_HbaoPipeline = m_Device->createComputePipeline(nvrhi::ComputePipelineDesc{}.setComputeShader(m_HbaoCS).addBindingLayout(m_AoLayout));
+    if (s.Mode == AoMode::GTAO && !m_GtaoPipeline)
+        m_GtaoPipeline = m_Device->createComputePipeline(nvrhi::ComputePipelineDesc{}.setComputeShader(m_GtaoCS).addBindingLayout(m_AoLayout));
     nvrhi::IComputePipeline* aoPipe = m_AoPipeline;
     if (s.Mode == AoMode::HBAO && m_HbaoPipeline) aoPipe = m_HbaoPipeline;
+    if (s.Mode == AoMode::GTAO && m_GtaoPipeline) aoPipe = m_GtaoPipeline;
 
     const uint32_t W = raw->getDesc().width, H = raw->getDesc().height;
     const uint32_t gx = (W + 7) / 8, gy = (H + 7) / 8;
@@ -290,16 +358,19 @@ void SsaoRenderPass::OnResize(uint32_t /*width*/, uint32_t /*height*/)
     m_AoPipeline = nullptr;
     m_BlurPipeline = nullptr;
     m_HbaoPipeline = nullptr;
+    m_GtaoPipeline = nullptr;
 }
 
 void SsaoRenderPass::Shutdown()
 {
     m_AoPipeline = m_BlurPipeline = nullptr;
     m_HbaoPipeline = nullptr;
+    m_GtaoPipeline = nullptr;
     m_AoLayout = m_BlurLayout = nullptr;
     m_CB = nullptr;
     m_PointClamp = nullptr;
     m_AoCS = m_BlurCS = nullptr;
     m_HbaoCS = nullptr;
+    m_GtaoCS = nullptr;
     m_Device = nullptr; m_Renderer = nullptr;
 }
