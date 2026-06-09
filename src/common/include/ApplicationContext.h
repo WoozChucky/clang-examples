@@ -27,7 +27,7 @@ struct ApplicationSettings {
     float       shadowNearExtend  = 50.0f;
     float       shadowNormalOffset = 1.0f;   // normal-offset bias (shadow texels)
     float       shadowPcfRadius    = 1.5f;   // Poisson PCF penumbra radius (shadow texels)
-    bool        ssaoEnabled      = true;
+    int         ssaoMode         = 1;   // 0=Off,1=SSAO,2=HBAO,3=GTAO (see AoModeMigration.h)
     float       ssaoRadius       = 0.5f;
     float       ssaoIntensity    = 1.0f;
     float       ssaoPower        = 2.0f;

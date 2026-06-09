@@ -358,12 +358,12 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
 
             const SsaoSettings& ao = GetSsaoSettings();
             if (m_AppContext &&
-                (ao.Enabled   != m_AppContext->Settings.ssaoEnabled   ||
+                (static_cast<int>(ao.Mode) != m_AppContext->Settings.ssaoMode ||
                  ao.Radius    != m_AppContext->Settings.ssaoRadius    ||
                  ao.Intensity != m_AppContext->Settings.ssaoIntensity ||
                  ao.Power     != m_AppContext->Settings.ssaoPower     ||
                  ao.Bias      != m_AppContext->Settings.ssaoBias)) {
-                m_AppContext->Settings.ssaoEnabled   = ao.Enabled;
+                m_AppContext->Settings.ssaoMode      = static_cast<int>(ao.Mode);
                 m_AppContext->Settings.ssaoRadius    = ao.Radius;
                 m_AppContext->Settings.ssaoIntensity = ao.Intensity;
                 m_AppContext->Settings.ssaoPower     = ao.Power;

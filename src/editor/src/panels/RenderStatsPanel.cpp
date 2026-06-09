@@ -53,11 +53,18 @@ bool DrawRenderStatsPanel(bool* open)
 
     ImGui::TextDisabled("SSAO");
     SsaoSettings& ao = GetSsaoSettings();
-    changed |= ImGui::Checkbox("SSAO enabled", &ao.Enabled);
+    {
+        int aoMode = static_cast<int>(ao.Mode);
+        const char* aoNames[] = { "Off", "SSAO", "HBAO", "GTAO" };
+        if (ImGui::Combo("Ambient occlusion", &aoMode, aoNames, IM_ARRAYSIZE(aoNames))) {
+            ao.Mode = static_cast<AoMode>(aoMode);
+            changed = true;
+        }
+    }
     changed |= ImGui::SliderFloat("SSAO radius",    &ao.Radius,    0.05f, 3.0f, "%.2f");
     changed |= ImGui::SliderFloat("SSAO intensity", &ao.Intensity, 0.0f,  3.0f, "%.2f");
     changed |= ImGui::SliderFloat("SSAO power",     &ao.Power,     0.5f,  6.0f, "%.2f");
-    changed |= ImGui::SliderFloat("SSAO bias",      &ao.Bias,      0.0f,  0.2f, "%.3f");
+    changed |= ImGui::SliderFloat("SSAO bias (SSAO only)", &ao.Bias, 0.0f, 0.2f, "%.3f");
 
     ImGui::Separator();
     ImGui::TextDisabled("Anti-Aliasing");

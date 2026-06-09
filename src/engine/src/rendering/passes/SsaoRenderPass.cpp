@@ -153,7 +153,7 @@ void SsaoRenderPass::Render(nvrhi::ICommandList* commandList,
                             FrameAllocator* /*frameAllocator*/)
 {
     const SsaoSettings& s = GetSsaoSettings();
-    if (!s.Enabled) return;
+    if (s.Mode == AoMode::Off) return;
 
     nvrhi::ITexture* gN   = m_Renderer->GetGBufferNormal();
     nvrhi::ITexture* gP   = m_Renderer->GetGBufferWorldPos();

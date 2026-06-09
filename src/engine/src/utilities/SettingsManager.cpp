@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 
 #include "AaModeMigration.h" // ResolveAaMode
+#include "AoModeMigration.h" // ResolveAoMode
 
 using json = nlohmann::json;
 
@@ -82,7 +83,7 @@ bool Load(const std::string& filepath, ApplicationSettings* out) {
         }
         if (jr.contains("ssao") && jr["ssao"].is_object()) {
             const auto& jo = jr["ssao"];
-            if (jo.contains("enabled")   && jo["enabled"].is_boolean())  out->ssaoEnabled   = jo["enabled"].get<bool>();
+            out->ssaoMode = ResolveAoMode(jo); // migrates legacy "enabled" bool
             if (jo.contains("radius")    && jo["radius"].is_number())    out->ssaoRadius    = jo["radius"].get<float>();
             if (jo.contains("intensity") && jo["intensity"].is_number()) out->ssaoIntensity = jo["intensity"].get<float>();
             if (jo.contains("power")     && jo["power"].is_number())     out->ssaoPower     = jo["power"].get<float>();
@@ -113,7 +114,7 @@ bool Save(const std::string& filepath, const ApplicationSettings& settings) {
     j["renderer"]["shadow"]["nearExtend"]   = settings.shadowNearExtend;
     j["renderer"]["shadow"]["normalOffset"] = settings.shadowNormalOffset;
     j["renderer"]["shadow"]["pcfRadius"]    = settings.shadowPcfRadius;
-    j["renderer"]["ssao"]["enabled"]   = settings.ssaoEnabled;
+    j["renderer"]["ssao"]["mode"]      = settings.ssaoMode;
     j["renderer"]["ssao"]["radius"]    = settings.ssaoRadius;
     j["renderer"]["ssao"]["intensity"] = settings.ssaoIntensity;
     j["renderer"]["ssao"]["power"]     = settings.ssaoPower;

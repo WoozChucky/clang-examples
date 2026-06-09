@@ -33,7 +33,7 @@ bool Application::Init(std::optional<RendererAPI> backendOverride, OverlayFactor
     }
     {
         SsaoSettings& ao = GetSsaoSettings();
-        ao.Enabled   = m_AppContext->Settings.ssaoEnabled;
+        ao.Mode      = static_cast<AoMode>(m_AppContext->Settings.ssaoMode);
         ao.Radius    = m_AppContext->Settings.ssaoRadius;
         ao.Intensity = m_AppContext->Settings.ssaoIntensity;
         ao.Power     = m_AppContext->Settings.ssaoPower;

@@ -36,12 +36,14 @@ struct ShadowSettings {
     float PcfRadius      = 1.5f;    // Poisson PCF penumbra radius (shadow texels)
 };
 
+enum class AoMode : int { Off = 0, SSAO = 1, HBAO = 2, GTAO = 3 };
+
 struct SsaoSettings {
-    bool  Enabled   = true;
+    AoMode Mode     = AoMode::SSAO;
     float Radius    = 0.5f;    // world units
     float Intensity = 1.0f;    // occlusion strength
     float Power     = 2.0f;    // contrast (pow on AO)
-    float Bias      = 0.025f;  // view-depth bias to avoid self-occlusion
+    float Bias      = 0.025f;  // view-depth bias to avoid self-occlusion; SSAO-only (HBAO/GTAO ignore)
 };
 
 enum class AAMode : int { Off = 0, FXAA = 1, SMAA = 2 };

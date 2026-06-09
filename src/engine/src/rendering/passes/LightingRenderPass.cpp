@@ -283,7 +283,7 @@ void LightingRenderPass::Render(nvrhi::ICommandList* commandList,
         if (const auto* f = world->GetSingleton<FogComponent>()) fogEnabled = f->Enabled;
     }
     cb.FogEnabled = fogEnabled ? 1 : 0;
-    cb.SsaoEnabled = GetSsaoSettings().Enabled ? 1 : 0;
+    cb.SsaoEnabled = (GetSsaoSettings().Mode != AoMode::Off) ? 1 : 0;
     commandList->writeBuffer(m_FrameCB, &cb, sizeof(cb));
 
     if (m_PointLightBuffer && pointLightCount > 0)
