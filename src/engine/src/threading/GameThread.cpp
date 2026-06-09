@@ -23,7 +23,6 @@
 #include <GLFW/glfw3.h>
 #include <tracy/Tracy.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include "tiny_obj_loader.h"
 
 #include "lib.h"
 #include "AssetKey.h"
@@ -39,7 +38,7 @@
 #include "InputDrain.h"
 #include "MaterialLoader.h"
 #include "Timing.h"
-#include "assimp/scene.h"
+#include "MeshLoader.h"
 #include "WorldManager.h"
 #include "ComponentSerializerRegistry.h"
 #include "navigation/NavMeshSystem.h"
@@ -49,15 +48,6 @@
 #include "network/NetSubsystem.h"
 
 using namespace std::chrono_literals;
-
-static glm::mat4 AiToGlm(const aiMatrix4x4& m) {
-    // assimp is row-major; glm is column-major. Each (a,b,c,d) row below becomes a glm column.
-    return glm::mat4(
-        m.a1, m.b1, m.c1, m.d1,
-        m.a2, m.b2, m.c2, m.d2,
-        m.a3, m.b3, m.c3, m.d3,
-        m.a4, m.b4, m.c4, m.d4);
-}
 
 GameThread::GameThread(const std::shared_ptr<ApplicationContext> &appContext)
  : m_AppContext(appContext), m_Running(true), m_TickCounter(1) {
@@ -920,10 +910,6 @@ void GameThread::EnqueueModelLoadJob(uint64_t ticketId, const std::string& objPa
     m_JobCv.notify_one();
 }
 
-#include <assimp/Importer.hpp>
-#include <assimp/postprocess.h>
-#include <filesystem>
-
 void GameThread::WorkerThreadFunc()
 {
     tracy::SetThreadName("ModelWorker");
@@ -943,262 +929,35 @@ void GameThread::WorkerThreadFunc()
         result.ticketId = job.ticketId;
         result.assetKey = job.assetKey;
 
-        tinyobj::attrib_t attrib;
-        std::vector<tinyobj::shape_t> shapes;
-        std::vector<tinyobj::material_t> materials;
-        std::string warn;
-        std::string err;
-
-        const auto now = Clock::now();
-
-        Assimp::Importer importer;
-
-        const aiScene* scene = importer.ReadFile(job.objPath,
-            aiProcess_Triangulate |
-            aiProcess_GenSmoothNormals |
-            aiProcess_FlipUVs |
-            aiProcess_JoinIdenticalVertices);
-
-        if (!scene) {
-            SM_ERROR("Assimp failed to load scene '%s': %s", job.objPath.c_str(), importer.GetErrorString());
+        MeshLoader::LoadedModel model;
+        std::string loadErr;
+        if (!MeshLoader::LoadModel(job.objPath.c_str(), model, loadErr)) {
+            SM_ERROR("MeshLoader failed for '%s': %s", job.objPath.c_str(), loadErr.c_str());
             result.success = false;
-            result.error = std::string("Assimp failed to load scene: ") + importer.GetErrorString();
-            {
-                std::scoped_lock lg(m_JobMutex);
-                m_CompletedJobs.push(std::move(result));
-            }
+            result.error = loadErr;
+            { std::scoped_lock lg(m_JobMutex); m_CompletedJobs.push(std::move(result)); }
             continue;
         }
 
-        auto processMesh = [&](aiMesh* mesh, const aiScene* sceneRef) {
-            // Process mesh data if needed
-            std::vector<MeshVertex> vertices;
-            std::vector<uint32_t> indices;
+        result.vertices  = std::move(model.vertices);
+        result.indices   = std::move(model.indices);
+        result.subMeshes = std::move(model.subMeshes);
+        result.skeleton    = std::move(model.skeleton);
+        result.hasSkeleton = model.hasSkeleton;
+        if (result.hasSkeleton) result.skeletonKey = result.assetKey + "#skeleton";
+        result.skinning = std::move(model.skinning);
+        result.clips    = std::move(model.clips);
 
-            for (size_t i = 0; i < mesh->mNumVertices; ++i) {
-                MeshVertex vertex{};
-                vertex.px = mesh->mVertices[i].x;
-                vertex.py = mesh->mVertices[i].y;
-                vertex.pz = mesh->mVertices[i].z;
-                if (mesh->HasNormals()) {
-                    vertex.nx = mesh->mNormals[i].x;
-                    vertex.ny = mesh->mNormals[i].y;
-                    vertex.nz = mesh->mNormals[i].z;
-                } else {
-                    vertex.nx = 0.0f; vertex.ny = 0.0f; vertex.nz = 0.0f;
-                }
-                if (mesh->HasTextureCoords(0)) {
-                    vertex.u = mesh->mTextureCoords[0][i].x;
-                    vertex.v = mesh->mTextureCoords[0][i].y;
-                } else {
-                    vertex.u = 0.0f; vertex.v = 0.0f;
-                }
-
-                vertices.push_back(vertex);
-            }
-
-            for (size_t i = 0; i < mesh->mNumFaces; ++i) {
-                aiFace face = mesh->mFaces[i];
-                for (size_t j = 0; j < face.mNumIndices; ++j) {
-                    indices.push_back(face.mIndices[j]);
-                }
-            }
-
-            if (mesh->mMaterialIndex >= 0 && mesh->mMaterialIndex < UINT32_MAX) {
-                aiMaterial* material = sceneRef->mMaterials[mesh->mMaterialIndex];
-                if (material) {
-                    aiString texPath;
-                    for (size_t i = 0; i < material->mNumProperties; ++i) {
-                        auto prop = material->mProperties[i];
-                        // SM_TRACE("Material property: key='%s', semantic=%d, index=%d type=%d length=%u", prop->mKey.C_Str(), prop->mSemantic, prop->mIndex, static_cast<int>(prop->mType), prop->mDataLength);
-                    }
-                    // The material might be a texture image, or a color
-                    auto color = aiColor4D{};
-                    if (AI_SUCCESS == material->Get(AI_MATKEY_COLOR_DIFFUSE, color)) {
-                        // SM_TRACE("Material diffuse color: r=%.3f g=%.3f b=%.3f a=%.3f", color.r, color.g, color.b, color.a);
-                    }
-
-                    if (material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS) {
-                        std::string fullTexPath = std::string(texPath.C_Str());
-                        {
-                            std::filesystem::path tp(fullTexPath);
-                            if (tp.is_relative() && !job.mtlBaseDir.empty())
-                                fullTexPath = (std::filesystem::path(job.mtlBaseDir) / tp).string();
-                        }
-
-                        std::vector<uint32_t> pixels;
-                        uint32_t width = 0;
-                        uint32_t height = 0;
-                        std::string error;
-                        if (!MaterialLoader::LoadMaterialFromFile(fullTexPath.c_str(), pixels, width, height, error)) {
-                            SM_WARN("Failed to load material '%s': %s", fullTexPath.c_str(), error.c_str());
-                        } else {
-                            result.Width = width;
-                            result.Height = height;
-                            if (result.Texture) { GetStagingPool().Return(result.Texture); result.Texture = nullptr; }
-                            if (!pixels.empty()) {
-                                const size_t texBytes = static_cast<size_t>(width) * height * sizeof(uint32_t);
-                                result.Texture = static_cast<uint32_t*>(GetStagingPool().Acquire(texBytes));
-                                std::memcpy(result.Texture, pixels.data(), texBytes);
-                            }
-                        }
-                    }
-                }
-            }
-
-            return std::make_tuple(vertices, indices);
-        };
-
-        std::vector<MeshVertex> vertices;
-        std::vector<uint32_t> indices;
-
-        std::function<void(const aiNode*, const aiScene*, std::vector<MeshVertex>& vertices, std::vector<uint32_t>& indices)> processNode
-        = [&](const aiNode* node, const aiScene* sceneRef, std::vector<MeshVertex>& totalVertices, std::vector<uint32_t>& totalIndices) {
-
-            const auto totalMeshes = node->mNumMeshes;
-
-            for (size_t m = 0; m < totalMeshes; ++m) {
-                aiMesh* mesh = sceneRef->mMeshes[node->mMeshes[m]];
-                auto [vertex, index] = processMesh(mesh, sceneRef);
-                result.subMeshes.push_back(SubMesh{
-                    .IndexStart = static_cast<uint32_t>(totalIndices.size()),
-                    .IndexCount = static_cast<uint32_t>(index.size())}
-                );
-                totalVertices.insert(totalVertices.end(), vertex.begin(), vertex.end());
-                totalIndices.insert(totalIndices.end(), index.begin(), index.end());
-            }
-
-            for (size_t i = 0; i < node->mNumChildren; i++) {
-                processNode(node->mChildren[i], sceneRef, totalVertices, totalIndices);
-            }
-        };
-
-        processNode(scene->mRootNode, scene, result.vertices, result.indices);
-
-        // --- Skeleton extraction (animation SP1) ---
-        {
-            // 1) Collect every bone (by name) referenced across the scene's meshes -> inverse-bind.
-            std::unordered_map<std::string, glm::mat4> boneInverseBind;
-            for (unsigned mi = 0; mi < scene->mNumMeshes; ++mi) {
-                const aiMesh* mesh = scene->mMeshes[mi];
-                for (unsigned bi = 0; bi < mesh->mNumBones; ++bi) {
-                    const aiBone* bone = mesh->mBones[bi];
-                    boneInverseBind[bone->mName.C_Str()] = AiToGlm(bone->mOffsetMatrix);
-                }
-            }
-            // 2) Walk the node tree (pre-order => parent emitted before child = topological order).
-            //    A node whose name matches a bone becomes a Skeleton bone; parent = nearest ancestor bone.
-            if (!boneInverseBind.empty()) {
-                Skeleton skel;
-                std::unordered_map<std::string,int> boneNameToIndex;
-                // `parentGlobal` accumulates the transforms of NON-bone ancestor nodes (e.g. a "Z_UP"
-                // up-axis-correction matrix or an "Armature" node) above the skeleton root. The ROOT
-                // bone folds that chain into its localBind so the correction isn't lost (CesiumMan's
-                // skeleton sits under Z_UP/Armature non-bone nodes). Non-root bones inherit it via
-                // their parent bone, so they use only their own node transform.
-                std::function<void(const aiNode*, int, const glm::mat4&)> walk =
-                    [&](const aiNode* node, int parentBoneIdx, const glm::mat4& parentGlobal) {
-                    const glm::mat4 nodeLocal = AiToGlm(node->mTransformation);
-                    int myIdx = parentBoneIdx;
-                    glm::mat4 childParentGlobal = parentGlobal * nodeLocal; // accumulate until the first bone
-                    auto it = boneInverseBind.find(node->mName.C_Str());
-                    if (it != boneInverseBind.end()) {
-                        Bone bone;
-                        bone.name        = node->mName.C_Str();
-                        bone.parent      = parentBoneIdx;
-                        bone.localBind   = (parentBoneIdx < 0) ? (parentGlobal * nodeLocal) : nodeLocal;
-                        bone.inverseBind = it->second;
-                        // The non-bone ancestor chain above the FIRST root bone (e.g. Z_UP * Armature)
-                        // is the authored->engine correction; captured here, prepended to palettes.
-                        if (parentBoneIdx < 0) skel.rootTransform = parentGlobal;
-                        myIdx = static_cast<int>(skel.bones.size());
-                        boneNameToIndex[bone.name] = myIdx;
-                        skel.bones.push_back(std::move(bone));
-                        childParentGlobal = glm::mat4(1.0f); // descendants are under a bone (parent index carries the chain)
-                    }
-                    for (unsigned c = 0; c < node->mNumChildren; ++c)
-                        walk(node->mChildren[c], myIdx, childParentGlobal);
-                };
-                walk(scene->mRootNode, -1, glm::mat4(1.0f));
-                if (!skel.bones.empty()) {
-                    // skel.rootTransform was captured during the walk = the non-bone ancestor chain
-                    // above the root bone (e.g. "Z_UP" * "Armature"), the authored->engine (Y-up)
-                    // correction. It's prepended to every palette (ComputeSkinningPalette); the bind
-                    // palette otherwise cancels to identity (mesh in raw, possibly Z-up, vertex space).
-                    // Identity for Y-up-authored models (Fox/RiggedSimple) -> no-op.
-                    result.skeleton    = std::move(skel);
-                    result.hasSkeleton = true;
-                    result.skeletonKey = result.assetKey + "#skeleton";
-                    SM_TRACE("Skeleton extracted: '%s' (%zu bones)", result.skeletonKey.c_str(), result.skeleton.bones.size());
-
-                    // Per-vertex weights, aligned to result.vertices. Accumulate influences in the SAME
-                    // mesh concatenation order processNode used, then reduce to top-4. Bone index = the
-                    // Skeleton's index (by name).
-                    std::vector<std::vector<std::pair<uint32_t,float>>> perVertex(result.vertices.size());
-                    uint32_t base = 0;
-                    std::function<void(const aiNode*)> collect = [&](const aiNode* node) {
-                        for (unsigned m = 0; m < node->mNumMeshes; ++m) {
-                            const aiMesh* mesh = scene->mMeshes[node->mMeshes[m]];
-                            for (unsigned bi = 0; bi < mesh->mNumBones; ++bi) {
-                                const aiBone* bone = mesh->mBones[bi];
-                                auto ni = boneNameToIndex.find(bone->mName.C_Str());
-                                if (ni == boneNameToIndex.end()) continue;
-                                const uint32_t boneIdx = static_cast<uint32_t>(ni->second);
-                                for (unsigned w = 0; w < bone->mNumWeights; ++w) {
-                                    const aiVertexWeight& vw = bone->mWeights[w];
-                                    const size_t vtx = static_cast<size_t>(base) + vw.mVertexId;
-                                    if (vtx < perVertex.size() && vw.mWeight > 0.0f)
-                                        perVertex[vtx].emplace_back(boneIdx, vw.mWeight);
-                                }
-                            }
-                            base += mesh->mNumVertices;
-                        }
-                        for (unsigned c = 0; c < node->mNumChildren; ++c) collect(node->mChildren[c]);
-                    };
-                    collect(scene->mRootNode);
-
-                    result.skinning.resize(result.vertices.size());
-                    for (size_t v = 0; v < result.vertices.size(); ++v)
-                        result.skinning[v] = MakeSkinnedVertex(std::move(perVertex[v]));
-                    SM_TRACE("Skinning extracted: %zu verts", result.skinning.size());
-
-                    // --- Animation clip extraction (SP3) ---
-                    for (unsigned a = 0; a < scene->mNumAnimations; ++a) {
-                        const aiAnimation* anim = scene->mAnimations[a];
-                        const double tps = (anim->mTicksPerSecond != 0.0) ? anim->mTicksPerSecond : 25.0;
-                        AnimationClip clip;
-                        clip.name     = anim->mName.length ? anim->mName.C_Str() : ("clip" + std::to_string(a));
-                        clip.duration = static_cast<float>(anim->mDuration / tps);
-                        for (unsigned c = 0; c < anim->mNumChannels; ++c) {
-                            const aiNodeAnim* nodeAnim = anim->mChannels[c];
-                            auto ni = boneNameToIndex.find(nodeAnim->mNodeName.C_Str());
-                            if (ni == boneNameToIndex.end()) continue; // channel targets a non-bone node
-                            AnimChannel ch;
-                            ch.boneIndex = ni->second;
-                            ch.posKeys.reserve(nodeAnim->mNumPositionKeys);
-                            for (unsigned k = 0; k < nodeAnim->mNumPositionKeys; ++k) {
-                                const aiVectorKey& vk = nodeAnim->mPositionKeys[k];
-                                ch.posKeys.emplace_back(static_cast<float>(vk.mTime / tps), glm::vec3(vk.mValue.x, vk.mValue.y, vk.mValue.z));
-                            }
-                            ch.rotKeys.reserve(nodeAnim->mNumRotationKeys);
-                            for (unsigned k = 0; k < nodeAnim->mNumRotationKeys; ++k) {
-                                const aiQuatKey& qk = nodeAnim->mRotationKeys[k];
-                                ch.rotKeys.emplace_back(static_cast<float>(qk.mTime / tps), glm::quat(qk.mValue.w, qk.mValue.x, qk.mValue.y, qk.mValue.z));
-                            }
-                            ch.scaleKeys.reserve(nodeAnim->mNumScalingKeys);
-                            for (unsigned k = 0; k < nodeAnim->mNumScalingKeys; ++k) {
-                                const aiVectorKey& sk2 = nodeAnim->mScalingKeys[k];
-                                ch.scaleKeys.emplace_back(static_cast<float>(sk2.mTime / tps), glm::vec3(sk2.mValue.x, sk2.mValue.y, sk2.mValue.z));
-                            }
-                            clip.channels.push_back(std::move(ch));
-                        }
-                        result.clips.push_back(std::move(clip));
-                        SM_TRACE("Animation extracted: '%s#anim/%s' (%.2fs, %zu channels)",
-                                 result.assetKey.c_str(), result.clips.back().name.c_str(),
-                                 result.clips.back().duration, result.clips.back().channels.size());
-                    }
-                }
-            }
+        // Texture: copy decoded pixels into the staging pool (preserve today's single-texture,
+        // last-wins behavior into ModelLoadResult.Texture/Width/Height).
+        for (const auto& mat : model.materials) {
+            if (mat.TextureData.empty()) continue;
+            result.Width  = mat.Width;
+            result.Height = mat.Height;
+            if (result.Texture) { GetStagingPool().Return(result.Texture); result.Texture = nullptr; }
+            const size_t texBytes = static_cast<size_t>(mat.Width) * mat.Height * sizeof(uint32_t);
+            result.Texture = static_cast<uint32_t*>(GetStagingPool().Acquire(texBytes));
+            std::memcpy(result.Texture, mat.TextureData.data(), texBytes);
         }
 
         // Sibling animator controller (optional): "<model>.animctrl.json".
