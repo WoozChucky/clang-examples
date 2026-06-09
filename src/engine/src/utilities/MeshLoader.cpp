@@ -221,7 +221,12 @@ namespace MeshLoader
 
         Assimp::Importer importer;
         const aiScene* scene = importer.ReadFile(filePath, kAssimpFlags);
-        if (!scene) { outError = importer.GetErrorString(); return false; }
+        if (!scene || !scene->mRootNode || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE))
+        {
+            outError = std::string("Assimp failed to load file: ") + importer.GetErrorString();
+            SM_ERROR("MeshLoader: %s", outError.c_str());
+            return false;
+        }
 
         const std::filesystem::path modelDir = std::filesystem::path(filePath).parent_path();
 
@@ -421,6 +426,13 @@ namespace MeshLoader
             }
         }
 
-        return !out.vertices.empty();
+        if (out.vertices.empty())
+        {
+            outError = "No mesh data found in file (no vertices)";
+            SM_WARN("MeshLoader: %s", outError.c_str());
+            return false;
+        }
+
+        return true;
     }
 }
