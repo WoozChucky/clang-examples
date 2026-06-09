@@ -142,7 +142,7 @@ public:
     nvrhi::ITexture*     GetGBufferWorldPos()    const { return m_GBuffer.WorldPos; }
     nvrhi::IFramebuffer* GetGBufferFramebuffer() const { return m_GBuffer.Fb;       }
 
-    nvrhi::ITexture*     GetSsaoTexture() const { return m_SsaoBlur; }       // blurred AO (R8)
+    nvrhi::ITexture*     GetSsaoTexture() const { return m_SsaoBlur; }       // blurred AO (R16F)
     nvrhi::ITexture*     GetSsaoRawTexture() const { return m_SsaoRaw; }
 
     // Offscreen scene-color SRV the world passes render into when FXAA is enabled;
@@ -210,7 +210,7 @@ private:
 
     // SSAO render targets (Renderer-owned, R16_FLOAT — R8_UNORM has no typed-UAV support for
     // compute write). m_SsaoRaw holds per-pixel AO from the
-    // SSAO pass; m_SsaoBlur is the box-blurred result the lighting pass will sample (next task).
+    // SSAO pass; m_SsaoBlur is the box-blurred result the lighting pass samples.
     // Size-guarded rebuild via EnsureSsao; nulled on resize/teardown like the G-buffer.
     nvrhi::TextureHandle     m_SsaoRaw, m_SsaoBlur;
     uint32_t                 m_SsaoW = 0, m_SsaoH = 0;

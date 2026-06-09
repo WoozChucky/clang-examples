@@ -7,11 +7,10 @@
 
 class Renderer;
 
-// Screen-space ambient occlusion (ordered World-stage IRenderPass; lives in m_RenderPasses
-// between GBufferFill and Lighting). Reads the G-buffer world Normal/Pos, computes per-pixel AO
-// into the Renderer-owned m_SsaoRaw target, then box-blurs into m_SsaoBlur. Ignores the
-// framebuffer argument passed to Render() (writes Renderer-owned targets, like ShadowDepthPass).
-// The lighting pass consumes m_SsaoBlur in a later task; AO is written-but-unused here.
+// Compute SSAO: two compute dispatches — AO (G-buffer normal/world-pos -> raw AO UAV) then a
+// 4x4 box blur with an LDS tile cache (raw -> blurred AO UAV). The lighting pass samples the
+// blurred AO. Ordered between GBufferFill and Lighting; ignores the framebuffer arg (writes
+// Renderer-owned UAV textures).
 class SsaoRenderPass : public IRenderPass {
 public:
     bool Initialize(nvrhi::IDevice* device, Renderer* renderer) override;

@@ -219,8 +219,8 @@ void SsaoRenderPass::Render(nvrhi::ICommandList* commandList,
 
 void SsaoRenderPass::OnResize(uint32_t /*width*/, uint32_t /*height*/)
 {
-    // Targets are Renderer-owned (rebuilt by EnsureSsao); just drop the pipelines so they
-    // rebind against the new framebuffers.
+    // Targets are Renderer-owned (rebuilt by EnsureSsao); just drop the pipelines so the
+    // compute pipelines rebind against the resized textures.
     m_AoPipeline = nullptr;
     m_BlurPipeline = nullptr;
 }
