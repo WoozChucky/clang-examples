@@ -87,7 +87,9 @@ float ShadowFactor(float3 worldPos, float3 N, float4 svpos){
 }
 
 float4 main_ps(PSIn i) : SV_Target {
-    if (uShowVelocity != 0) { float2 v = uVelocity.Sample(uSamp, i.UV).xy; return float4(v*8.0 + 0.5, 0.5, 1.0); }
+    if (uShowVelocity != 0) { float2 v = uVelocity.Sample(uSamp, i.UV).xy;
+        // x8 amplify (velocities are tiny in UV space) + 0.5 bias so zero motion reads mid-gray
+        return float4(v*8.0 + 0.5, 0.5, 1.0); }
     float3 N  = uNormal.Sample(uSamp, i.UV).xyz;
     float3 wp = uWorldPos.Sample(uSamp, i.UV).xyz;
     float3 albedo = uAlbedo.Sample(uSamp, i.UV).rgb;

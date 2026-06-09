@@ -323,7 +323,8 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             MeshInstanceCPU inst{};
             inst.Model = M;
             inst.NormalMatrix = glm::mat4(N3);
-            inst.PrevModel = m_PrevModel.count((uint32_t)entity) ? m_PrevModel[(uint32_t)entity] : M; // new entity -> zero velocity
+            auto prevIt = m_PrevModel.find((uint32_t)entity);
+            inst.PrevModel = (prevIt != m_PrevModel.end()) ? prevIt->second : M; // new entity -> zero velocity
             inst.BaseColor = baseColor;
             inst.Flags = flags;
             inst.IsSkinned = 0u;            // Task 2 sets 1 for skinned draws
@@ -506,8 +507,11 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
     }
 
     // Snapshot this frame's models as next frame's "prev"; drop entities no longer present.
+    // Rebuild next frame's prev-model snapshot from ALL visible entities, deliberately IGNORING the
+    // frustum cull: an entity culled this frame but visible next frame must still have a prevModel so
+    // its motion vector is correct on re-entry. Do NOT "optimize" this to reuse the culled draw set.
     {
-        std::unordered_map<uint32_t, glm::mat4> next;
+        std::unordered_map<uint32_t, glm::mat4> next; // per-frame alloc; fine at SP1 scale, revisit if profiled (SP2)
         world->Each<TransformComponent, MeshComponent>(
             [&](EntityId e, const TransformComponent& t, const MeshComponent& m)
         {
