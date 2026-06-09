@@ -55,6 +55,35 @@ static void T02_frustum_slice_sphere()
     EXPECT(s80.radius >= glm::length(s80.center - glm::vec3(0, 10, 20)) - 80.0f - 1.0f); // loose sanity
 }
 
+// FrustumSliceSphere containment: the returned sphere must enclose all 8 frustum-slice corners
+// (near plane at z=0, far corners capped at ShadowDistance), reconstructed the same way the
+// function does. Guards the box-fit primitive ShadowDepthPass relies on.
+static void T10_frustum_slice_sphere_contains_corners()
+{
+    const glm::mat4 view = glm::lookAtRH(glm::vec3(0, 12, 24), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+    const glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(50.0f), 16.0f / 9.0f, 0.1f, 1000.0f);
+    const float shadowDistance = 60.0f;
+    const ShadowSphere s = FrustumSliceSphere(view, proj, shadowDistance);
+    EXPECT(s.radius > 0.0f);
+
+    const glm::mat4 invP = glm::inverse(proj);
+    const glm::mat4 invV = glm::inverse(view);
+    const glm::vec2 ndc[4] = { {-1,-1}, {1,-1}, {1,1}, {-1,1} };
+    const float eps = 1e-2f;
+    for (int i = 0; i < 4; ++i) {
+        glm::vec4 vn = invP * glm::vec4(ndc[i].x, ndc[i].y, 0.0f, 1.0f);
+        vn /= vn.w;
+        const float nearDepth = -vn.z;
+        const float dist = glm::max(shadowDistance, nearDepth + 1e-3f);
+        const float scale = dist / nearDepth;
+        const glm::vec4 vf(vn.x * scale, vn.y * scale, -dist, 1.0f);
+        const glm::vec3 cNear = glm::vec3(invV * vn);
+        const glm::vec3 cFar  = glm::vec3(invV * vf);
+        EXPECT(glm::length(cNear - s.center) <= s.radius + eps);
+        EXPECT(glm::length(cFar  - s.center) <= s.radius + eps);
+    }
+}
+
 // SnapToTexelGrid: idempotent; output within one texel of input in the snap plane (sun +Y -> x/z).
 static void T03_snap_to_texel_grid()
 {
@@ -137,6 +166,7 @@ int main()
     T00_nearextend_zero_is_identity_change();
     T01_nearextend_captures_caster_toward_sun();
     T02_frustum_slice_sphere();
+    T10_frustum_slice_sphere_contains_corners();
     T03_snap_to_texel_grid();
     T04_sun_up_gate();
     T05_center_projects_to_ndc_origin();
