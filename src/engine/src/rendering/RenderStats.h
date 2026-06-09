@@ -30,7 +30,6 @@ struct DebugDrawSettings {
 
 struct ShadowSettings {
     bool  Enabled        = true;
-    float Bias           = 0.0015f; // (removed in Task 4 once the shader uses normal-offset)
     float ShadowDistance = 60.0f;   // frustum-fit far cap (world units); smaller = sharper + shorter range
     float NearExtend     = 50.0f;   // light-space near-plane pull-back toward the sun
     float NormalOffset   = 1.0f;    // normal-offset bias (shadow texels)

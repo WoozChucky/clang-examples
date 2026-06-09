@@ -342,13 +342,11 @@ void ImGuiRenderer::Render(nvrhi::IFramebuffer* framebuffer, double deltaTime, S
             const ShadowSettings& sh = GetShadowSettings();
             if (m_AppContext &&
                 (sh.Enabled        != m_AppContext->Settings.shadowEnabled      ||
-                 sh.Bias           != m_AppContext->Settings.shadowBias         ||
                  sh.ShadowDistance != m_AppContext->Settings.shadowDistance     ||
                  sh.NearExtend     != m_AppContext->Settings.shadowNearExtend   ||
                  sh.NormalOffset   != m_AppContext->Settings.shadowNormalOffset ||
                  sh.PcfRadius      != m_AppContext->Settings.shadowPcfRadius)) {
                 m_AppContext->Settings.shadowEnabled      = sh.Enabled;
-                m_AppContext->Settings.shadowBias         = sh.Bias;
                 m_AppContext->Settings.shadowDistance     = sh.ShadowDistance;
                 m_AppContext->Settings.shadowNearExtend   = sh.NearExtend;
                 m_AppContext->Settings.shadowNormalOffset = sh.NormalOffset;

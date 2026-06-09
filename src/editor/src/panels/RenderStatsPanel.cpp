@@ -46,10 +46,6 @@ bool DrawRenderStatsPanel(bool* open)
     ImGui::TextDisabled("Shadows");
     ShadowSettings& sh = GetShadowSettings();
     changed |= ImGui::Checkbox("Shadows", &sh.Enabled);
-    // The slider mutates Bias live every drag frame; report the change only once the
-    // drag ends (IsItemDeactivatedAfterEdit) so the caller doesn't rewrite every frame.
-    ImGui::SliderFloat("Shadow bias", &sh.Bias, 0.0f, 0.01f, "%.4f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
     changed |= ImGui::SliderFloat("Shadow distance", &sh.ShadowDistance, 10.0f, 150.0f, "%.0f");
     changed |= ImGui::SliderFloat("Shadow near-extend", &sh.NearExtend, 0.0f, 200.0f, "%.0f");
     changed |= ImGui::SliderFloat("Shadow normal-offset", &sh.NormalOffset, 0.0f, 4.0f, "%.2f");

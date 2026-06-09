@@ -75,7 +75,6 @@ bool Load(const std::string& filepath, ApplicationSettings* out) {
         if (jr.contains("shadow") && jr["shadow"].is_object()) {
             const auto& js = jr["shadow"];
             if (js.contains("enabled")     && js["enabled"].is_boolean())    out->shadowEnabled      = js["enabled"].get<bool>();
-            if (js.contains("bias")        && js["bias"].is_number())        out->shadowBias         = js["bias"].get<float>();
             if (js.contains("distance")    && js["distance"].is_number())    out->shadowDistance     = js["distance"].get<float>();
             if (js.contains("nearExtend")  && js["nearExtend"].is_number())  out->shadowNearExtend   = js["nearExtend"].get<float>();
             if (js.contains("normalOffset")&& js["normalOffset"].is_number())out->shadowNormalOffset = js["normalOffset"].get<float>();
@@ -110,7 +109,6 @@ bool Save(const std::string& filepath, const ApplicationSettings& settings) {
     j["renderer"]["backend"]   = BackendToString(settings.Backend);
     j["renderer"]["aaMode"]    = settings.aaMode;
     j["renderer"]["shadow"]["enabled"]      = settings.shadowEnabled;
-    j["renderer"]["shadow"]["bias"]         = settings.shadowBias;
     j["renderer"]["shadow"]["distance"]     = settings.shadowDistance;
     j["renderer"]["shadow"]["nearExtend"]   = settings.shadowNearExtend;
     j["renderer"]["shadow"]["normalOffset"] = settings.shadowNormalOffset;

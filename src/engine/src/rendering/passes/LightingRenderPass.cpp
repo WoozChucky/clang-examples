@@ -33,8 +33,8 @@ cbuffer PerFrame : register(b0) {
     float4 uCameraPos;
     float4 uFog;
     float4 uAmbientColor;
-    uint uPointLightCount; int uShadowEnabled; float uShadowBias; int uFogEnabled;
-    int uSsaoEnabled; int3 _ssaoPad;
+    uint uPointLightCount; int uShadowEnabled; int uFogEnabled; int uSsaoEnabled;
+    float uPcfRadius; float uShadowTexel; float uNormalOffsetWorld; float _pad0;
 };
 Texture2D uAlbedo   : register(t1);
 Texture2D uNormal   : register(t2);
@@ -46,17 +46,43 @@ SamplerComparisonState uShadowSamp : register(s7);
 Texture2D uSsao : register(t8);
 struct PSIn { float4 PosH:SV_POSITION; float2 UV:TEXCOORD0; };
 
-float ShadowFactor(float3 worldPos, float ndl){
+// 16-tap Poisson disk (unit disk, ~[-1,1]). Rotated per-pixel so PCF banding becomes dither.
+static const float2 kPoisson[16] = {
+    float2(-0.94201624, -0.39906216), float2( 0.94558609, -0.76890725),
+    float2(-0.09418410, -0.92938870), float2( 0.34495938,  0.29387760),
+    float2(-0.91588581,  0.45771432), float2(-0.81544232, -0.87912464),
+    float2(-0.38277543,  0.27676845), float2( 0.97484398,  0.75648379),
+    float2( 0.44323325, -0.97511554), float2( 0.53742981, -0.47373420),
+    float2(-0.26496911, -0.41893023), float2( 0.79197514,  0.19090188),
+    float2(-0.24188840,  0.99706507), float2(-0.81409955,  0.91437590),
+    float2( 0.19984126,  0.78641367), float2( 0.14383161, -0.14100790)
+};
+
+// Normal-offset bias replaces the slope-scaled depth bias; this tiny constant covers residual acne.
+static const float kConstShadowBias = 5e-4;
+
+float ShadowFactor(float3 worldPos, float3 N, float4 svpos){
     if (uShadowEnabled == 0) return 1.0;
-    float4 lp = mul(uLightVP, float4(worldPos,1.0));
+    // Offset the sample position along the surface normal (normal-offset bias) before projecting.
+    float3 biasedWP = worldPos + N * uNormalOffsetWorld;
+    float4 lp = mul(uLightVP, float4(biasedWP, 1.0));
     float3 p = lp.xyz / lp.w;
     float2 uv = p.xy * 0.5 + 0.5; uv.y = 1.0 - uv.y;
     if (uv.x<0.0||uv.x>1.0||uv.y<0.0||uv.y>1.0) return 1.0;
-    float bias = uShadowBias * (1.0 + (1.0-ndl)*2.0);
-    // Single comparison tap. The shadow sampler is a linear-compare sampler, so the hardware
-    // already does 2x2 bilinear PCF here — the sharpest smooth edge the map resolution allows.
-    // Edge sharpness is resolution-bound (texel = ShadowCoverage / kShadowMapSize), not filter-bound.
-    return uShadowMap.SampleCmpLevelZero(uShadowSamp, uv, p.z - bias);
+
+    // Per-pixel rotation via interleaved gradient noise on screen position.
+    float ign = frac(52.9829189 * frac(dot(svpos.xy, float2(0.06711056, 0.00583715))));
+    float a = ign * 6.2831853;
+    float sa = sin(a), ca = cos(a);
+    float2x2 rot = float2x2(ca, -sa, sa, ca);
+
+    float zref = p.z - kConstShadowBias;
+    float sum = 0.0;
+    [unroll] for (int t = 0; t < 16; ++t){
+        float2 off = mul(rot, kPoisson[t]) * uPcfRadius * uShadowTexel; // texels -> UV
+        sum += uShadowMap.SampleCmpLevelZero(uShadowSamp, uv + off, zref);
+    }
+    return sum * (1.0 / 16.0);
 }
 
 float4 main_ps(PSIn i) : SV_Target {
@@ -69,7 +95,7 @@ float4 main_ps(PSIn i) : SV_Target {
     float diffuse = max(dot(N, -lightDir), 0.0);
     float ao = (uSsaoEnabled != 0) ? uSsao.Sample(uSamp, i.UV).r : 1.0;
     float3 lighting = uAmbientColor.rgb * ao;
-    lighting += diffuse * uDir.Color.rgb * ShadowFactor(wp, diffuse);
+    lighting += diffuse * uDir.Color.rgb * ShadowFactor(wp, N, i.PosH);
     [loop] for (uint idx=0; idx<uPointLightCount; ++idx){
         PointLight pl = gPointLights[idx];
         float3 L = pl.Position.xyz - wp; float dist = length(L);
@@ -241,7 +267,14 @@ void LightingRenderPass::Render(nvrhi::ICommandList* commandList,
     const Renderer::ShadowView& sv = m_Renderer->GetShadowView();
     cb.LightVP = sv.LightVP;
     cb.ShadowEnabled = sv.Enabled;
-    cb.ShadowBias = GetShadowSettings().Bias;
+    {
+        const ShadowSettings& shset = GetShadowSettings();
+        const float texelWorld = (sv.Radius > 0.0f)
+            ? (2.0f * sv.Radius / static_cast<float>(Renderer::kShadowMapSize)) : 0.0f;
+        cb.PcfRadius         = shset.PcfRadius;
+        cb.ShadowTexel       = 1.0f / static_cast<float>(Renderer::kShadowMapSize); // UV-space texel
+        cb.NormalOffsetWorld = shset.NormalOffset * texelWorld;                     // texels -> world
+    }
     const FogFrame& fog = m_Renderer->GetFrameFog();
     cb.CameraPos = glm::vec4(cam.Position, 1.0f);
     cb.Fog = glm::vec4(fog.Color, fog.Density);

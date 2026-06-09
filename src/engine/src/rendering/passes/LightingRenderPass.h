@@ -25,8 +25,8 @@ private:
         glm::vec4 CameraPos;   // xyz
         glm::vec4 Fog;         // rgb=color, w=density
         glm::vec4 AmbientColor; // rgb = omnidirectional ambient (replaces uAmbient*sunColor)
-        uint32_t  PointLightCount; int ShadowEnabled; float ShadowBias; int FogEnabled;
-        int SsaoEnabled; int _ssaoPad0; int _ssaoPad1; int _ssaoPad2;
+        uint32_t  PointLightCount; int ShadowEnabled; int FogEnabled; int SsaoEnabled;
+        float PcfRadius; float ShadowTexel; float NormalOffsetWorld; float _pad0;
     };
     static_assert(sizeof(LightFrameCB) % 16 == 0, "LightFrameCB must be 16-byte aligned");
 
