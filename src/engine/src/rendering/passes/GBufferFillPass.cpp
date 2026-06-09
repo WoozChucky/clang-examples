@@ -15,28 +15,35 @@
 // G-buffer MRTs. Registers mirror the mesh-pass scheme (CB b0, texture t2, sampler s3,
 // instances t5) so the Vulkan flat-binding offsets line up.
 static const char* GBUF_VS_HLSL = R"(
-struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint3 _pad; };
-cbuffer PerFrame : register(b0) { float4x4 uVP; };
+struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4x4 PrevModel; float4 BaseColor; uint Flags; uint IsSkinned; uint PrevSkinnedOffset; uint _pad; };
+struct MeshVertex { float3 Position; float3 Normal; float2 UV; };
+cbuffer PerFrame : register(b0) { float4x4 uVP; float4x4 uPrevVP; };
 StructuredBuffer<InstanceData> gInstances : register(t5);
-struct VSIn  { float3 Position:POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; uint InstanceID:SV_InstanceID; };
-struct VSOut { float4 PosH:SV_POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; float3 WorldPos:TEXCOORD1; uint InstanceID:TEXCOORD2; };
+StructuredBuffer<MeshVertex>   gPrevSkinned : register(t6);   // previous-frame skinned verts (Task 2 binds; t6 unused when IsSkinned==0)
+struct VSIn  { float3 Position:POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; uint VertexID:SV_VertexID; uint InstanceID:SV_InstanceID; };
+struct VSOut { float4 PosH:SV_POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; float3 WorldPos:TEXCOORD1; uint InstanceID:TEXCOORD2; float4 CurClip:TEXCOORD3; float4 PrevClip:TEXCOORD4; };
 VSOut main_vs(VSIn vin){
     InstanceData inst = gInstances[vin.InstanceID];
     float4 wp = mul(inst.Model, float4(vin.Position,1.0));
-    VSOut o; o.PosH = mul(uVP, wp);
+    float3 prevPos = (inst.IsSkinned != 0) ? gPrevSkinned[vin.VertexID + inst.PrevSkinnedOffset].Position : vin.Position;
+    float4 prevWp = mul(inst.PrevModel, float4(prevPos,1.0));
+    VSOut o;
+    o.PosH    = mul(uVP, wp);
+    o.CurClip = o.PosH;
+    o.PrevClip = mul(uPrevVP, prevWp);
     o.Normal = mul((float3x3)inst.NormalMatrix, vin.Normal);
     o.UV = vin.UV; o.WorldPos = wp.xyz; o.InstanceID = vin.InstanceID; return o;
 }
 )";
 
 static const char* GBUF_PS_HLSL = R"(
-struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4 BaseColor; uint Flags; uint3 _pad; };
+struct InstanceData { float4x4 Model; float4x4 NormalMatrix; float4x4 PrevModel; float4 BaseColor; uint Flags; uint IsSkinned; uint PrevSkinnedOffset; uint _pad; };
 Texture2D uTexture : register(t2);
 SamplerState uSampler : register(s3);
 StructuredBuffer<InstanceData> gInstances : register(t5);
 static const uint OPT_SAMPLE_TEXTURE = 1u << 0;
-struct PSIn { float4 PosH:SV_POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; float3 WorldPos:TEXCOORD1; uint InstanceID:TEXCOORD2; };
-struct PSOut { float4 Albedo:SV_Target0; float4 Normal:SV_Target1; float4 WorldPos:SV_Target2; };
+struct PSIn { float4 PosH:SV_POSITION; float3 Normal:NORMAL; float2 UV:TEXCOORD0; float3 WorldPos:TEXCOORD1; uint InstanceID:TEXCOORD2; float4 CurClip:TEXCOORD3; float4 PrevClip:TEXCOORD4; };
+struct PSOut { float4 Albedo:SV_Target0; float4 Normal:SV_Target1; float4 WorldPos:SV_Target2; float2 Velocity:SV_Target3; };
 PSOut main_ps(PSIn i){
     InstanceData inst = gInstances[i.InstanceID];
     float3 albedo = ((inst.Flags & OPT_SAMPLE_TEXTURE) != 0)
@@ -46,6 +53,9 @@ PSOut main_ps(PSIn i){
     o.Albedo   = float4(albedo, 1.0);
     o.Normal   = float4(normalize(i.Normal), 0.0);
     o.WorldPos = float4(i.WorldPos, 1.0);
+    float2 curUV  = i.CurClip.xy  / i.CurClip.w  * float2(0.5,-0.5) + 0.5;
+    float2 prevUV = i.PrevClip.xy / i.PrevClip.w * float2(0.5,-0.5) + 0.5;
+    o.Velocity = prevUV - curUV;
     return o;
 }
 )";
@@ -80,7 +90,8 @@ bool GBufferFillPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         nvrhi::BindingLayoutItem::ConstantBuffer(0),
         nvrhi::BindingLayoutItem::Texture_SRV(2),
         nvrhi::BindingLayoutItem::Sampler(3),
-        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5)
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5),
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6)  // gPrevSkinned (prev-frame skinned verts)
     };
     nvrhi::VulkanBindingOffsets& offsets =
         nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
@@ -111,6 +122,22 @@ bool GBufferFillPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         bd.canHaveUAVs = false;
         bd.keepInitialState = true;
         m_InstanceBuffer = m_Device->createBuffer(bd);
+    }
+
+    // 1-element dummy prev-skinned structured buffer (MeshVertex layout). Bound at t6 on every
+    // draw so the layout slot is always satisfied; the VS only reads it when IsSkinned!=0 (Task 2).
+    {
+        nvrhi::BufferDesc bd;
+        bd.debugName = "GBufferFillPass DummyPrevSkinned";
+        bd.byteSize = sizeof(MeshVertex);
+        bd.structStride = sizeof(MeshVertex);
+        bd.initialState = nvrhi::ResourceStates::ShaderResource;
+        bd.isIndexBuffer = false;
+        bd.isVertexBuffer = false;
+        bd.isConstantBuffer = false;
+        bd.canHaveUAVs = false;
+        bd.keepInitialState = true;
+        m_DummyPrevSkinned = m_Device->createBuffer(bd);
     }
 
     return true;
@@ -147,6 +174,7 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
         pso.renderState.blendState.setRenderTarget(0, rt);
         pso.renderState.blendState.setRenderTarget(1, rt);
         pso.renderState.blendState.setRenderTarget(2, rt);
+        pso.renderState.blendState.setRenderTarget(3, rt); // velocity MRT3
         m_Pipeline = m_Device->createGraphicsPipeline(pso, fbi);
 
         pso.renderState.rasterState.fillMode = nvrhi::RasterFillMode::Wireframe;
@@ -159,12 +187,14 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
     nvrhi::utils::ClearColorAttachment(commandList, gfb, 0, nvrhi::Color(0.f));
     nvrhi::utils::ClearColorAttachment(commandList, gfb, 1, nvrhi::Color(0.f)); // normal=0 -> sky mask later
     nvrhi::utils::ClearColorAttachment(commandList, gfb, 2, nvrhi::Color(0.f));
+    nvrhi::utils::ClearColorAttachment(commandList, gfb, 3, nvrhi::Color(0.f)); // velocity = 0 (background/sky)
     commandList->clearDepthStencilTexture(gfb->getDesc().depthAttachment.texture, nvrhi::AllSubresources, true, 1.0f, false, 0);
 
     // Per-frame: only VP is needed (no lighting/shadow/fog in the geometry pass).
     GBufFrameCB cb{};
     const CameraView& cam = m_Renderer->GetActiveCamera();
     cb.VP = cam.Projection * cam.View;
+    cb.PrevVP = m_Renderer->GetPrevViewProj();
     commandList->writeBuffer(m_FrameCB, &cb, sizeof(cb));
 
     // Skinned entities are drawn through the STATIC pipeline reading the per-frame compute-skinned
@@ -293,8 +323,11 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
             MeshInstanceCPU inst{};
             inst.Model = M;
             inst.NormalMatrix = glm::mat4(N3);
+            inst.PrevModel = m_PrevModel.count((uint32_t)entity) ? m_PrevModel[(uint32_t)entity] : M; // new entity -> zero velocity
             inst.BaseColor = baseColor;
             inst.Flags = flags;
+            inst.IsSkinned = 0u;            // Task 2 sets 1 for skinned draws
+            inst.PrevSkinnedOffset = 0u;
 
             instanceEntities[instanceOut] = entity;
             instances[instanceOut++] = inst;
@@ -339,7 +372,8 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                         nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
                         nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
                         nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
-                        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer),
+                        nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_DummyPrevSkinned)
                     };
                     nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
@@ -366,7 +400,8 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                     nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
                     nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
                     nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
-                    nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer),
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_DummyPrevSkinned)
                 };
                 nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
@@ -418,7 +453,8 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                             nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
                             nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
                             nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
-                            nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                            nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer),
+                            nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_DummyPrevSkinned)
                         };
                         nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
@@ -445,7 +481,8 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
                         nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameCB),
                         nvrhi::BindingSetItem::Texture_SRV(2, materialResources.texture),
                         nvrhi::BindingSetItem::Sampler(3, materialResources.sampler),
-                        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer)
+                        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_InstanceBuffer),
+                        nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_DummyPrevSkinned)
                     };
                     nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
@@ -468,6 +505,18 @@ void GBufferFillPass::Render(nvrhi::ICommandList* commandList,
         frameAllocator->RewindTo(instanceMark);
     }
 
+    // Snapshot this frame's models as next frame's "prev"; drop entities no longer present.
+    {
+        std::unordered_map<uint32_t, glm::mat4> next;
+        world->Each<TransformComponent, MeshComponent>(
+            [&](EntityId e, const TransformComponent& t, const MeshComponent& m)
+        {
+            if (m.Visible) next[(uint32_t)e] = ModelMatrix(t);
+        });
+        m_PrevModel.swap(next);
+    }
+    m_Renderer->SetPrevViewProj(cb.VP);
+
     RenderStats& rs = GetRenderStats();
     rs.MeshEntitiesDrawn  = entryCount;
     rs.MeshEntitiesCulled = culledCount;
@@ -486,6 +535,8 @@ void GBufferFillPass::Shutdown()
     m_BindingLayout = nullptr;
     m_FrameCB = nullptr;
     m_InstanceBuffer = nullptr;
+    m_DummyPrevSkinned = nullptr;
+    m_PrevModel.clear();
     m_VS = nullptr;
     m_PS = nullptr;
     m_Device = nullptr;

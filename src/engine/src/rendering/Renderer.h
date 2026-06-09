@@ -142,7 +142,13 @@ public:
     nvrhi::ITexture*     GetGBufferAlbedo()      const { return m_GBuffer.Albedo;   }
     nvrhi::ITexture*     GetGBufferNormal()      const { return m_GBuffer.Normal;   }
     nvrhi::ITexture*     GetGBufferWorldPos()    const { return m_GBuffer.WorldPos; }
+    nvrhi::ITexture*     GetGBufferVelocity()    const { return m_GBuffer.Velocity; }
     nvrhi::IFramebuffer* GetGBufferFramebuffer() const { return m_GBuffer.Fb;       }
+
+    // Previous-frame camera ViewProj (unjittered). The GBuffer pass writes it at end-of-frame
+    // so next frame's velocity = prevUV - curUV. Default identity (first frame -> ~zero velocity).
+    const glm::mat4&     GetPrevViewProj() const           { return m_PrevViewProj; }
+    void                 SetPrevViewProj(const glm::mat4& vp) { m_PrevViewProj = vp; }
 
     nvrhi::ITexture*     GetSsaoTexture() const { return m_SsaoBlur; }       // blurred AO (R16F)
     nvrhi::ITexture*     GetSsaoRawTexture() const { return m_SsaoRaw; }
@@ -182,6 +188,7 @@ private:
     ApplicationContext*         m_AppContext;
 
     CameraView m_ActiveCamera{};
+    glm::mat4  m_PrevViewProj{1.0f}; // previous frame's camera VP (unjittered), for motion vectors
 
     // Directional-shadow resources (created in Init/InitForSwap, released in Shutdown/TeardownForSwap).
     nvrhi::TextureHandle     m_ShadowDepth;
@@ -196,6 +203,7 @@ private:
         nvrhi::TextureHandle     Albedo;   // RGBA8_UNORM linear
         nvrhi::TextureHandle     Normal;   // RGBA16_FLOAT
         nvrhi::TextureHandle     WorldPos; // RGBA16_FLOAT
+        nvrhi::TextureHandle     Velocity; // RG16_FLOAT (prevUV - curUV)
         nvrhi::FramebufferHandle Fb;       // current frame's framebuffer (one of the cached ones)
         // One framebuffer per distinct shared-depth texture (swapchain rotates depths
         // across back-buffers; editor uses a single stable depth). Avoids per-frame churn.

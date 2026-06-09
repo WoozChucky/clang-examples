@@ -25,6 +25,7 @@ struct DebugDrawSettings {
     bool ShowObstacles     = false;
     bool ShowNavPaths      = false;
     bool ShowSkeleton      = false;
+    bool ShowVelocity      = false; // debug: visualize the G-buffer velocity (motion vectors)
     int  NavMeshClass      = 0;   // which class mesh ShowNavMesh draws (index into NavMeshConfig classes)
 };
 

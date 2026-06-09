@@ -586,6 +586,7 @@ void Renderer::EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* s
         m_GBuffer.Albedo   = makeRT(nvrhi::Format::RGBA8_UNORM,  "GBuffer.Albedo");
         m_GBuffer.Normal   = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.Normal");
         m_GBuffer.WorldPos = makeRT(nvrhi::Format::RGBA16_FLOAT, "GBuffer.WorldPos");
+        m_GBuffer.Velocity = makeRT(nvrhi::Format::RG16_FLOAT,   "GBuffer.Velocity");
         m_GBuffer.FbCache.clear();
         m_GBuffer.Fb = nullptr;
         m_GBuffer.Width = width;
@@ -600,6 +601,7 @@ void Renderer::EnsureGBuffer(uint32_t width, uint32_t height, nvrhi::ITexture* s
         .addColorAttachment(m_GBuffer.Albedo)
         .addColorAttachment(m_GBuffer.Normal)
         .addColorAttachment(m_GBuffer.WorldPos)
+        .addColorAttachment(m_GBuffer.Velocity)
         .setDepthAttachment(sharedDepth));
     m_GBuffer.FbCache.emplace_back(sharedDepth, fb);
     m_GBuffer.Fb = fb;

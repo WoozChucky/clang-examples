@@ -34,7 +34,7 @@ cbuffer PerFrame : register(b0) {
     float4 uFog;
     float4 uAmbientColor;
     uint uPointLightCount; int uShadowEnabled; int uFogEnabled; int uSsaoEnabled;
-    float uPcfRadius; float uShadowTexel; float uNormalOffsetWorld; float _pad0;
+    float uPcfRadius; float uShadowTexel; float uNormalOffsetWorld; int uShowVelocity;
 };
 Texture2D uAlbedo   : register(t1);
 Texture2D uNormal   : register(t2);
@@ -44,6 +44,7 @@ StructuredBuffer<PointLight> gPointLights : register(t5);
 Texture2D              uShadowMap  : register(t6);
 SamplerComparisonState uShadowSamp : register(s7);
 Texture2D uSsao : register(t8);
+Texture2D uVelocity : register(t9);
 struct PSIn { float4 PosH:SV_POSITION; float2 UV:TEXCOORD0; };
 
 // 16-tap Poisson disk (unit disk, ~[-1,1]). Rotated per-pixel so PCF banding becomes dither.
@@ -86,6 +87,7 @@ float ShadowFactor(float3 worldPos, float3 N, float4 svpos){
 }
 
 float4 main_ps(PSIn i) : SV_Target {
+    if (uShowVelocity != 0) { float2 v = uVelocity.Sample(uSamp, i.UV).xy; return float4(v*8.0 + 0.5, 0.5, 1.0); }
     float3 N  = uNormal.Sample(uSamp, i.UV).xyz;
     float3 wp = uWorldPos.Sample(uSamp, i.UV).xyz;
     float3 albedo = uAlbedo.Sample(uSamp, i.UV).rgb;
@@ -151,7 +153,8 @@ bool LightingRenderPass::Initialize(nvrhi::IDevice* device, Renderer* renderer)
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5), // point lights
         nvrhi::BindingLayoutItem::Texture_SRV(6),        // shadow map
         nvrhi::BindingLayoutItem::Sampler(7),            // shadow cmp sampler
-        nvrhi::BindingLayoutItem::Texture_SRV(8)         // ssao
+        nvrhi::BindingLayoutItem::Texture_SRV(8),        // ssao
+        nvrhi::BindingLayoutItem::Texture_SRV(9)         // velocity (debug view)
     };
     nvrhi::VulkanBindingOffsets& offsets =
         nvrhi::VulkanBindingOffsets{}.setConstantBufferOffset(0).setShaderResourceOffset(0).setSamplerOffset(0);
@@ -284,6 +287,7 @@ void LightingRenderPass::Render(nvrhi::ICommandList* commandList,
     }
     cb.FogEnabled = fogEnabled ? 1 : 0;
     cb.SsaoEnabled = (GetSsaoSettings().Mode != AoMode::Off) ? 1 : 0;
+    cb.ShowVelocity = GetDebugDrawSettings().ShowVelocity ? 1 : 0;
     commandList->writeBuffer(m_FrameCB, &cb, sizeof(cb));
 
     if (m_PointLightBuffer && pointLightCount > 0)
@@ -303,6 +307,7 @@ void LightingRenderPass::Render(nvrhi::ICommandList* commandList,
         nvrhi::BindingSetItem::Texture_SRV(6, m_Renderer->GetShadowDepthTexture(), nvrhi::Format::R32_FLOAT),
         nvrhi::BindingSetItem::Sampler(7, m_Renderer->GetShadowSampler()),
         nvrhi::BindingSetItem::Texture_SRV(8, m_Renderer->GetSsaoTexture()),
+        nvrhi::BindingSetItem::Texture_SRV(9, m_Renderer->GetGBufferVelocity()),
     };
     nvrhi::BindingSetHandle bindingSet = m_Device->createBindingSet(bindingDesc, m_BindingLayout);
 
