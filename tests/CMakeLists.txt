@@ -564,6 +564,23 @@ set_target_properties(test_aamode PROPERTIES
     FOLDER Tests
 )
 
+add_executable(test_aomode
+    test_aomode.cpp
+)
+
+target_link_libraries(test_aomode PRIVATE
+    nlohmann_json::nlohmann_json
+)
+
+target_include_directories(test_aomode PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+)
+
+set_target_properties(test_aomode PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
+
 add_executable(test_netlib
     test_netlib.cpp
     # Framer is an internal (non-exported) class, so the test compiles its own copy rather than importing it from netlib.dll (keeps the DLL ABI clean).
