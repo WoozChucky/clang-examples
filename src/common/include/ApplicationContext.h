@@ -23,9 +23,11 @@ struct ApplicationSettings {
     bool        vsyncEnabled  = true;
     int         aaMode        = 1;   // 0 = Off, 1 = FXAA, 2 = SMAA (see AaModeMigration.h)
     bool        shadowEnabled    = true;
-    float       shadowBias       = 0.0015f;
-    float       shadowCoverage   = 80.0f;
-    float       shadowNearExtend = 50.0f;
+    float       shadowBias        = 0.0015f;
+    float       shadowDistance    = 60.0f;   // frustum-fit far cap (world units); replaces shadowCoverage
+    float       shadowNearExtend  = 50.0f;
+    float       shadowNormalOffset = 1.0f;   // normal-offset bias (shadow texels)
+    float       shadowPcfRadius    = 1.5f;   // Poisson PCF penumbra radius (shadow texels)
     bool        ssaoEnabled      = true;
     float       ssaoRadius       = 0.5f;
     float       ssaoIntensity    = 1.0f;

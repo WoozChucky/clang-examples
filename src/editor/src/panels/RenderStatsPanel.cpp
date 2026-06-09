@@ -50,8 +50,10 @@ bool DrawRenderStatsPanel(bool* open)
     // drag ends (IsItemDeactivatedAfterEdit) so the caller doesn't rewrite every frame.
     ImGui::SliderFloat("Shadow bias", &sh.Bias, 0.0f, 0.01f, "%.4f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
-    changed |= ImGui::SliderFloat("Shadow coverage", &sh.ShadowCoverage, 5.0f, 200.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Shadow distance", &sh.ShadowDistance, 10.0f, 150.0f, "%.0f");
     changed |= ImGui::SliderFloat("Shadow near-extend", &sh.NearExtend, 0.0f, 200.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Shadow normal-offset", &sh.NormalOffset, 0.0f, 4.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Shadow PCF radius", &sh.PcfRadius, 0.5f, 4.0f, "%.2f");
 
     ImGui::TextDisabled("SSAO");
     SsaoSettings& ao = GetSsaoSettings();
