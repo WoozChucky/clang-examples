@@ -392,6 +392,29 @@ set_target_properties(test_settings PROPERTIES
     FOLDER Tests
 )
 
+add_executable(test_meshloader
+    test_meshloader.cpp
+)
+
+target_link_libraries(test_meshloader PRIVATE
+    CommonHeaders
+    Engine
+)
+
+target_include_directories(test_meshloader PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/include
+    ${CMAKE_SOURCE_DIR}/src/engine/src
+)
+
+target_compile_definitions(test_meshloader PRIVATE
+    MESHLOADER_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+)
+
+set_target_properties(test_meshloader PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${RUNTIME_DIR}"
+    FOLDER Tests
+)
+
 add_executable(test_menu
     test_menu.cpp
 )
