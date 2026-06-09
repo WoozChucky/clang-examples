@@ -71,6 +71,7 @@ void ShadowDepthPass::Render(nvrhi::ICommandList* commandList,
 {
     Renderer::ShadowView& sv = m_Renderer->GetShadowView();
     sv.Enabled = 0;
+    sv.Radius  = 0.0f;
     if (!world || !GetShadowSettings().Enabled)
         return;
 
